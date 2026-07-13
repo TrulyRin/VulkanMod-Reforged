@@ -36,6 +36,10 @@ neoForge {
             jvmArguments.add('-ea')
             jvmArguments.add('-XX:+UseZGC')
             jvmArguments.add('-XX:SoftMaxHeapSize=1536m')
+            if (System.getProperty("os.name").toLowerCase().contains("mac")) {
+                // GLFW on macOS must run on the first thread
+                jvmArguments.add('-XstartOnFirstThread')
+            }
         }
 
         server {
@@ -60,6 +64,20 @@ neoForge {
 project.ext.lwjglVersion = "3.3.3"
 project.ext.winNatives = "natives-windows"
 
+// Native classifier for the CURRENT machine, so dev runs (runClient) work cross-platform.
+// macOS needs MoltenVK shipped via lwjgl-vulkan natives; Windows/Linux get Vulkan from the system loader.
+def _osName = System.getProperty("os.name").toLowerCase()
+def _osArch = System.getProperty("os.arch").toLowerCase()
+if (_osName.contains("win")) {
+    project.ext.devNatives = "natives-windows"
+} else if (_osName.contains("mac") || _osName.contains("darwin")) {
+    project.ext.devNatives = (_osArch.contains("aarch64") || _osArch.contains("arm")) ? "natives-macos-arm64" : "natives-macos"
+} else {
+    project.ext.devNatives = _osArch.contains("aarch64") ? "natives-linux-arm64" : "natives-linux"
+}
+project.ext.isMacDev = _osName.contains("mac") || _osName.contains("darwin")
+logger.lifecycle("VulkanMod dev natives classifier: ${project.ext.devNatives}")
+
 dependencies {
     // Standard LWJGL for Vulkan
     implementation "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
@@ -76,15 +94,41 @@ dependencies {
     additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$winNatives"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-vma:$lwjglVersion:$winNatives"
 
-    // Bundle them for production via JarJar
+    // Current-machine natives so `runClient` works on this OS (macOS/Linux dev; Windows already added above).
+    additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$devNatives"
+    additionalRuntimeClasspath "org.lwjgl:lwjgl-vma:$lwjglVersion:$devNatives"
+    if (project.ext.isMacDev) {
+        // lwjgl-vulkan natives = MoltenVK, published only for macOS
+        additionalRuntimeClasspath "org.lwjgl:lwjgl-vulkan:$lwjglVersion:$devNatives"
+    }
+
+    // Bundle LWJGL Vulkan/shaderc/vma into the mod jar for production, for ALL desktop platforms so a
+    // single jar works everywhere. The `jar` doLast below strips module-info from the embedded jars and
+    // makes the JarJar identifiers unique per native classifier.
+    // shaderc/vma ship desktop natives per OS; lwjgl-vulkan ships natives only for macOS (MoltenVK) —
+    // on Windows/Linux the system Vulkan loader is used instead.
+    def desktopNatives = ["natives-windows", "natives-linux", "natives-macos", "natives-macos-arm64"]
     jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
     jarJar "org.lwjgl:lwjgl-shaderc:$lwjglVersion"
     jarJar "org.lwjgl:lwjgl-vma:$lwjglVersion"
-    jarJar "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$winNatives"
-    jarJar "org.lwjgl:lwjgl-vma:$lwjglVersion:$winNatives"
+    desktopNatives.each { n ->
+        jarJar "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$n"
+        jarJar "org.lwjgl:lwjgl-vma:$lwjglVersion:$n"
+    }
+    jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-macos"
+    jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-macos-arm64"
 
     // Flywheel backend SPI (runtime ships inside Create's jar-in-jar; compile against the same version)
     compileOnly files("libs/flywheel-neoforge-1.21.1-1.0.6.jar")
+
+    // Unit tests (JUnit 5)
+    testImplementation platform("org.junit:junit-bom:5.10.2")
+    testImplementation "org.junit.jupiter:junit-jupiter"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+test {
+    useJUnitPlatform()
 }
 
 // Ensure JarJar only contains what we want
@@ -169,8 +213,11 @@ tasks.named('jar') {
                 def slurper = new groovy.json.JsonSlurper()
                 def metadata = slurper.parseText(metadataFile.text)
                 metadata.jars.each { jarEntry ->
-                    if (jarEntry.path.contains("-natives-")) {
-                        jarEntry.identifier.artifact += "-natives"
+                    // Multiple native classifiers of one artifact would collide on a single identifier;
+                    // append the classifier (e.g. "-natives-macos-arm64") so each embedded jar is unique.
+                    def m = (jarEntry.path =~ /-(natives-[a-z0-9_-]+)\.jar$/)
+                    if (m.find()) {
+                        jarEntry.identifier.artifact += "-" + m.group(1)
                     }
                 }
                 metadataFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(metadata))
