@@ -9,3 +9,25 @@ Original project authorship and contribution credit belongs to xCollateral and V
 Fork maintenance credit: Rindw.
 
 This fork is not endorsed by or affiliated with the upstream VulkanMod maintainers. The VulkanMod name, logo, and related project branding may be subject to rights outside the LGPLv3 code license.
+
+## Attribution requirements for forks and redistribution
+
+You are free to fork, modify, and redistribute this project under the LGPLv3 — no
+permission is needed. In exercising those rights you must, as the license requires:
+
+1. Keep the LGPLv3/GPLv3 license texts (LICENSE, COPYING) and this NOTICE file intact.
+2. Keep the copyright and authorship attributions above. Under GPLv3 section 7(b),
+   which LGPLv3 incorporates, preservation of these attributions is a condition of the
+   license, not a courtesy request.
+3. State that you changed the files, and when.
+4. Make the corresponding source of your version available under LGPLv3/GPLv3 to
+   anyone you distribute binaries to — including builds published to CurseForge,
+   Modrinth, or any other platform.
+
+Credit is due to both:
+  - xCollateral and the VulkanMod contributors, for the original project.
+  - Rindw (TrulyRin), for this fork's modifications.
+
+Removing the license texts, this NOTICE, or the attributions above, or distributing
+binaries without offering corresponding source, is a license violation and terminates
+your rights under section 8.
