@@ -20,6 +20,7 @@ import net.vulkanmod.vulkan.shader.layout.AlignedStruct;
 import net.vulkanmod.vulkan.shader.layout.PushConstants;
 import net.vulkanmod.vulkan.texture.VTextureSelector;
 import net.vulkanmod.vulkan.texture.VulkanImage;
+import net.vulkanmod.gl.GlSampler;
 import org.apache.commons.lang3.Validate;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
@@ -344,7 +345,9 @@ public abstract class Pipeline {
                 ImageDescriptor imageDescriptor = pipeline.imageDescriptors.get(j);
                 VulkanImage image = imageDescriptor.getImage();
                 long view = imageDescriptor.getImageView(image);
-                long sampler = image.getSampler();
+                long sampler = imageDescriptor.useSampler
+                        ? GlSampler.resolveSampler(imageDescriptor.imageIdx, image)
+                        : 0L;
 
                 if (imageDescriptor.isReadOnlyLayout)
                     image.readOnlyLayout();
@@ -423,7 +426,9 @@ public abstract class Pipeline {
                 ImageDescriptor imageDescriptor = pipeline.imageDescriptors.get(j);
                 VulkanImage image = imageDescriptor.getImage();
                 long view = imageDescriptor.getImageView(image);
-                long sampler = image.getSampler();
+                long sampler = imageDescriptor.useSampler
+                        ? GlSampler.resolveSampler(imageDescriptor.imageIdx, image)
+                        : 0L;
                 int layout = imageDescriptor.getLayout();
 
                 if (imageDescriptor.isReadOnlyLayout)

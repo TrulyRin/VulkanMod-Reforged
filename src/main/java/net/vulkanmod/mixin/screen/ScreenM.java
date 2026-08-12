@@ -31,6 +31,8 @@ public class ScreenM {
         RenderSystem.disableCull();
         RenderSystem.enableBlend();
         RenderSystem.blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ZERO);
+
+        Renderer.clearAttachments(GL11.GL_DEPTH_BUFFER_BIT);
     }
 
     @Inject(method = "renderWithTooltip", at = @At("RETURN"))

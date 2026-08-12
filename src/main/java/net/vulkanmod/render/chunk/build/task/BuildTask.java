@@ -33,8 +33,9 @@ public class BuildTask extends ChunkTask {
     @Nullable
     protected RenderRegion region;
 
-    public BuildTask(RenderSection renderSection, RenderRegion renderRegion, boolean highPriority) {
-        super(renderSection);
+    public BuildTask(RenderSection renderSection, RenderRegion renderRegion, boolean highPriority,
+                     long buildRevision) {
+        super(renderSection, buildRevision);
         this.region = renderRegion;
         this.highPriority = highPriority;
     }
@@ -46,7 +47,7 @@ public class BuildTask extends ChunkTask {
     public Result runTask(BuilderResources builderResources) {
         long startTime = System.nanoTime();
 
-        if (this.cancelled.get()) {
+        if (this.cancelled.get() || this.section.getBuildRevision() != this.buildRevision) {
             this.clearPayload();
             return Result.CANCELLED;
         }
@@ -57,6 +58,9 @@ public class BuildTask extends ChunkTask {
             float y = (float) vec3.y;
             float z = (float) vec3.z;
             CompileResult compileResult = this.compile(x, y, z, builderResources);
+            if (compileResult == null) {
+                return Result.CANCELLED;
+            }
 
             CompiledSection compiledSection = new CompiledSection();
             compiledSection.blockEntities.addAll(compileResult.blockEntities);
@@ -64,12 +68,12 @@ public class BuildTask extends ChunkTask {
             compiledSection.isCompletelyEmpty = compileResult.renderedLayers.isEmpty();
             compileResult.compiledSection = compiledSection;
 
-            if (this.cancelled.get()) {
+            if (this.cancelled.get() || this.section.getBuildRevision() != this.buildRevision) {
                 compileResult.releaseBuffers();
                 return Result.CANCELLED;
             }
 
-            taskDispatcher.scheduleSectionUpdate(compileResult);
+            taskDispatcher.scheduleSectionUpdate(compileResult, this);
 
             float buildTime = (System.nanoTime() - startTime) * 0.000001f;
             if (BENCH) {
@@ -79,12 +83,13 @@ public class BuildTask extends ChunkTask {
             return Result.SUCCESSFUL;
         } finally {
             this.clearPayload();
-            builderResources.clearRegion();
+            builderResources.clear();
         }
     }
 
+    @Nullable
     private CompileResult compile(float camX, float camY, float camZ, BuilderResources builderResources) {
-        CompileResult compileResult = new CompileResult(this.section, true);
+        CompileResult compileResult = new CompileResult(this.section, true, this.buildRevision, -1L);
 
         BlockPos startBlockPos = new BlockPos(section.xOffset(), section.yOffset(), section.zOffset()).immutable();
         VisGraph visGraph = new VisGraph();
@@ -98,7 +103,7 @@ public class BuildTask extends ChunkTask {
         ThreadBuilderPack bufferBuilders = builderResources.builderPack;
         setupBufferBuilders(bufferBuilders);
 
-        this.region.loadBlockStates();
+        this.region.loadBlockStates(builderResources.blockStates);
         this.region.initTintCache(builderResources.tintCache);
 
         builderResources.update(this.region, this.section);
@@ -108,8 +113,12 @@ public class BuildTask extends ChunkTask {
         LiquidRenderer liquidRenderer = builderResources.liquidRenderer;
 
         BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos();
+        RandomSource randomSource = builderResources.randomSource;
 
         for (int y = 0; y < 16; ++y) {
+            if (this.cancelled.get() || this.section.getBuildRevision() != this.buildRevision) {
+                return null;
+            }
             for (int z = 0; z < 16; ++z) {
                 for (int x = 0; x < 16; ++x) {
                     blockPos.set(section.xOffset() + x, section.yOffset() + y, section.zOffset() + z);
@@ -141,7 +150,6 @@ public class BuildTask extends ChunkTask {
                     if (blockState.getRenderShape() == RenderShape.MODEL) {
                         BakedModel model = Minecraft.getInstance().getBlockRenderer().getBlockModel(blockState);
                         ModelData modelData = getModelData(blockPos, blockState, model);
-                        RandomSource randomSource = RandomSource.create();
                         randomSource.setSeed(blockState.getSeed(blockPos));
                         ChunkRenderTypeSet renderTypes = model.getRenderTypes(blockState, randomSource, modelData);
 
@@ -182,6 +190,11 @@ public class BuildTask extends ChunkTask {
     @Override
     protected void clearPayload() {
         this.region = null;
+    }
+
+    @Override
+    public void recoverFromFailure() {
+        this.section.setDirtyAfterBuildFailure(this.buildRevision);
     }
 
     private ModelData getModelData(BlockPos blockPos, BlockState blockState, BakedModel model) {

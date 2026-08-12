@@ -125,6 +125,17 @@ public abstract class LevelRendererMixin {
         this.worldRenderer.setSectionDirty(x, y, z, flag);
     }
 
+    @Inject(method = "blockChanged", at = @At("HEAD"), cancellable = true)
+    private void skipInvisibleLeafUpdates(net.minecraft.world.level.BlockGetter blockGetter, BlockPos pos,
+                                          net.minecraft.world.level.block.state.BlockState oldState,
+                                          net.minecraft.world.level.block.state.BlockState newState,
+                                          int flags, CallbackInfo ci) {
+        if (net.vulkanmod.render.culling.LeafUpdateFilter.isInvisibleLeafPropertyChange(oldState, newState)) {
+            net.vulkanmod.render.optimization.ChunkFrameDiagnostics.recordLeafDirtySkipped();
+            ci.cancel();
+        }
+    }
+
     @Inject(method = "getSectionStatistics", at = @At("HEAD"), cancellable = true)
     public void getSectionStatistics(CallbackInfoReturnable<String> cir) {
         cir.setReturnValue(this.worldRenderer.getChunkStatistics());
@@ -132,7 +143,7 @@ public abstract class LevelRendererMixin {
 
     @Inject(method = "hasRenderedAllSections", at = @At("HEAD"), cancellable = true)
     public void hasRenderedAllSections(CallbackInfoReturnable<Boolean> cir) {
-        cir.setReturnValue(!this.worldRenderer.graphNeedsUpdate() && this.worldRenderer.getTaskDispatcher().isIdle());
+        cir.setReturnValue(!this.worldRenderer.hasPendingSectionWork());
     }
 
     @Inject(method = "countRenderedSections", at = @At("HEAD"), cancellable = true)

@@ -12,17 +12,20 @@ public abstract class ChunkTask {
 
     protected static TaskDispatcher taskDispatcher;
 
-    public static BuildTask createBuildTask(RenderSection renderSection, RenderRegion renderRegion, boolean highPriority) {
-        return new BuildTask(renderSection, renderRegion, highPriority);
+    public static BuildTask createBuildTask(RenderSection renderSection, RenderRegion renderRegion,
+                                            boolean highPriority, long buildRevision) {
+        return new BuildTask(renderSection, renderRegion, highPriority, buildRevision);
     }
 
     protected AtomicBoolean cancelled = new AtomicBoolean(false);
     private final AtomicBoolean started = new AtomicBoolean(false);
     protected final RenderSection section;
+    protected final long buildRevision;
     public boolean highPriority = false;
 
-    ChunkTask(RenderSection renderSection) {
+    ChunkTask(RenderSection renderSection, long buildRevision) {
         this.section = renderSection;
+        this.buildRevision = buildRevision;
     }
 
     public abstract String name();
@@ -44,6 +47,13 @@ public abstract class ChunkTask {
     public void discard() {
         this.cancelled.set(true);
         this.clearPayload();
+    }
+
+    public boolean isCancelled() {
+        return this.cancelled.get();
+    }
+
+    public void recoverFromFailure() {
     }
 
     protected void clearPayload() {

@@ -48,7 +48,12 @@ import org.lwjgl.opengl.GL11;
 
 import java.util.*;
 
+import net.vulkanmod.render.chunk.util.StaticQueue;
+import net.vulkanmod.render.optimization.AdaptiveChunkUploadBudget;
+import net.vulkanmod.render.optimization.ChunkFrameDiagnostics;
+
 public class WorldRenderer {
+    private static final float GRAPH_MOVEMENT_THRESHOLD_SQUARED = 0.25f;
     private static WorldRenderer INSTANCE;
 
     private final Minecraft minecraft;
@@ -147,7 +152,10 @@ public class WorldRenderer {
         int sectionY = SectionPos.posToSectionCoord(cameraY);
         int sectionZ = SectionPos.posToSectionCoord(cameraZ);
 
-        if (this.lastCameraSectionX != sectionX || this.lastCameraSectionY != sectionY || this.lastCameraSectionZ != sectionZ) {
+        boolean cameraSectionChanged = this.lastCameraSectionX != sectionX
+                || this.lastCameraSectionY != sectionY
+                || this.lastCameraSectionZ != sectionZ;
+        if (cameraSectionChanged) {
             this.lastCameraSectionX = sectionX;
             this.lastCameraSectionY = sectionY;
             this.lastCameraSectionZ = sectionZ;
@@ -167,7 +175,12 @@ public class WorldRenderer {
         float d_yRot = Math.abs(camera.getYRot() - this.lastCamRotY);
         cameraMoved |= d_xRot > 2.0f || d_yRot > 2.0f;
 
-        cameraMoved |= cameraX != this.lastCameraX || cameraY != this.lastCameraY || cameraZ != this.lastCameraZ;
+        float cameraDeltaX = cameraX - this.lastCameraX;
+        float cameraDeltaY = cameraY - this.lastCameraY;
+        float cameraDeltaZ = cameraZ - this.lastCameraZ;
+        cameraMoved |= cameraSectionChanged
+                || cameraDeltaX * cameraDeltaX + cameraDeltaY * cameraDeltaY + cameraDeltaZ * cameraDeltaZ
+                >= GRAPH_MOVEMENT_THRESHOLD_SQUARED;
         this.graphNeedsUpdate |= cameraMoved;
 
         if (!isCapturedFrustum) {
@@ -180,25 +193,36 @@ public class WorldRenderer {
                 this.lastCamRotX = camera.getXRot();
                 this.lastCamRotY = camera.getYRot();
 
+                long graphStart = System.nanoTime();
                 this.sectionGraph.update(camera, frustum, spectator);
+                ChunkFrameDiagnostics.recordGraphUpdate(System.nanoTime() - graphStart);
             }
         }
+
+        long scheduleStart = System.nanoTime();
+        this.sectionGraph.schedulePendingRebuilds();
+        ChunkFrameDiagnostics.recordSchedule(System.nanoTime() - scheduleStart,
+                this.sectionGraph.readyRebuildCount(), this.sectionGraph.delayedRebuildCount());
 
         this.indirectBuffers[Renderer.getCurrentFrame()].reset();
 
         this.minecraft.getProfiler().pop();
     }
 
-    public void uploadSections() {
+    public boolean uploadSections() {
 
         if (this.sectionGrid == null) {
-            return;
+            return false;
         }
 
         this.minecraft.getProfiler().push("upload");
 
+        boolean performedUploadWork = false;
         try {
-            this.taskDispatcher.updateSections();
+            if (this.taskDispatcher.updateSections()) {
+                this.scheduleGraphUpdate();
+            }
+            performedUploadWork = this.taskDispatcher.performedUploadWorkLastUpdate();
         } catch (Exception e) {
 
             Initializer.LOGGER.error("Failed to upload chunk sections; resetting renderer", e);
@@ -206,6 +230,7 @@ public class WorldRenderer {
         }
 
         this.minecraft.getProfiler().pop();
+        return performedUploadWork;
     }
 
     public boolean isSectionCompiled(BlockPos blockPos) {
@@ -214,12 +239,13 @@ public class WorldRenderer {
     }
 
     public void allChanged() {
+        AdaptiveChunkUploadBudget.reset();
         if (this.level != null) {
 
             this.level.clearTintCaches();
 
             this.renderRegionCache.clear();
-            this.taskDispatcher.createThreads();
+            this.taskDispatcher.createThreads(this.minecraft.hasSingleplayerServer());
 
             this.graphNeedsUpdate = true;
 
@@ -247,6 +273,7 @@ public class WorldRenderer {
     }
 
     public void setLevel(@Nullable ClientLevel level) {
+        AdaptiveChunkUploadBudget.reset();
         this.lastCameraX = Float.MIN_VALUE;
         this.lastCameraY = Float.MIN_VALUE;
         this.lastCameraZ = Float.MIN_VALUE;
@@ -284,6 +311,11 @@ public class WorldRenderer {
         TerrainRenderState.prepareWorldTerrainState();
         renderType.setupRenderState();
 
+        if (!Initializer.CONFIG.backFaceCulling
+                || terrainRenderType == TerrainRenderType.TRANSLUCENT) {
+            RenderSystem.disableCull();
+        }
+
         this.sortTranslucentSections(camX, camY, camZ);
 
         this.minecraft.getProfiler().push("filterempty");
@@ -308,16 +340,23 @@ public class WorldRenderer {
         Set<TerrainRenderType> allowedRenderTypes = Initializer.CONFIG.uniqueOpaqueLayer ? TerrainRenderType.COMPACT_RENDER_TYPES : TerrainRenderType.SEMI_COMPACT_RENDER_TYPES;
         if (allowedRenderTypes.contains(terrainRenderType)) {
             terrainRenderType.setCutoutUniform();
+            boolean ubosBound = false;
 
-            for (Iterator<ChunkArea> iterator = this.sectionGraph.getChunkAreaQueue().iterator(isTranslucent); iterator.hasNext(); ) {
-                ChunkArea chunkArea = iterator.next();
+            final StaticQueue<ChunkArea> chunkAreaQueue = this.sectionGraph.getChunkAreaQueue().queue();
+            final int areaCount = chunkAreaQueue.size();
+            for (int areaIdx = 0; areaIdx < areaCount; areaIdx++) {
+                ChunkArea chunkArea = chunkAreaQueue.get(isTranslucent ? areaCount - 1 - areaIdx : areaIdx);
                 var queue = chunkArea.sectionQueue;
                 DrawBuffers drawBuffers = chunkArea.drawBuffers;
 
                 if (drawBuffers.getAreaBuffer(terrainRenderType) != null && queue.size() > 0) {
 
+                    if (!ubosBound) {
+                        renderer.uploadAndBindUBOs(pipeline);
+                        ubosBound = true;
+                    }
+
                     drawBuffers.bindBuffers(Renderer.getCommandBuffer(), pipeline, terrainRenderType, camX, camY, camZ);
-                    renderer.uploadAndBindUBOs(pipeline);
 
                     if (indirectDraw)
                         drawBuffers.buildDrawBatchesIndirect(indirectBuffers[currentFrame], queue, terrainRenderType);
@@ -353,16 +392,11 @@ public class WorldRenderer {
             this.xTransparentOld = camX;
             this.yTransparentOld = camY;
             this.zTransparentOld = camZ;
-            int j = 0;
+            var sectionQueue = this.sectionGraph.getSectionQueue();
+            final int sortCount = Math.min(sectionQueue.size(), 15);
 
-            Iterator<RenderSection> iterator = this.sectionGraph.getSectionQueue().iterator(false);
-
-            while (iterator.hasNext() && j < 15) {
-                RenderSection section = iterator.next();
-
-                section.resortTransparency(this.taskDispatcher);
-
-                ++j;
+            for (int i = 0; i < sortCount; i++) {
+                sectionQueue.get(i).resortTransparency(this.taskDispatcher);
             }
         }
 
@@ -374,12 +408,16 @@ public class WorldRenderer {
         MultiBufferSource bufferSource = this.renderBuffers.bufferSource();
         VFrustum frustum = this.sectionGraph.getFrustum();
 
-        for (RenderSection renderSection : this.sectionGraph.getBlockEntitiesSections()) {
+        var blockEntitiesSections = this.sectionGraph.getBlockEntitiesSections();
+        final int blockEntitySectionCount = blockEntitiesSections.size();
+        final boolean blockEntityCulling = Initializer.CONFIG.blockEntityCulling;
+        for (int sectionIdx = 0; sectionIdx < blockEntitySectionCount; sectionIdx++) {
+            RenderSection renderSection = blockEntitiesSections.get(sectionIdx);
             List<BlockEntity> list = renderSection.getCompiledSection().getBlockEntities();
             if (!list.isEmpty()) {
                 for (BlockEntity blockEntity : list) {
                     BlockPos blockPos = blockEntity.getBlockPos();
-                    if (Initializer.CONFIG.blockEntityCulling) {
+                    if (blockEntityCulling) {
                         double dx = (double) blockPos.getX() + 0.5 - camX;
                         double dy = (double) blockPos.getY() + 0.5 - camY;
                         double dz = (double) blockPos.getZ() + 0.5 - camZ;
@@ -427,6 +465,12 @@ public class WorldRenderer {
 
     public boolean graphNeedsUpdate() {
         return this.graphNeedsUpdate;
+    }
+
+    public boolean hasPendingSectionWork() {
+        return this.graphNeedsUpdate
+                || this.sectionGraph != null && this.sectionGraph.hasPendingRebuilds()
+                || !this.taskDispatcher.isIdle();
     }
 
     public int getVisibleSectionsCount() {

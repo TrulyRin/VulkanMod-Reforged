@@ -45,6 +45,7 @@ import static net.vulkanmod.compat.opengl.GlTrampolines.retL;
 import static net.vulkanmod.compat.opengl.GlTrampolines.retP;
 
 public final class GlFunctionRegistry {
+    private static final int DIAGNOSTIC_KEY_LIMIT = 256;
 
     private record Spec(String shape, GlTrampolines.Handler handler) {
     }
@@ -137,7 +138,7 @@ public final class GlFunctionRegistry {
     public static synchronized long address(String name) {
         Spec spec = SPECS.get(name);
         if (spec == null) {
-            if (name.startsWith("gl") && REPORTED_MISSING.add(name)) {
+            if (name.startsWith("gl") && addDiagnosticKey(REPORTED_MISSING, name)) {
                 GlTrampolines.logWarn("Unimplemented GL function requested: {} (reported absent)", name);
             }
             return 0L;
@@ -159,6 +160,18 @@ public final class GlFunctionRegistry {
 
     public static int registeredCount() {
         return SPECS.size();
+    }
+
+    public static Set<String> reportedMissingFunctions() {
+        return Set.copyOf(new java.util.TreeSet<>(REPORTED_MISSING));
+    }
+
+    public static Set<String> reportedStubbedFunctions() {
+        return Set.copyOf(new java.util.TreeSet<>(REPORTED_STUBS));
+    }
+
+    public static Set<String> reportedFaultedFunctions() {
+        return GlTrampolines.faultedFunctionsSnapshot();
     }
 
     private static String contractFamily(String functionName) {
@@ -199,7 +212,7 @@ public final class GlFunctionRegistry {
     private static void stub(String... names) {
         for (String name : names) {
             SPECS.put(name, new Spec("L:", (ret, args) -> {
-                if (REPORTED_STUBS.add(name)) {
+                if (addDiagnosticKey(REPORTED_STUBS, name)) {
                     GlTrampolines.logWarn("Stubbed GL function called: {} (no-op, returns 0)", name);
                 }
                 GlTrampolines.retL(ret, 0L);
@@ -210,6 +223,13 @@ public final class GlFunctionRegistry {
     private static void noop(String name, String shape) {
         fn(name, shape, (ret, args) -> {
         });
+    }
+
+    private static boolean addDiagnosticKey(Set<String> destination, String key) {
+        if (destination.contains(key) || destination.size() >= DIAGNOSTIC_KEY_LIMIT) {
+            return false;
+        }
+        return destination.add(key);
     }
 
     private static void genLoop(long args, IntSupplier generator) {
@@ -1394,7 +1414,10 @@ public final class GlFunctionRegistry {
         noop("glFramebufferTexture1D", "V:iiiii");
         noop("glFramebufferTexture3D", "V:iiiiii");
         noop("glFramebufferTextureLayer", "V:iiiii");
-        noop("glBlitFramebuffer", "V:iiiiiiiiii");
+        fn("glBlitFramebuffer", "V:iiiiiiiiii", (ret, args) -> GlFramebuffer.blitFramebuffer(
+                argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3),
+                argI(args, 4), argI(args, 5), argI(args, 6), argI(args, 7),
+                argI(args, 8), argI(args, 9)));
 
         fn("glGenRenderbuffers", "V:ip", (ret, args) -> genLoop(args, GlRenderbuffer::genId));
         fn("glDeleteRenderbuffers", "V:ip", (ret, args) -> deleteLoop(args, GlRenderbuffer::deleteRenderbuffer));
@@ -1405,12 +1428,12 @@ public final class GlFunctionRegistry {
         });
         fn("glRenderbufferStorage", "V:iiii", (ret, args) -> GlRenderbuffer.renderbufferStorage(argI(args, 0), argI(args, 1),
                 argI(args, 2), argI(args, 3)));
-        fn("glRenderbufferStorageMultisample", "V:iiiii", (ret, args) -> GlRenderbuffer.renderbufferStorage(argI(args, 0), argI(args, 2),
+        fn("glRenderbufferStorageMultisample", "V:iiiii", (ret, args) -> GlRenderbuffer.renderbufferStorageMultisample(argI(args, 0), argI(args, 1), argI(args, 2),
                 argI(args, 3), argI(args, 4)));
         fn("glGetRenderbufferParameteriv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutInt(params, 0);
+                MemoryUtil.memPutInt(params, GlRenderbuffer.getRenderbufferParameter(argI(args, 0), argI(args, 1)));
             }
         });
 
@@ -2482,7 +2505,10 @@ public final class GlFunctionRegistry {
         noop("glNamedFramebufferDrawBuffers", "V:iip");
         noop("glNamedFramebufferDrawBuffer", "V:ii");
         noop("glNamedFramebufferReadBuffer", "V:ii");
-        noop("glBlitNamedFramebuffer", "V:iiiiiiiiiiii");
+        fn("glBlitNamedFramebuffer", "V:iiiiiiiiiiii", (ret, args) -> GlFramebuffer.blitNamedFramebuffer(
+                argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3),
+                argI(args, 4), argI(args, 5), argI(args, 6), argI(args, 7),
+                argI(args, 8), argI(args, 9), argI(args, 10), argI(args, 11)));
         noop("glClearNamedFramebufferiv", "V:iiip");
         noop("glClearNamedFramebufferuiv", "V:iiip");
         noop("glClearNamedFramebufferfv", "V:iiip");
@@ -2491,10 +2517,22 @@ public final class GlFunctionRegistry {
         noop("glInvalidateNamedFramebufferSubData", "V:iipiiii");
         fn("glGetNamedFramebufferParameteriv", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
         fn("glGetNamedFramebufferParameteri", "I:ii", (ret, args) -> retI(ret, 0));
-        fn("glGetNamedFramebufferAttachmentParameteriv", "V:iiip", (ret, args) -> zeroInt(argP(args, 3)));
-        fn("glGetNamedFramebufferAttachmentParameteri", "I:iii", (ret, args) -> retI(ret, 0));
-        fn("glGetNamedRenderbufferParameteriv", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
-        fn("glGetNamedRenderbufferParameteri", "I:ii", (ret, args) -> retI(ret, 0));
+        fn("glGetNamedFramebufferAttachmentParameteriv", "V:iiip", (ret, args) -> {
+            long params = argP(args, 3);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlFramebuffer.getNamedFramebufferAttachmentParameteri(argI(args, 0),
+                        argI(args, 1), argI(args, 2)));
+            }
+        });
+        fn("glGetNamedFramebufferAttachmentParameteri", "I:iii", (ret, args) -> retI(ret, GlFramebuffer.getNamedFramebufferAttachmentParameteri(argI(args, 0),
+                argI(args, 1), argI(args, 2))));
+        fn("glGetNamedRenderbufferParameteriv", "V:iip", (ret, args) -> {
+            long params = argP(args, 2);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlRenderbuffer.getNamedRenderbufferParameter(argI(args, 0), argI(args, 1)));
+            }
+        });
+        fn("glGetNamedRenderbufferParameteri", "I:ii", (ret, args) -> retI(ret, GlRenderbuffer.getNamedRenderbufferParameter(argI(args, 0), argI(args, 1))));
 
         noop("glTransformFeedbackBufferBase", "V:iii");
         noop("glTransformFeedbackBufferRange", "V:iiill");
@@ -2653,14 +2691,25 @@ public final class GlFunctionRegistry {
         fn("glRenderbufferStorageEXT", "V:iiii", (ret, args) -> GlRenderbuffer.renderbufferStorage(argI(args, 0), argI(args, 1),
                 argI(args, 2), argI(args, 3)));
         fn("glGenerateMipmapEXT", "V:i", (ret, args) -> GlTexture.generateMipmap(argI(args, 0)));
-        fn("glGetFramebufferAttachmentParameterivEXT", "V:iiip", (ret, args) -> zeroInt(argP(args, 3)));
+        fn("glGetFramebufferAttachmentParameterivEXT", "V:iiip", (ret, args) -> {
+            long params = argP(args, 3);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlFramebuffer.getFramebufferAttachmentParameteri(argI(args, 0),
+                        argI(args, 1), argI(args, 2)));
+            }
+        });
         fn("glGetFramebufferAttachmentParameteriEXT", "I:iii", (ret, args) -> retI(ret, GlFramebuffer.getFramebufferAttachmentParameteri(argI(args, 0),
                 argI(args, 1), argI(args, 2))));
         fn("glGetFramebufferAttachmentParameteri", "I:iii", (ret, args) -> retI(ret, GlFramebuffer.getFramebufferAttachmentParameteri(argI(args, 0),
                 argI(args, 1), argI(args, 2))));
-        fn("glGetRenderbufferParameterivEXT", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
-        fn("glGetRenderbufferParameteriEXT", "I:ii", (ret, args) -> retI(ret, 0));
-        fn("glGetRenderbufferParameteri", "I:ii", (ret, args) -> retI(ret, 0));
+        fn("glGetRenderbufferParameterivEXT", "V:iip", (ret, args) -> {
+            long params = argP(args, 2);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlRenderbuffer.getRenderbufferParameter(argI(args, 0), argI(args, 1)));
+            }
+        });
+        fn("glGetRenderbufferParameteriEXT", "I:ii", (ret, args) -> retI(ret, GlRenderbuffer.getRenderbufferParameter(argI(args, 0), argI(args, 1))));
+        fn("glGetRenderbufferParameteri", "I:ii", (ret, args) -> retI(ret, GlRenderbuffer.getRenderbufferParameter(argI(args, 0), argI(args, 1))));
 
         noop("glTextureStorage1DEXT", "V:iiiii");
         noop("glTextureStorage2DEXT", "V:iiiiii");
@@ -2932,8 +2981,13 @@ public final class GlFunctionRegistry {
 
         fn("glNamedRenderbufferStorageEXT", "V:iiii", (ret, args) -> GlRenderbuffer.namedRenderbufferStorage(argI(args, 0),
                 argI(args, 1), argI(args, 2), argI(args, 3)));
-        fn("glGetNamedRenderbufferParameterivEXT", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
-        fn("glGetNamedRenderbufferParameteriEXT", "I:ii", (ret, args) -> retI(ret, 0));
+        fn("glGetNamedRenderbufferParameterivEXT", "V:iip", (ret, args) -> {
+            long params = argP(args, 2);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlRenderbuffer.getNamedRenderbufferParameter(argI(args, 0), argI(args, 1)));
+            }
+        });
+        fn("glGetNamedRenderbufferParameteriEXT", "I:ii", (ret, args) -> retI(ret, GlRenderbuffer.getNamedRenderbufferParameter(argI(args, 0), argI(args, 1))));
         fn("glNamedRenderbufferStorageMultisampleEXT", "V:iiiii", (ret, args) -> GlRenderbuffer.namedRenderbufferStorageMultisample(argI(args, 0),
                 argI(args, 1), argI(args, 2), argI(args, 3), argI(args, 4)));
         noop("glNamedRenderbufferStorageMultisampleCoverageEXT", "V:iiiiii");
@@ -2946,8 +3000,15 @@ public final class GlFunctionRegistry {
                 argI(args, 1), argI(args, 3), argI(args, 4)));
         fn("glNamedFramebufferRenderbufferEXT", "V:iiii", (ret, args) -> GlFramebuffer.namedFramebufferRenderbuffer(argI(args, 0),
                 argI(args, 1), argI(args, 2), argI(args, 3)));
-        fn("glGetNamedFramebufferAttachmentParameterivEXT", "V:iiip", (ret, args) -> zeroInt(argP(args, 3)));
-        fn("glGetNamedFramebufferAttachmentParameteriEXT", "I:iii", (ret, args) -> retI(ret, 0));
+        fn("glGetNamedFramebufferAttachmentParameterivEXT", "V:iiip", (ret, args) -> {
+            long params = argP(args, 3);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlFramebuffer.getNamedFramebufferAttachmentParameteri(argI(args, 0),
+                        argI(args, 1), argI(args, 2)));
+            }
+        });
+        fn("glGetNamedFramebufferAttachmentParameteriEXT", "I:iii", (ret, args) -> retI(ret, GlFramebuffer.getNamedFramebufferAttachmentParameteri(argI(args, 0),
+                argI(args, 1), argI(args, 2))));
         noop("glFramebufferDrawBufferEXT", "V:ii");
         noop("glFramebufferDrawBuffersEXT", "V:iip");
         noop("glFramebufferReadBufferEXT", "V:ii");
@@ -3860,8 +3921,11 @@ public final class GlFunctionRegistry {
         noop("glRasterSamplesEXT", "V:ib");
         noop("glPolygonOffsetClampEXT", "V:fff");
         fn("glRenderbufferStorageMultisampleEXT", "V:iiiii", (ret, args) ->
-                GlRenderbuffer.renderbufferStorage(argI(args, 0), argI(args, 2), argI(args, 3), argI(args, 4)));
-        noop("glBlitFramebufferEXT", "V:iiiiiiiiii");
+                GlRenderbuffer.renderbufferStorageMultisample(argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3), argI(args, 4)));
+        fn("glBlitFramebufferEXT", "V:iiiiiiiiii", (ret, args) -> GlFramebuffer.blitFramebuffer(
+                argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3),
+                argI(args, 4), argI(args, 5), argI(args, 6), argI(args, 7),
+                argI(args, 8), argI(args, 9)));
         noop("glDepthBoundsEXT", "V:dd");
         noop("glClampColorARB", "V:ii");
         noop("glDispatchComputeGroupSizeARB", "V:iiiiii");

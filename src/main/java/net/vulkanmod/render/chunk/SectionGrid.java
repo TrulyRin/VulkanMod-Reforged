@@ -103,7 +103,7 @@ public class SectionGrid {
         } else {
             xRangeStart = 0;
             xRangeEnd = -dx - 1;
-            xComplStart = xRangeEnd;
+            xComplStart = xRangeEnd + 1;
             xComplEnd = this.gridWidth - 1;
         }
 

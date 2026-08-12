@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 public class EntityRendererM<T extends Entity> {
 
     @Redirect(method = "shouldRender", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/culling/Frustum;isVisible(Lnet/minecraft/world/phys/AABB;)Z"))
-    private boolean isVisible(Frustum frustum, AABB aABB) {
-        return EntityCulling.isVisible(frustum, aABB);
+    private boolean isVisible(Frustum frustum, AABB aABB, T entity, Frustum originalFrustum, double cameraX, double cameraY, double cameraZ) {
+        return EntityCulling.isVisible(entity, frustum, aABB, cameraX, cameraY, cameraZ);
     }
 }

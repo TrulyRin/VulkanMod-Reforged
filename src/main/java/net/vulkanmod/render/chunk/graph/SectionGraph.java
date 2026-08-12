@@ -15,9 +15,17 @@ import net.vulkanmod.render.chunk.build.RenderRegionBuilder;
 import net.vulkanmod.render.chunk.build.TaskDispatcher;
 import net.vulkanmod.render.chunk.frustum.VFrustum;
 import net.vulkanmod.render.optimization.AdaptiveChunkUploadBudget;
+import net.vulkanmod.render.optimization.ChunkFrameDiagnostics;
+import net.vulkanmod.render.optimization.ChunkSchedulingPolicy;
+import net.vulkanmod.render.optimization.DelayedRebuildQueue;
 import net.vulkanmod.render.chunk.util.AreaSetQueue;
 import net.vulkanmod.render.chunk.util.ResettableQueue;
 import org.joml.FrustumIntersection;
+
+import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 
 public class SectionGraph {
     Minecraft minecraft;
@@ -32,6 +40,10 @@ public class SectionGraph {
 
     private final ResettableQueue<RenderSection> blockEntitiesSections = new ResettableQueue<>();
     private final ResettableQueue<RenderSection> rebuildQueue = new ResettableQueue<>();
+    private final ArrayDeque<RenderSection> pendingRebuilds = new ArrayDeque<>();
+    private final Set<RenderSection> pendingRebuildSet =
+            Collections.newSetFromMap(new IdentityHashMap<>());
+    private final DelayedRebuildQueue<RenderSection> delayedRebuilds = new DelayedRebuildQueue<>();
 
     private VFrustum frustum;
 
@@ -74,7 +86,7 @@ public class SectionGraph {
             this.updateRenderChunksSpectator();
         }
 
-        this.scheduleRebuilds();
+        this.enqueueVisibleRebuilds();
 
         this.minecraft.getProfiler().pop();
     }
@@ -192,24 +204,120 @@ public class SectionGraph {
         }
     }
 
-    private void scheduleRebuilds() {
-        int maxScheduledRebuilds = AdaptiveChunkUploadBudget.chooseRebuildScheduleBudget(this.rebuildQueue.size());
-        int scheduledRebuilds = 0;
-
-        for (int i = 0; i < this.rebuildQueue.size() && scheduledRebuilds < maxScheduledRebuilds; i++) {
+    private void enqueueVisibleRebuilds() {
+        long nowNanos = System.nanoTime();
+        for (int i = 0; i < this.rebuildQueue.size(); i++) {
             RenderSection section = this.rebuildQueue.get(i);
 
-            if (section.rebuildChunkAsync(this.taskDispatcher, this.renderRegionCache)) {
+            boolean bypassDelay = section.isDirtyFromPlayer()
+                    || !section.isInRebuildCooldown(nowNanos, ChunkSchedulingPolicy.REBUILD_COOLDOWN_NANOS);
+            if (bypassDelay && this.delayedRebuilds.remove(section)) {
+                this.enqueueReadyRebuild(section, section.isDirtyFromPlayer());
+                continue;
+            }
+
+            if (this.delayedRebuilds.contains(section)) {
+                continue;
+            }
+
+            this.enqueueReadyRebuild(section, section.isDirtyFromPlayer());
+        }
+        this.rebuildQueue.clear();
+    }
+
+    private void enqueueReadyRebuild(RenderSection section, boolean first) {
+        if (!this.pendingRebuildSet.add(section)) {
+            if (first && this.pendingRebuilds.remove(section)) {
+                this.pendingRebuilds.addFirst(section);
+            }
+            return;
+        }
+
+        if (first) {
+            this.pendingRebuilds.addFirst(section);
+        } else {
+            this.pendingRebuilds.addLast(section);
+        }
+    }
+
+    private void promoteEligibleRebuilds(long nowNanos) {
+        for (int promoted = 0;
+             promoted < ChunkSchedulingPolicy.MAX_DELAYED_REBUILD_PROMOTIONS_PER_FRAME;
+             promoted++) {
+            RenderSection section = this.delayedRebuilds.pollEligible(nowNanos);
+            if (section == null) {
+                break;
+            }
+            this.enqueueReadyRebuild(section, section.isDirtyFromPlayer());
+        }
+    }
+
+    public void schedulePendingRebuilds() {
+        long startNanos = System.nanoTime();
+        this.promoteEligibleRebuilds(startNanos);
+
+        int readyCount = this.pendingRebuilds.size();
+        if (readyCount == 0) {
+            return;
+        }
+
+        int maxScheduledRebuilds = Initializer.CONFIG.adaptiveChunkUploads
+                ? AdaptiveChunkUploadBudget.chooseRebuildScheduleBudget(readyCount)
+                : ChunkSchedulingPolicy.fixedRebuildScheduleBudget(readyCount);
+        long scheduleTimeBudgetNanos = Initializer.CONFIG.adaptiveChunkUploads
+                ? AdaptiveChunkUploadBudget.chooseRebuildScheduleTimeBudgetNanos(readyCount)
+                : ChunkSchedulingPolicy.fixedRebuildTimeBudgetNanos(readyCount);
+        int scheduledRebuilds = 0;
+        int processedRebuilds = 0;
+
+        while (scheduledRebuilds < maxScheduledRebuilds
+                && processedRebuilds < ChunkSchedulingPolicy.MAX_REBUILD_QUEUE_SCANS_PER_FRAME
+                && !this.pendingRebuilds.isEmpty()) {
+            if (processedRebuilds > 0 && System.nanoTime() - startNanos >= scheduleTimeBudgetNanos) {
+                break;
+            }
+
+            if (!this.taskDispatcher.hasTaskCapacity()) {
+                break;
+            }
+
+            RenderSection section = this.pendingRebuilds.removeFirst();
+            this.pendingRebuildSet.remove(section);
+            processedRebuilds++;
+
+            if (!section.isDirty() || section.getLastFrame() != this.lastFrame) {
+                continue;
+            }
+
+            if (!section.isDirtyFromPlayer()
+                    && section.isInRebuildCooldown(startNanos, ChunkSchedulingPolicy.REBUILD_COOLDOWN_NANOS)) {
+                if (this.delayedRebuilds.defer(section,
+                        section.rebuildCooldownDeadlineNanos(ChunkSchedulingPolicy.REBUILD_COOLDOWN_NANOS))) {
+                    ChunkFrameDiagnostics.recordRebuildDeferred();
+                }
+                continue;
+            }
+
+            long prepareStartNanos = System.nanoTime();
+            boolean scheduled = section.rebuildChunkAsync(this.taskDispatcher, this.renderRegionCache);
+            long prepareEndNanos = System.nanoTime();
+            long preparationNanos = prepareEndNanos - prepareStartNanos;
+            if (Initializer.CONFIG.adaptiveChunkUploads) {
+                AdaptiveChunkUploadBudget.recordRebuildPreparation(preparationNanos);
+            }
+            ChunkFrameDiagnostics.recordRebuildPreparation(preparationNanos);
+
+            if (scheduled) {
                 section.setNotDirty();
+                section.markRebuildScheduled(prepareEndNanos);
                 scheduledRebuilds++;
+            } else if (!this.taskDispatcher.hasTaskCapacity()) {
+                if (this.pendingRebuildSet.add(section)) {
+                    this.pendingRebuilds.addFirst(section);
+                }
+                break;
             }
         }
-
-        if (scheduledRebuilds < this.rebuildQueue.size()) {
-            WorldRenderer.getInstance().scheduleGraphUpdate();
-        }
-
-        this.rebuildQueue.clear();
     }
 
     private boolean notInFrustum(RenderSection renderSection) {
@@ -318,13 +426,30 @@ public class SectionGraph {
         return lastFrame;
     }
 
+    public boolean hasPendingRebuilds() {
+        return !this.pendingRebuilds.isEmpty() || !this.delayedRebuilds.isEmpty();
+    }
+
+    public int pendingRebuildCount() {
+        return this.pendingRebuilds.size() + this.delayedRebuilds.size();
+    }
+
+    public int readyRebuildCount() {
+        return this.pendingRebuilds.size();
+    }
+
+    public int delayedRebuildCount() {
+        return this.delayedRebuilds.size();
+    }
+
     public String getStatistics() {
         int totalSections = this.sectionGrid.getSectionCount();
         int sections = this.sectionQueue.size();
         int renderDistance = WorldRenderer.getInstance().getRenderDistance();
         String tasksInfo = this.taskDispatcher == null ? "null" : this.taskDispatcher.getStats();
 
-        return String.format("Chunks: %d(%d)/%d D: %d, %s", this.nonEmptyChunks, sections, totalSections, renderDistance, tasksInfo);
+        return String.format("Chunks: %d(%d)/%d D: %d rQ: %d+%d, %s", this.nonEmptyChunks, sections,
+                totalSections, renderDistance, this.pendingRebuilds.size(), this.delayedRebuilds.size(), tasksInfo);
     }
 
     public VFrustum getFrustum() {

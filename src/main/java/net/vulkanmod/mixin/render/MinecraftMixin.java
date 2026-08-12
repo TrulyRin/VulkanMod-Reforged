@@ -12,6 +12,7 @@ import net.vulkanmod.compat.ExternalClientFaultBoundary;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.compat.opengl.GlCapabilitiesFallback;
 import net.vulkanmod.config.GraphicsModeCompatibility;
+import net.vulkanmod.diagnostics.benchmark.MinecraftBenchmarkController;
 import net.vulkanmod.render.texture.SpriteUtil;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.Vulkan;
@@ -59,6 +60,7 @@ public class MinecraftMixin {
 
     @Inject(method = "runTick", at = @At(value = "HEAD"))
     private void resetBuffers(boolean bl, CallbackInfo ci) {
+        MinecraftBenchmarkController.onClientTick((Minecraft) (Object) this);
         clampUnsupportedGraphicsMode();
         Renderer.getInstance().preInitFrame();
     }
@@ -66,12 +68,15 @@ public class MinecraftMixin {
     @Redirect(method = "runTick", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;clear(IZ)V"))
     private void beginRender(int i, boolean bl) {
         RenderSystem.clear(i, bl);
+        MinecraftBenchmarkController.onFrameStart();
         Renderer.getInstance().beginFrame();
     }
 
     @Inject(method = "runTick", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/Window;updateDisplay()V", shift = At.Shift.BEFORE))
     private void submitRender(boolean tick, CallbackInfo ci) {
-        Renderer.getInstance().endFrame();
+        if (Renderer.getInstance().endFrame()) {
+            MinecraftBenchmarkController.onFrameEnd((Minecraft) (Object) this);
+        }
     }
 
     @Redirect(method = "runTick", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;bindWrite(Z)V"))

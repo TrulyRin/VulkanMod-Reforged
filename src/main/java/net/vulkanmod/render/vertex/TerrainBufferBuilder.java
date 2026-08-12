@@ -174,6 +174,7 @@ public class TerrainBufferBuilder {
         }
 
         this.discard();
+        this.reset();
     }
 
     public void close() {

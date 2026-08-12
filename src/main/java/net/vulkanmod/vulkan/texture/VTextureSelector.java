@@ -9,6 +9,8 @@ import net.vulkanmod.vulkan.shader.SamplerTextureSlot;
 import net.vulkanmod.vulkan.shader.descriptor.ImageDescriptor;
 
 import java.nio.ByteBuffer;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public abstract class VTextureSelector {
     public static final int SIZE = 12;
@@ -20,6 +22,7 @@ public abstract class VTextureSelector {
     private static final VulkanImage whiteTexture = VulkanImage.createWhiteTexture();
 
     private static int activeTexture = 0;
+    private static final Set<Integer> missingTextureWarnings = ConcurrentHashMap.newKeySet();
 
     public static void bindTexture(VulkanImage texture) {
         boundTextures[0] = texture;
@@ -70,9 +73,26 @@ public abstract class VTextureSelector {
                 VTextureSelector.bindTexture(state.imageIdx, texture.getVulkanImage());
             }
             else {
-                VTextureSelector.bindTexture(state.imageIdx, whiteTexture);
+                VulkanImage fallback = getMissingTextureFallback();
+                VTextureSelector.bindTexture(state.imageIdx, fallback);
+                if (missingTextureWarnings.add(shaderTexture)) {
+                    Initializer.LOGGER.warn("Missing Vulkan texture for shader texture {} on unit {} "
+                                    + "(descriptor {}); using the missing-texture fallback",
+                            shaderTexture, state.imageIdx, state.name);
+                }
             }
         }
+    }
+
+    private static VulkanImage getMissingTextureFallback() {
+        try {
+            GlTexture missingTexture = GlTexture.getTexture(MissingTextureAtlasSprite.getTexture().getId());
+            if (missingTexture != null && missingTexture.getVulkanImage() != null) {
+                return missingTexture.getVulkanImage();
+            }
+        } catch (RuntimeException exception) {
+        }
+        return whiteTexture;
     }
 
     public static VulkanImage getImage(int i) {

@@ -85,8 +85,8 @@ public class RenderPass {
                         .initialLayout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
                         .finalLayout(depthAttachmentInfo.finalLayout);
 
-                VkAttachmentReference depthAttachmentRef = attachmentRefs.get(1)
-                        .attachment(1)
+                VkAttachmentReference depthAttachmentRef = attachmentRefs.get(i)
+                        .attachment(i)
                         .layout(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
                 subpass.pDepthStencilAttachment(depthAttachmentRef);
@@ -97,31 +97,44 @@ public class RenderPass {
                     .pAttachments(attachments)
                     .pSubpasses(subpass);
 
-            switch (colorAttachmentInfo.finalLayout) {
-                case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR -> {
-                    VkSubpassDependency.Buffer subpassDependencies = VkSubpassDependency.calloc(1, stack);
-                    subpassDependencies.get(0)
-                            .srcSubpass(VK_SUBPASS_EXTERNAL)
-                            .dstSubpass(0)
-                            .srcStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
-                            .dstStageMask(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
-                            .srcAccessMask(0)
-                            .dstAccessMask(0);
+            if (colorAttachmentInfo != null) {
+                switch (colorAttachmentInfo.finalLayout) {
+                    case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR -> {
+                        VkSubpassDependency.Buffer subpassDependencies = VkSubpassDependency.calloc(1, stack);
+                        subpassDependencies.get(0)
+                                .srcSubpass(VK_SUBPASS_EXTERNAL)
+                                .dstSubpass(0)
+                                .srcStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+                                .dstStageMask(VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT)
+                                .srcAccessMask(0)
+                                .dstAccessMask(0);
 
-                    renderPassInfo.pDependencies(subpassDependencies);
-                }
-                case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL -> {
-                    VkSubpassDependency.Buffer subpassDependencies = VkSubpassDependency.calloc(1, stack);
-                    subpassDependencies.get(0)
-                            .srcSubpass(0)
-                            .dstSubpass(VK_SUBPASS_EXTERNAL)
-                            .srcStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
-                            .dstStageMask(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
-                            .srcAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
-                            .dstAccessMask(VK_ACCESS_SHADER_READ_BIT);
+                        renderPassInfo.pDependencies(subpassDependencies);
+                    }
+                    case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL -> {
+                        VkSubpassDependency.Buffer subpassDependencies = VkSubpassDependency.calloc(1, stack);
+                        subpassDependencies.get(0)
+                                .srcSubpass(0)
+                                .dstSubpass(VK_SUBPASS_EXTERNAL)
+                                .srcStageMask(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT)
+                                .dstStageMask(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
+                                .srcAccessMask(VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT)
+                                .dstAccessMask(VK_ACCESS_SHADER_READ_BIT);
 
-                    renderPassInfo.pDependencies(subpassDependencies);
+                        renderPassInfo.pDependencies(subpassDependencies);
+                    }
                 }
+            } else if (depthAttachmentInfo != null && depthAttachmentInfo.finalLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+                VkSubpassDependency.Buffer subpassDependencies = VkSubpassDependency.calloc(1, stack);
+                subpassDependencies.get(0)
+                        .srcSubpass(0)
+                        .dstSubpass(VK_SUBPASS_EXTERNAL)
+                        .srcStageMask(VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT)
+                        .dstStageMask(VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT)
+                        .srcAccessMask(VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT)
+                        .dstAccessMask(VK_ACCESS_SHADER_READ_BIT);
+
+                renderPassInfo.pDependencies(subpassDependencies);
             }
 
             LongBuffer pRenderPass = stack.mallocLong(1);

@@ -5,7 +5,9 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.regex.Pattern;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -53,6 +55,35 @@ class NewSettingsUiSourceTest {
     }
 
     @Test
+    void chunkUploadOptionsExposeTheCeilingAndResetAdaptiveState() throws IOException {
+        String options = Files.readString(Path.of(
+                "src/main/java/net/vulkanmod/config/option/Options.java"));
+        String presets = Files.readString(Path.of(
+                "src/main/java/net/vulkanmod/config/PerformancePresetApplier.java"));
+
+        assertTrue(options.contains("Component.translatable(\"vulkanmod.options.chunkUploadsPerFrame\")"));
+        assertTrue(options.contains("1, 16, 1,"));
+        assertTrue(options.contains("config.chunkUploadsPerFrame = value;"));
+        assertTrue(options.contains("Config.clampChunkUploadsPerFrame(config.chunkUploadsPerFrame)"));
+        assertTrue(options.lines()
+                .filter(line -> line.contains("AdaptiveChunkUploadBudget.reset();"))
+                .count() >= 2);
+        assertTrue(presets.contains("AdaptiveChunkUploadBudget.reset();"));
+    }
+
+    @Test
+    void benchmarkUsesTheEffectiveClampedChunkUploadCeiling() throws IOException {
+        String config = Files.readString(Path.of(
+                "src/main/java/net/vulkanmod/config/Config.java"));
+        String controller = Files.readString(Path.of(
+                "src/main/java/net/vulkanmod/diagnostics/benchmark/MinecraftBenchmarkController.java"));
+
+        assertTrue(config.contains("clampChunkUploadsPerFrame"));
+        assertTrue(config.contains("config.chunkUploadsPerFrame = clampChunkUploadsPerFrame"));
+        assertTrue(controller.contains("Config.clampChunkUploadsPerFrame"));
+    }
+
+    @Test
     void updateCheckerTargetsForkReleasesNotUpstream() throws IOException {
         String checker = Files.readString(Path.of(
                 "src/main/java/net/vulkanmod/config/UpdateChecker.java"));
@@ -74,5 +105,33 @@ class NewSettingsUiSourceTest {
         assertTrue(lang.contains("\"vulkanmod.options.buttons.update_available\""));
         assertTrue(lang.contains("\"vulkanmod.options.performanceImpact\""));
         assertTrue(lang.contains("\"vulkanmod.options.windowMode\""));
+        assertTrue(lang.contains("\"vulkanmod.options.chunkUploadsPerFrame\""));
+        assertTrue(lang.contains("\"vulkanmod.options.chunkUploadsPerFrame.tooltip\""));
+    }
+
+    @Test
+    void everyConfigurableFeatureHasADescription() throws IOException {
+        String options = Files.readString(Path.of(
+                "src/main/java/net/vulkanmod/config/option/Options.java"));
+        String lang = Files.readString(Path.of(
+                "src/main/resources/assets/vulkanmod/lang/en_us.json"));
+
+        long optionCount = Pattern.compile(
+                "new (?:RangeOption|SwitchOption|CyclingOption<>)\\(")
+                .matcher(options).results().count();
+        long tooltipCount = Pattern.compile("\\.setTooltip\\(")
+                .matcher(options).results().count();
+
+        assertEquals(38, optionCount, "update the description inventory when a feature is added");
+        assertEquals(optionCount, tooltipCount,
+                "every configurable feature must provide a useful description");
+
+        var tooltipKeys = Pattern.compile(
+                "Component\\.translatable\\(\\s*\"(vulkanmod\\.options\\.[^\"]+\\.tooltip)\"")
+                .matcher(options);
+        while (tooltipKeys.find()) {
+            assertTrue(lang.contains("\"" + tooltipKeys.group(1) + "\""),
+                    "missing English description for " + tooltipKeys.group(1));
+        }
     }
 }

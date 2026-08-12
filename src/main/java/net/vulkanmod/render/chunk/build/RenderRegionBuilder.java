@@ -37,7 +37,7 @@ public class RenderRegionBuilder {
 
         PalettedContainer<BlockState>[] blockData = new PalettedContainer[RenderRegion.SIZE];
 
-        DataLayer[][] lightData = new DataLayer[RenderRegion.SIZE][2 /* Light types */];
+        DataLayer[] lightData = new DataLayer[RenderRegion.SIZE * RenderRegion.LIGHT_LAYER_COUNT];
 
         final int minHeightSec = level.getMinBuildHeight() >> 4;
         for (int x = minSecX; x <= maxSecX; ++x) {
@@ -57,9 +57,7 @@ public class RenderRegionBuilder {
                     blockData[idx] = values;
 
                     SectionPos pos = SectionPos.of(x, y, z);
-                    DataLayer[] dataLayers = getSectionDataLayers(level, pos);
-
-                    lightData[idx] = dataLayers;
+                    copySectionDataLayers(level, pos, lightData, idx);
                 }
             }
         }
@@ -67,16 +65,15 @@ public class RenderRegionBuilder {
         return new RenderRegion(level, secX, secY, secZ, blockData, lightData, entityMap);
     }
 
-    private DataLayer[] getSectionDataLayers(Level level, SectionPos pos) {
-        DataLayer[] dataLayers = new DataLayer[2];
-
+    private void copySectionDataLayers(Level level, SectionPos pos, DataLayer[] lightData, int sectionIndex) {
+        int lightDataBase = sectionIndex * RenderRegion.LIGHT_LAYER_COUNT;
         DataLayer blockDataLayer;
         blockDataLayer = level.getLightEngine().getLayerListener(LightLayer.BLOCK).getDataLayerData(pos);
 
         if (blockDataLayer == null)
             blockDataLayer = DEFAULT_BLOCK_LIGHT_DATA_LAYER;
 
-        dataLayers[LightLayer.BLOCK.ordinal()] = blockDataLayer;
+        lightData[lightDataBase + LightLayer.BLOCK.ordinal()] = blockDataLayer;
 
         DataLayer skyDataLayer;
         if (level.dimensionType().hasSkyLight()) {
@@ -87,9 +84,7 @@ public class RenderRegionBuilder {
         } else
             skyDataLayer = null;
 
-        dataLayers[LightLayer.SKY.ordinal()] = skyDataLayer;
-
-        return dataLayers;
+        lightData[lightDataBase + LightLayer.SKY.ordinal()] = skyDataLayer;
     }
 
     private LevelChunk getLevelChunk(Level level, int x, int z) {

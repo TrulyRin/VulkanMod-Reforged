@@ -282,6 +282,18 @@ public class DefaultMainPass implements MainPass {
     }
 
     @Override
+    public VulkanImage getColorAttachment() {
+        ensureMainFramebuffer();
+        return this.mainFramebuffer != null ? this.mainFramebuffer.getColorAttachment() : null;
+    }
+
+    @Override
+    public VulkanImage getDepthAttachment() {
+        ensureMainFramebuffer();
+        return this.mainFramebuffer != null ? this.mainFramebuffer.getDepthAttachment() : null;
+    }
+
+    @Override
     public int getDepthAttachmentGlId() {
         ensureMainFramebuffer();
 

@@ -17,6 +17,9 @@ public class MixinPlugin implements IMixinConfigPlugin {
     private static final String TENSURA_OVERLAY_HANDLER_MIXIN = TENSURA_MIXIN_PACKAGE + "TensuraOverlayHandlerMixin";
     private static final String TENSURA_SIMPLE_BUTTON = "io.github.manasmods.tensura.client.screen.widgets.SimpleButton";
     private static final String TENSURA_OVERLAY_HANDLER = "io.github.manasmods.tensura.handler.client.OverlayHandler";
+    private static final String ESSENTIAL_MIXIN_PACKAGE = "net.vulkanmod.mixin.compatibility.essential.";
+    private static final String ESSENTIAL_UI_3D_PLAYER_MIXIN = ESSENTIAL_MIXIN_PACKAGE + "EssentialUI3DPlayerMixin";
+    private static final String ESSENTIAL_UI_3D_PLAYER = "gg.essential.gui.common.UI3DPlayer";
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -44,6 +47,11 @@ public class MixinPlugin implements IMixinConfigPlugin {
             }
 
             return false;
+        }
+
+        if (mixinClassName.startsWith(ESSENTIAL_MIXIN_PACKAGE)) {
+            return ESSENTIAL_UI_3D_PLAYER_MIXIN.equals(mixinClassName)
+                    && ESSENTIAL_UI_3D_PLAYER.equals(targetClassName);
         }
 
         if (mixinClassName.startsWith("net.vulkanmod.mixin.profiling.")) {

@@ -1,0 +1,20 @@
+{
+    "blend": {
+        "func": "add",
+        "srcrgb": "srcalpha",
+        "dstrgb": "1-srcalpha"
+    },
+    "vertex": "uc_position_color",
+    "fragment": "uc_position_color",
+    "attributes": [
+        "uc_Position",
+        "uc_Color"
+    ],
+    "samplers": [],
+    "uniforms": [],
+    "UBOs": [
+        { "type":  "vertex", "binding": 0, "fields": [
+            { "name": "MVP", "type": "matrix4x4", "count": 16, "values": [ 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0 ] }
+        ] }
+    ]
+}

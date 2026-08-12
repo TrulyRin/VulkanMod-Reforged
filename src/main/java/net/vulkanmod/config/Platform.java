@@ -7,10 +7,15 @@ import static net.vulkanmod.Initializer.LOGGER;
 import static org.lwjgl.glfw.GLFW.*;
 
 public abstract class Platform {
-    private static final int activePlat = getSupportedPlat();
+    private static int activePlat = GLFW_ANY_PLATFORM;
     private static final String activeDE = determineDE();
 
     public static void init() {
+        init(false);
+    }
+
+    public static void init(boolean forceWayland) {
+        activePlat = getSupportedPlat(forceWayland);
         GLFW.glfwInitHint(GLFW_PLATFORM, activePlat);
         LOGGER.info("Selecting Platform: {}", getStringFromPlat(activePlat));
         LOGGER.info("GLFW: {}", GLFW.glfwGetVersionString());
@@ -30,11 +35,20 @@ public abstract class Platform {
         };
     }
 
-    private static int getSupportedPlat() {
+    private static int getSupportedPlat(boolean forceWayland) {
         //Switch statement would be ideal, but couldn't find a good way of implementing it, so fell back to basic if statements/branches
         if (SystemUtils.IS_OS_WINDOWS) return GLFW_PLATFORM_WIN32;
         if (SystemUtils.IS_OS_MAC_OSX) return GLFW_PLATFORM_COCOA;
-        if (SystemUtils.IS_OS_LINUX) return determineDisplayServer(); //Linux Or Android
+        if (SystemUtils.IS_OS_LINUX) {
+            if (forceWayland) {
+                if (GLFW.glfwPlatformSupported(GLFW_PLATFORM_WAYLAND)) {
+                    return GLFW_PLATFORM_WAYLAND;
+                }
+                LOGGER.warn("Native Wayland was requested, but this GLFW build does not support it; "
+                        + "falling back to display-server detection");
+            }
+            return determineDisplayServer(); //Linux Or Android
+        }
 
         return GLFW_ANY_PLATFORM; //Unknown platform
     }
@@ -69,6 +83,10 @@ public abstract class Platform {
         return activePlat == GLFW_PLATFORM_WAYLAND;
     }
 
+    public static boolean isLinux() {
+        return SystemUtils.IS_OS_LINUX;
+    }
+
     public static boolean isX11() {
         return activePlat == GLFW_PLATFORM_X11;
     }
@@ -83,6 +101,18 @@ public abstract class Platform {
 
     public static boolean isAndroid() {
         return activePlat == GLFW_ANY_PLATFORM;
+    }
+
+    public static String vulkanDriverHint() {
+        if (isMacOS())
+            return "macOS uses MoltenVK (bundled with this mod). Make sure the JVM is launched with "
+                    + "-XstartOnFirstThread and that your Mac supports Metal (macOS 10.13+).";
+        if (isWindows())
+            return "Update your GPU drivers to a version that provides Vulkan (vulkan-1.dll).";
+        if (isAndroid())
+            return "No supported Vulkan platform was detected for this OS.";
+        return "Install Vulkan drivers for your GPU "
+                + "(e.g. mesa-vulkan-drivers, nvidia driver, or vulkan-icd-loader / vulkan-loader).";
     }
 
     //Desktop Environment Names: https://wiki.archlinux.org/title/Xdg-utils#Usage

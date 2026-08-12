@@ -31,6 +31,8 @@ public class GlslConverter {
         StringBuilder vshOut = new StringBuilder();
         StringBuilder fshOut = new StringBuilder();
 
+        vertShader = prepareLegacyVertexShader(vertShader, fragShader);
+
         this.setShaderStage(ShaderStage.Vertex);
 
         String[] lines = vertShader.split("\n");
@@ -98,6 +100,14 @@ public class GlslConverter {
         switch (token) {
             case "uniform" -> this.state = State.MATCHING_UNIFORM;
             case "in", "out" -> this.state = State.MATCHING_IN_OUT;
+            case "attribute" -> {
+                this.state = State.MATCHING_IN_OUT;
+                token = "in";
+            }
+            case "varying" -> {
+                this.state = State.MATCHING_IN_OUT;
+                token = this.shaderStage == ShaderStage.Vertex ? "out" : "in";
+            }
             case "#version" -> {
                 return null;
             }
@@ -115,7 +125,7 @@ public class GlslConverter {
             }
 
             default -> {
-                return CodeParser.parseCodeLine(line);
+                return CodeParser.parseCodeLine(line, this.shaderStage);
             }
         }
 
@@ -145,6 +155,38 @@ public class GlslConverter {
         this.shaderStage = shaderStage;
         this.uniformParser.setCurrentUniforms(this.shaderStage);
         this.inOutParser.setShaderStage(this.shaderStage);
+    }
+
+    private static String prepareLegacyVertexShader(String vertShader, String fragShader) {
+        StringBuilder prefix = new StringBuilder();
+
+        if (vertShader.contains("gl_ModelViewProjectionMatrix") && !vertShader.contains("uniform mat4 MVP")) {
+            prefix.append("uniform mat4 MVP;\n");
+        }
+
+        if (vertShader.contains("gl_Vertex") && !hasDeclaration(vertShader, "Position")) {
+            prefix.append("in vec3 Position;\n");
+        }
+
+        if (vertShader.contains("gl_MultiTexCoord0") && !hasDeclaration(vertShader, "UV0")) {
+            prefix.append("in vec2 UV0;\n");
+        }
+
+        if ((vertShader.contains("gl_Color") || vertShader.contains("gl_FrontColor") || fragShader.contains("gl_Color"))
+                && !hasDeclaration(vertShader, "Color")) {
+            prefix.append("in vec4 Color;\n");
+            prefix.append("out vec4 vertexColor;\n");
+        }
+
+        if (prefix.isEmpty()) {
+            return vertShader;
+        }
+
+        return prefix.append(vertShader).toString();
+    }
+
+    private static boolean hasDeclaration(String shader, String name) {
+        return shader.matches("(?s).*\\b(in|attribute|out|varying)\\s+\\w+\\s+" + java.util.regex.Pattern.quote(name) + "\\s*;.*");
     }
 
     public UBO getUBO() {

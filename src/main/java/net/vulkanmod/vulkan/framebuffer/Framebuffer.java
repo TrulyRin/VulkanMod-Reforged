@@ -100,6 +100,8 @@ public class Framebuffer {
                 attachments = stack.longs(colorAttachment.getImageView(), depthAttachment.getImageView());
             } else if (colorAttachment != null) {
                 attachments = stack.longs(colorAttachment.getImageView());
+            } else if (depthAttachment != null) {
+                attachments = stack.longs(depthAttachment.getImageView());
             } else {
                 throw new IllegalStateException();
             }
@@ -256,15 +258,18 @@ public class Framebuffer {
         }
 
         public Builder(VulkanImage colorAttachment, VulkanImage depthAttachment) {
+            Validate.isTrue(colorAttachment != null || depthAttachment != null, "At least 1 attachment needed");
+
             this.createImages = false;
             this.colorAttachment = colorAttachment;
             this.depthAttachment = depthAttachment;
 
-            this.format = colorAttachment.format;
+            this.format = colorAttachment != null ? colorAttachment.format : 0;
 
-            this.width = colorAttachment.width;
-            this.height = colorAttachment.height;
-            this.hasColorAttachment = true;
+            VulkanImage sizeSource = colorAttachment != null ? colorAttachment : depthAttachment;
+            this.width = sizeSource.width;
+            this.height = sizeSource.height;
+            this.hasColorAttachment = colorAttachment != null;
             this.hasDepthAttachment = depthAttachment != null;
 
             this.depthFormat = this.hasDepthAttachment ? depthAttachment.format : 0;

@@ -6,6 +6,7 @@ import net.vulkanmod.config.gui.widget.OptionWidget;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.Optional;
 
 public abstract class Option<T> {
     protected final Component name;
@@ -27,6 +28,7 @@ public abstract class Option<T> {
     protected boolean active;
     protected Runnable onChange;
     protected Supplier<Boolean> activationFn;
+    private OptionKey<T> key;
 
     @SuppressWarnings("unused")
     public Option(Component name, Consumer<T> setter, Supplier<T> getter, Function<T, Component> translator,  Function<T, Component> tooltip) {
@@ -90,6 +92,34 @@ public abstract class Option<T> {
     public Option<T> setTooltip(Component tooltip) {
         this.tooltipTranslator = v -> tooltip;
         return this;
+    }
+
+    public Option<T> setKey(OptionKey<T> key) {
+        this.key = java.util.Objects.requireNonNull(key, "key");
+        if (!key.type().isInstance(this.newValue)) {
+            throw new IllegalArgumentException("Option value does not match key type " + key.id());
+        }
+        return this;
+    }
+
+    public Optional<OptionKey<T>> key() {
+        return Optional.ofNullable(key);
+    }
+
+    public String draftIdentity() {
+        return key != null
+                ? "key:" + key.id()
+                : getClass().getName() + ":" + name.getString();
+    }
+
+    public boolean acceptsDraftValue(Object candidate) {
+        if (candidate == null) {
+            return false;
+        }
+        Class<?> expectedType = key != null
+                ? key.type()
+                : this.newValue == null ? null : this.newValue.getClass();
+        return expectedType != null && expectedType.isInstance(candidate);
     }
 
     public PerformanceImpact getImpact() {
@@ -164,6 +194,10 @@ public abstract class Option<T> {
 
     public T getNewValue() {
         return this.newValue;
+    }
+
+    public T getAppliedValue() {
+        return this.value;
     }
 
     public Component getDisplayedValue() {

@@ -1,10 +1,10 @@
 package net.vulkanmod.render.chunk.buffer;
 
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import net.vulkanmod.vulkan.Synchronization;
 import net.vulkanmod.vulkan.Vulkan;
 import net.vulkanmod.vulkan.device.DeviceManager;
 import net.vulkanmod.vulkan.memory.Buffer;
+import net.vulkanmod.vulkan.memory.MemoryManager;
 import net.vulkanmod.vulkan.memory.StagingBuffer;
 import net.vulkanmod.vulkan.queue.CommandPool;
 import net.vulkanmod.vulkan.queue.Queue;
@@ -25,7 +25,7 @@ public class UploadManager {
         INSTANCE = new UploadManager();
     }
 
-    Queue queue = DeviceManager.getTransferQueue();
+    Queue queue = DeviceManager.getGraphicsQueue();
     CommandPool.CommandBuffer commandBuffer;
 
     LongOpenHashSet dstBuffers = new LongOpenHashSet();
@@ -34,9 +34,26 @@ public class UploadManager {
         if (this.commandBuffer == null)
             return;
 
-        this.queue.submitCommands(this.commandBuffer);
+        try (MemoryStack stack = MemoryStack.stackPush()) {
+            VkMemoryBarrier.Buffer barrier = VkMemoryBarrier.calloc(1, stack);
+            barrier.sType$Default();
+            barrier.srcAccessMask(VK_ACCESS_TRANSFER_WRITE_BIT);
+            barrier.dstAccessMask(VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT
+                    | VK_ACCESS_INDEX_READ_BIT
+                    | VK_ACCESS_INDIRECT_COMMAND_READ_BIT
+                    | VK_ACCESS_SHADER_READ_BIT);
 
-        Synchronization.INSTANCE.addCommandBuffer(this.commandBuffer);
+            vkCmdPipelineBarrier(this.commandBuffer.getHandle(),
+                    VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
+                            | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT
+                            | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT
+                            | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    0, barrier, null, null);
+        }
+
+        this.queue.submitCommands(this.commandBuffer);
+        MemoryManager.getInstance().addFrameOp(this.commandBuffer::reset);
 
         this.commandBuffer = null;
         this.dstBuffers.clear();
@@ -107,8 +124,7 @@ public class UploadManager {
 
     public void syncUploads() {
         submitUploads();
-
-        Synchronization.INSTANCE.waitFences();
+        Vulkan.waitIdle();
     }
 
     private void beginCommands() {

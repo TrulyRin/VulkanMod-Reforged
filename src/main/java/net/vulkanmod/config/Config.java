@@ -2,8 +2,11 @@ package net.vulkanmod.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import net.vulkanmod.config.video.VideoModeManager;
 import net.vulkanmod.config.video.VideoModeSet;
+import net.vulkanmod.render.optimization.ChunkSchedulingPolicy;
 
 import java.io.FileReader;
 import java.io.IOException;
@@ -13,6 +16,9 @@ import java.nio.file.Path;
 import java.util.Collections;
 
 public class Config {
+    public static final int MIN_FRAME_QUEUE_SIZE = 2;
+    public static final int MAX_FRAME_QUEUE_SIZE = 5;
+
     public int frameQueueSize = 2;
     public VideoModeSet.VideoMode videoMode = VideoModeManager.getFirstAvailable().getVideoMode();
     public boolean windowedFullscreen = false;
@@ -34,6 +40,26 @@ public class Config {
 
     public int ambientOcclusion = 1;
     public boolean textureAnimations = true;
+    public int builderThreads = 0;
+    public boolean backFaceCulling = true;
+    public boolean useWayland = false;
+
+    public static int clampFrameQueueSize(int value) {
+        return Math.max(MIN_FRAME_QUEUE_SIZE, Math.min(MAX_FRAME_QUEUE_SIZE, value));
+    }
+
+    public static int maxBuilderThreadsForSystem() {
+        int manualMaximum = Math.max(1, Runtime.getRuntime().availableProcessors() - 1);
+        return Math.min(ChunkSchedulingPolicy.MAX_BUILDER_THREADS, manualMaximum);
+    }
+
+    public static int clampBuilderThreads(int value) {
+        return Math.max(0, Math.min(maxBuilderThreadsForSystem(), value));
+    }
+
+    public static int clampChunkUploadsPerFrame(int value) {
+        return ChunkSchedulingPolicy.clampUploadCeiling(value);
+    }
 
     public void write() {
 
@@ -58,7 +84,7 @@ public class Config {
 
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
-            .excludeFieldsWithModifiers(Modifier.PRIVATE)
+            .excludeFieldsWithModifiers(Modifier.PRIVATE, Modifier.STATIC, Modifier.TRANSIENT)
             .create();
 
     public static Config load(Path path) {
@@ -77,6 +103,28 @@ public class Config {
             config = null;
         }
 
+        if (config != null) {
+            config.frameQueueSize = clampFrameQueueSize(config.frameQueueSize);
+            config.chunkUploadsPerFrame = clampChunkUploadsPerFrame(config.chunkUploadsPerFrame);
+            config.renderScale = RenderScale.clamp(config.renderScale);
+            config.builderThreads = clampBuilderThreads(config.builderThreads);
+        }
+
         return config;
+    }
+
+    public static boolean readWaylandPreference(Path path) {
+        if (!Files.exists(path)) {
+            return false;
+        }
+
+        try (FileReader fileReader = new FileReader(path.toFile())) {
+            JsonObject object = JsonParser.parseReader(fileReader).getAsJsonObject();
+            return object.has("useWayland") && object.get("useWayland").getAsBoolean();
+        } catch (IOException | RuntimeException exception) {
+            System.err.println("[VulkanMod] Failed to read the startup Wayland preference: "
+                    + exception.getMessage());
+            return false;
+        }
     }
 }

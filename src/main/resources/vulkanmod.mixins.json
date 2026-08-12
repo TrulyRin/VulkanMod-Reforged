@@ -71,6 +71,7 @@
     "render.RenderTypeM",
     "render.ShaderInstanceM",
     "render.entity.EntityRenderDispatcherM",
+    "render.entity.EntityRenderDispatcherAccessor",
     "render.entity.EntityRendererM",
     "render.entity.ItemRendererM",
     "render.entity.LivingEntityRendererM",
@@ -117,6 +118,7 @@
     "compatibility.PostChainM",
     "compatibility.PostPassM",
     "compatibility.create.CreateMainMenuScreenMixin",
+    "compatibility.essential.EssentialUI3DPlayerMixin",
     "compatibility.tensura.TensuraOverlayHandlerMixin",
     "compatibility.tensura.TensuraSimpleButtonMixin",
 

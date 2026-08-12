@@ -40,8 +40,11 @@ public final class GlIntegerState {
     }
 
     public static int getInteger(int pname) {
-        if (pname == GL30.GL_FRAMEBUFFER_BINDING || pname == GL30.GL_DRAW_FRAMEBUFFER_BINDING
-                || pname == GL30.GL_READ_FRAMEBUFFER_BINDING) {
+        if (pname == GL30.GL_READ_FRAMEBUFFER_BINDING) {
+            return GlFramebuffer.getBoundReadId();
+        }
+
+        if (pname == GL30.GL_FRAMEBUFFER_BINDING || pname == GL30.GL_DRAW_FRAMEBUFFER_BINDING) {
             return GlFramebuffer.getBoundId();
         }
 

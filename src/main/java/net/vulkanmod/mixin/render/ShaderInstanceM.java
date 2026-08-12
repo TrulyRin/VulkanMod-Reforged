@@ -38,6 +38,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -350,6 +351,14 @@ public class ShaderInstanceM implements ShaderMixed {
     }
 
     private static String fallbackShaderPath(VertexFormat format) {
+        if (DefaultVertexFormat.BLIT_SCREEN.equals(format)) {
+            return "minecraft/core/blit_screen/blit_screen";
+        }
+
+        if (DefaultVertexFormat.PARTICLE.equals(format)) {
+            return "minecraft/core/particle/particle";
+        }
+
         if (DefaultVertexFormat.POSITION_TEX_COLOR.equals(format)) {
             return "minecraft/core/position_tex_color/position_tex_color";
         }
@@ -358,8 +367,44 @@ public class ShaderInstanceM implements ShaderMixed {
             return "minecraft/core/position_tex/position_tex";
         }
 
+        if (hasAttributes(format, "uc_Position", "uc_UV0")) {
+            return "essential/core/uc_position_tex/uc_position_tex";
+        }
+
+        if (hasAttributes(format, "uc_Position", "uc_Color")) {
+            return "essential/core/uc_position_color/uc_position_color";
+        }
+
+        if (hasAttributes(format, "uc_Position")) {
+            return "essential/core/uc_position/uc_position";
+        }
+
+        if (hasAttributes(format, "Position", "Color", "UV0")) {
+            return "minecraft/core/position_color_tex/position_color_tex";
+        }
+
         if (DefaultVertexFormat.POSITION_COLOR_TEX_LIGHTMAP.equals(format)) {
             return "minecraft/core/position_color_tex_lightmap/position_color_tex_lightmap";
+        }
+
+        if (hasAttributes(format, "Position", "UV0", "Color", "UV2")) {
+            return "minecraft/core/particle/particle";
+        }
+
+        if (hasAttributes(format, "Position", "UV0", "Color")) {
+            return "minecraft/core/position_tex_color/position_tex_color";
+        }
+
+        if (DefaultVertexFormat.POSITION_COLOR_LIGHTMAP.equals(format)) {
+            return "minecraft/core/position_color_lightmap/position_color_lightmap";
+        }
+
+        if (DefaultVertexFormat.POSITION_COLOR_NORMAL.equals(format)) {
+            return "minecraft/core/position_color_normal/position_color_normal";
+        }
+
+        if (DefaultVertexFormat.POSITION_TEX_COLOR_NORMAL.equals(format)) {
+            return "minecraft/core/position_tex_color_normal/position_tex_color_normal";
         }
 
         if (DefaultVertexFormat.POSITION_COLOR.equals(format)) {
@@ -371,6 +416,10 @@ public class ShaderInstanceM implements ShaderMixed {
         }
 
         return null;
+    }
+
+    private static boolean hasAttributes(VertexFormat format, String... attributes) {
+        return format != null && format.getElementAttributeNames().equals(List.of(attributes));
     }
 
     private static ResourceLocation resolveShaderStageLocation(String stageName, String extension) {

@@ -2,6 +2,7 @@ package net.vulkanmod.compat.render;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.vulkanmod.vulkan.VRenderSystem;
+import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.shader.PipelineState;
 
 public final class RenderStateSnapshot {
@@ -25,6 +26,15 @@ public final class RenderStateSnapshot {
     private final int frontFace;
     private final int polygonMode;
     private final int topology;
+    private final boolean scissorEnabled;
+    private final int scissorX;
+    private final int scissorY;
+    private final int scissorWidth;
+    private final int scissorHeight;
+    private final int viewportX;
+    private final int viewportY;
+    private final int viewportWidth;
+    private final int viewportHeight;
 
     public RenderStateSnapshot() {
         this.red = VRenderSystem.getShaderColor().getFloat(0);
@@ -47,6 +57,15 @@ public final class RenderStateSnapshot {
         this.frontFace = VRenderSystem.frontFace;
         this.polygonMode = VRenderSystem.polygonMode;
         this.topology = VRenderSystem.topology;
+        this.scissorEnabled = Renderer.isScissorEnabled();
+        this.scissorX = Renderer.getScissorBox(0);
+        this.scissorY = Renderer.getScissorBox(1);
+        this.scissorWidth = Renderer.getScissorBox(2);
+        this.scissorHeight = Renderer.getScissorBox(3);
+        this.viewportX = Renderer.getViewportBox(0);
+        this.viewportY = Renderer.getViewportBox(1);
+        this.viewportWidth = Renderer.getViewportBox(2);
+        this.viewportHeight = Renderer.getViewportBox(3);
     }
 
     public void restore() {
@@ -63,5 +82,14 @@ public final class RenderStateSnapshot {
         VRenderSystem.frontFace = frontFace;
         VRenderSystem.polygonMode = polygonMode;
         VRenderSystem.topology = topology;
+        if (viewportWidth > 0 && viewportHeight != 0) {
+            Renderer.setViewport(viewportX, viewportY, viewportWidth, viewportHeight);
+        }
+        if (scissorEnabled) {
+            Renderer.setScissor(scissorX, scissorY, scissorWidth, scissorHeight);
+            Renderer.setScissorEnabled(true);
+        } else {
+            Renderer.setScissorEnabled(false);
+        }
     }
 }

@@ -28,7 +28,6 @@ public class EarlyWindowCompat {
             providerField.setAccessible(true);
             providerField.set(null, createNoOpProvider(providerField.getType()));
             disableProgressWindowTick();
-            System.out.println("[VulkanMod] Replaced FML ImmediateWindowHandler provider with Vulkan no-op provider.");
         } catch (Throwable t) {
             System.err.println("[VulkanMod] Failed to replace FML provider field: " + t.getMessage());
         }

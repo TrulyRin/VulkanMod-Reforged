@@ -13,8 +13,12 @@ public final class GuiEntityRenderState {
     private GuiEntityRenderState() {
     }
 
+    public static boolean isGuiEntityPreview() {
+        return Minecraft.getInstance().screen != null || isHudEntityPreviewActive();
+    }
+
     public static boolean isGuiEntityPreview(int packedLight) {
-        return (Minecraft.getInstance().screen != null || isHudEntityPreviewActive()) && packedLight == 15728880;
+        return isGuiEntityPreview() && packedLight == 15728880;
     }
 
     public static void beginHudEntityPreview() {

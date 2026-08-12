@@ -7,6 +7,7 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.vulkanmod.config.gui.render.GuiRenderer;
+import net.vulkanmod.config.gui.page.SettingsPageListener;
 import net.vulkanmod.config.gui.widget.OptionWidget;
 import net.vulkanmod.config.gui.widget.VAbstractWidget;
 import net.vulkanmod.config.option.Option;
@@ -15,7 +16,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-public class VOptionList extends GuiElement {
+public class VOptionList extends GuiElement implements SettingsPageListener {
     private final List<Entry> children = new ObjectArrayList<>();
     boolean scrolling = false;
     float scrollAmount = 0.0f;

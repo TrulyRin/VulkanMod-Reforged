@@ -3,6 +3,7 @@ package net.vulkanmod.mixin.render;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferUploader;
 import com.mojang.blaze3d.vertex.MeshData;
+import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.renderer.ShaderInstance;
 import net.vulkanmod.compat.observer.GuiRenderTrace;
 import net.vulkanmod.gl.GlTexture;
@@ -97,7 +98,7 @@ public class BufferUploaderM {
     }
 
     private static boolean isFlatGuiDraw(String shaderName, MeshData.DrawState parameters) {
-        return isFlatGuiShader(shaderName)
+        return (isFlatGuiShader(shaderName) || isUniversalCraftGuiFormat(parameters.format()))
                 && isOrthographicProjection();
     }
 
@@ -106,6 +107,22 @@ public class BufferUploaderM {
                 || "position_tex_color".equals(shaderName)
                 || shaderName.startsWith("rendertype_gui")
                 || shaderName.startsWith("rendertype_text");
+    }
+
+    private static boolean isUniversalCraftGuiFormat(VertexFormat format) {
+        if (format == null) {
+            return false;
+        }
+
+        var attributes = format.getElementAttributeNames();
+        int size = attributes.size();
+        if (size == 0 || !"uc_Position".equals(attributes.get(0))) {
+            return false;
+        }
+
+        return size == 1
+                || size == 2 && ("uc_UV0".equals(attributes.get(1))
+                || "uc_Color".equals(attributes.get(1)));
     }
 
     private static boolean isOrthographicProjection() {

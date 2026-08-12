@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 final class GlTrampolines {
+    private static final int DIAGNOSTIC_KEY_LIMIT = 256;
 
     @FunctionalInterface
     interface Handler {
@@ -55,6 +56,10 @@ final class GlTrampolines {
     private static final Set<String> FAULTED = ConcurrentHashMap.newKeySet();
 
     private GlTrampolines() {
+    }
+
+    static Set<String> faultedFunctionsSnapshot() {
+        return Set.copyOf(new java.util.TreeSet<>(FAULTED));
     }
 
     static synchronized long create(String name, String shape, Handler handler) {
@@ -178,7 +183,7 @@ final class GlTrampolines {
                 handler.invoke(ret, args);
             } catch (Throwable t) {
 
-                if (FAULTED.add(name)) {
+                if (!FAULTED.contains(name) && FAULTED.size() < DIAGNOSTIC_KEY_LIMIT && FAULTED.add(name)) {
                     logError("Emulated GL function {} failed; returning default", name, t);
                 }
                 switch (retKind) {

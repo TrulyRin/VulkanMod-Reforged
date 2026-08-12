@@ -3,62 +3,74 @@ package net.vulkanmod.compat.path;
 import net.vulkanmod.compat.CompatMode;
 import net.vulkanmod.compat.CompatPolicyManager;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
+
 public class RenderPathOwnership {
-    private static final CompatMode[] pathModes = new CompatMode[RenderPath.values().length];
-    private static final String[] pathOwners = new String[RenderPath.values().length];
+    private static volatile PathState[] states = defaultStates();
 
-    static {
-
-        for (RenderPath path : RenderPath.values()) {
-            pathModes[path.ordinal()] = CompatMode.OFF;
-            pathOwners[path.ordinal()] = "minecraft";
-        }
-    }
-
-    public static void assignOwnership(RenderPath path, String ownerModId, CompatMode mode) {
-        String normalizedOwner = ownerModId.toLowerCase();
+    public static synchronized void assignOwnership(RenderPath path, String ownerModId, CompatMode mode) {
+        String normalizedOwner = ownerModId.toLowerCase(Locale.ROOT);
         int idx = path.ordinal();
+        PathState[] updated = states.clone();
 
         if (CompatPolicyManager.isCoexistenceIncompatible()) {
             if (path == RenderPath.GUI || path == RenderPath.TEXT || path == RenderPath.ITEMS || path == RenderPath.HUD_CACHE) {
-                pathModes[idx] = CompatMode.SAFE;
-                pathOwners[idx] = normalizedOwner;
+                updated[idx] = new PathState(path, normalizedOwner, CompatMode.SAFE);
+                states = updated;
                 return;
             }
         }
 
-        pathModes[idx] = mode;
-        pathOwners[idx] = normalizedOwner;
+        updated[idx] = new PathState(path, normalizedOwner, mode);
+        states = updated;
     }
 
-    public static void releaseOwnership(RenderPath path, String ownerModId) {
-        String normalizedOwner = ownerModId.toLowerCase();
+    public static synchronized void releaseOwnership(RenderPath path, String ownerModId) {
+        String normalizedOwner = ownerModId.toLowerCase(Locale.ROOT);
         int idx = path.ordinal();
+        PathState[] current = states;
 
-        if (!pathOwners[idx].equals(normalizedOwner)) {
+        if (!current[idx].owner().equals(normalizedOwner)) {
             return;
         }
 
-        pathModes[idx] = CompatMode.OFF;
-        pathOwners[idx] = "minecraft";
+        PathState[] updated = current.clone();
+        updated[idx] = new PathState(path, "minecraft", CompatMode.OFF);
+        states = updated;
     }
 
-    public static void reset() {
-        for (RenderPath path : RenderPath.values()) {
-            pathModes[path.ordinal()] = CompatMode.OFF;
-            pathOwners[path.ordinal()] = "minecraft";
-        }
+    public static synchronized void reset() {
+        states = defaultStates();
     }
 
     public static CompatMode getPathMode(RenderPath path) {
-        return pathModes[path.ordinal()];
+        return states[path.ordinal()].mode();
     }
 
     public static String getPathOwner(RenderPath path) {
-        return pathOwners[path.ordinal()];
+        return states[path.ordinal()].owner();
     }
 
     public static boolean isPathActive(RenderPath path) {
-        return getPathMode(path) != CompatMode.OFF;
+        return states[path.ordinal()].mode() != CompatMode.OFF;
+    }
+
+    public static List<PathState> snapshot() {
+        PathState[] captured = states;
+        return List.copyOf(Arrays.asList(captured.clone()));
+    }
+
+    private static PathState[] defaultStates() {
+        RenderPath[] paths = RenderPath.values();
+        PathState[] defaults = new PathState[paths.length];
+        for (RenderPath path : paths) {
+            defaults[path.ordinal()] = new PathState(path, "minecraft", CompatMode.OFF);
+        }
+        return defaults;
+    }
+
+    public record PathState(RenderPath path, String owner, CompatMode mode) {
     }
 }
