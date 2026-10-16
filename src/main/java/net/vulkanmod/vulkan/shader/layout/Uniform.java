@@ -50,6 +50,7 @@ public class Uniform {
     }
 
     public static Uniform createField(Info info) {
+        if (info.arrayLength > 0) return new FixedFloatArray(info);
         return switch (info.type) {
             case "mat4", "vec3", "vec4", "vec2" -> new Uniform(info);
             case "mat3" -> new Mat3(info);
@@ -88,7 +89,8 @@ public class Uniform {
     public static Info createUniformInfo(String type, String name) {
         return switch (type) {
             case "mat4" -> new Info(type, name, 4, 16);
-            case "mat3" -> new Info(type, name, 4, 9);
+                                                                            
+            case "mat3" -> new Info(type, name, 4, 12);
 
             case "vec4" -> new Info(type, name, 4, 4);
             case "vec3" -> new Info(type, name, 4, 3);
@@ -100,18 +102,34 @@ public class Uniform {
         };
     }
 
+                                                                                          
+    public static Info createUniformArrayInfo(String type, String name, int length) {
+        if (!"float".equals(type) || length <= 0 || length > Integer.MAX_VALUE / 16) {
+            throw new IllegalArgumentException("Unsupported fixed uniform array: " + type + " " + name + "[" + length + "]");
+        }
+        return new Info(type, name, 4, length * 4, length, 4);
+    }
+
     public static class Info {
         final String type;
         final String name;
         final int align;
         final int size;
+        final int arrayLength;
+        final int arrayStride;
         int offset;
 
         Info(String type, String name, int align, int size) {
+            this(type, name, align, size, 0, 0);
+        }
+
+        Info(String type, String name, int align, int size, int arrayLength, int arrayStride) {
             this.type = type;
             this.name = name;
             this.align = align;
             this.size = size;
+            this.arrayLength = arrayLength;
+            this.arrayStride = arrayStride;
         }
 
         int getSizeBytes() { return 4 * this.size; }

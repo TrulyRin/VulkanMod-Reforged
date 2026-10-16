@@ -15,6 +15,7 @@ import net.vulkanmod.config.video.VideoModeManager;
 import net.vulkanmod.compat.CompatBootstrap;
 import net.vulkanmod.compat.CompatReport;
 import net.vulkanmod.compat.RuntimeOptions;
+import net.vulkanmod.compat.sable.flywheel.VulkanFlywheelBootstrap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -49,6 +50,7 @@ public class Initializer {
 
 	private void onInitializeClient(FMLClientSetupEvent event) {
 		LOGGER.info("== VulkanMod ==");
+		VulkanFlywheelBootstrap.registerIfPresent();
 		UpdateChecker.checkForUpdates();
 		event.enqueueWork(() -> {
 			CompatBootstrap.init();

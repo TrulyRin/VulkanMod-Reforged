@@ -1,6 +1,7 @@
 package net.vulkanmod.mixin.render;
 
 import net.minecraft.client.DeltaTracker;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphics;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -8,6 +9,7 @@ import net.vulkanmod.compat.path.RenderPath;
 import net.vulkanmod.compat.path.RenderPathOwnership;
 import net.vulkanmod.compat.observer.GuiRenderTrace;
 import net.vulkanmod.compat.render.RenderStateSnapshot;
+import net.vulkanmod.compat.scguns.ScgunsCooldownHud;
 import net.vulkanmod.vulkan.VRenderSystem;
 import net.vulkanmod.vulkan.Renderer;
 import org.spongepowered.asm.mixin.Mixin;
@@ -41,19 +43,46 @@ public class GuiRenderStateBoundaryMixin {
 
     @Inject(method = "render", at = @At("RETURN"))
     private void vulkanMod$endGuiRenderStateBoundary(GuiGraphics guiGraphics, DeltaTracker deltaTracker, CallbackInfo ci) {
-        boolean active = this.vulkanMod$guiStateSnapshot != null;
-        if (GuiRenderTrace.isActive()) {
-            GuiRenderTrace.logBoundary("end", "active=" + active + " snapshotAlpha=" + VRenderSystem.getShaderColor().getFloat(12));
-        }
+        try {
+            vulkanMod$renderScgunsCooldownHud();
+        } finally {
+            boolean active = this.vulkanMod$guiStateSnapshot != null;
+            if (GuiRenderTrace.isActive()) {
+                GuiRenderTrace.logBoundary("end", "active=" + active + " snapshotAlpha=" + VRenderSystem.getShaderColor().getFloat(12));
+            }
 
-        if (!active) {
-            GuiRenderTrace.endGuiRender();
+            RenderStateSnapshot snapshot = this.vulkanMod$guiStateSnapshot;
+            this.vulkanMod$guiStateSnapshot = null;
+            try {
+                if (snapshot != null) {
+                    snapshot.restore();
+                }
+            } finally {
+                GuiRenderTrace.endGuiRender();
+            }
+        }
+    }
+
+    @Unique
+    private static void vulkanMod$renderScgunsCooldownHud() {
+        if (!ScgunsCooldownHud.isRegistered() || !RenderSystem.isOnRenderThread()) {
             return;
         }
 
-        RenderStateSnapshot snapshot = this.vulkanMod$guiStateSnapshot;
-        this.vulkanMod$guiStateSnapshot = null;
-        snapshot.restore();
-        GuiRenderTrace.endGuiRender();
+        Minecraft minecraft = Minecraft.getInstance();
+        Renderer renderer = Renderer.getInstance();
+        boolean safeFrame = renderer != null && Renderer.isRecording()
+                && Renderer.getCommandBuffer() != null && renderer.getBoundRenderPass() != null;
+        if (!safeFrame || minecraft.options.hideGui) {
+            return;
+        }
+
+                                                                                     
+        RenderStateSnapshot snapshot = new RenderStateSnapshot();
+        try {
+            ScgunsCooldownHud.render(safeFrame, minecraft.options.hideGui);
+        } finally {
+            snapshot.restore();
+        }
     }
 }

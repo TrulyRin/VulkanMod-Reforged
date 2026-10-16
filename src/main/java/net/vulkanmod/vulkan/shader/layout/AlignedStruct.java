@@ -58,8 +58,20 @@ public abstract class AlignedStruct {
             this.uniformsInfo.add(info);
         }
 
+        public void addUniformArrayInfo(String type, String name, int length) {
+            Uniform.Info info = Uniform.createUniformArrayInfo(type, name, length);
+                                                                       
+            long aligned = (long) this.currentOffset + ((info.align - (this.currentOffset % info.align)) % info.align);
+            if (aligned + info.size > Integer.MAX_VALUE / 4) {
+                throw new IllegalArgumentException("Uniform block array extent exceeds byte capacity");
+            }
+            info.offset = (int) aligned;
+            this.currentOffset = info.offset + info.size;
+            this.uniformsInfo.add(info);
+        }
+
         public UBO buildUBO(int binding, int stages) {
-            //offset is expressed in floats/ints
+                                                
             return new UBO(binding, stages, this.currentOffset * 4, this.uniformsInfo);
         }
 

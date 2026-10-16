@@ -17,7 +17,7 @@ public class SubBlockAoFace extends AoFaceData {
         final int y;
         final int z;
 
-        // if offset is true, requested face is outset hence light data is referring to adjacent block
+                                                                                                      
         if (offset) {
             x = oX + direction.getStepX();
             y = oY + direction.getStepY();
@@ -47,7 +47,7 @@ public class SubBlockAoFace extends AoFaceData {
 
         int[] cbits = aoInfo.outCornerBits;
 
-        // Edges
+                
         final int e0 = cache.get(x, y, z, faces[0]);
         final int e0lm = getLightmap(e0);
         final boolean e0em = unpackEM(e0);
@@ -275,7 +275,7 @@ public class SubBlockAoFace extends AoFaceData {
         float c2ao = c2oc ? 0.0f : 3.0f;
         float c3ao = c3oc ? 0.0f : 3.0f;
 
-        // Edges
+                
         cbits = aoInfo.outCornerBits;
 
         final int e1 = cache.get(x2, y2, z2, faces[1]);

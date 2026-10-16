@@ -15,7 +15,11 @@ import net.minecraft.util.GsonHelper;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.interfaces.ShaderMixed;
 import net.vulkanmod.gl.GlEmulationLog;
+import net.vulkanmod.gl.GlProgram;
+import net.vulkanmod.compat.sable.veil.VeilShaderProgramAccess;
+import net.vulkanmod.compat.sable.veil.VeilProgramPipelines;
 import net.vulkanmod.vulkan.shader.GraphicsPipeline;
+import net.vulkanmod.vulkan.shader.LegacyProjectionSupplier;
 import net.vulkanmod.vulkan.shader.Pipeline;
 import net.vulkanmod.vulkan.shader.descriptor.UBO;
 import net.vulkanmod.vulkan.shader.layout.Uniform;
@@ -69,13 +73,19 @@ public class ShaderInstanceM implements ShaderMixed {
 
     private GraphicsPipeline pipeline;
     private final Map<VertexFormat, GraphicsPipeline> variantPipelines = new HashMap<>();
+    private final Map<VertexFormat, GraphicsPipeline> sablePipelines = new HashMap<>();
+    private final Map<String, UniformBufferView> uniformBuffers = new HashMap<>();
+
+    private record UniformBufferView(com.mojang.blaze3d.shaders.Uniform owner, MappedBuffer buffer) {}
     boolean isLegacy = false;
 
     public GraphicsPipeline getPipeline() {
+        if (VeilShaderProgramAccess.isWrapper(this)) return VeilProgramPipelines.getPipeline(this, null);
         return pipeline;
     }
 
     public GraphicsPipeline getPipeline(VertexFormat drawFormat) {
+        if (VeilShaderProgramAccess.isWrapper(this)) return VeilProgramPipelines.getPipeline(this, drawFormat);
         if (this.pipeline == null || drawFormat == null || drawFormat.equals(this.pipelineFormat)) {
             return this.pipeline;
         }
@@ -85,6 +95,57 @@ public class ShaderInstanceM implements ShaderMixed {
         }
 
         return this.variantPipelines.computeIfAbsent(drawFormat, this::createPipelineVariant);
+    }
+
+    @Override
+    public MappedBuffer uniformBuffer(String uniformName) {
+        if (VeilShaderProgramAccess.isWrapper(this)) {
+                                                                                     
+            return GlProgram.uniformBuffer(VeilShaderProgramAccess.programId(this), uniformName);
+        }
+        com.mojang.blaze3d.shaders.Uniform uniform = this.uniformMap.get(uniformName);
+        if (uniform == null) {
+            this.uniformBuffers.remove(uniformName);
+            return null;
+        }
+        UniformBufferView cached = this.uniformBuffers.get(uniformName);
+        if (cached != null && cached.owner() == uniform) {
+            return cached.buffer();
+        }
+
+                                                                                             
+        ByteBuffer buffer;
+        if (uniform.getType() <= 3) {
+            buffer = MemoryUtil.memByteBuffer(uniform.getIntBuffer());
+        } else if (uniform.getType() <= 10) {
+            buffer = MemoryUtil.memByteBuffer(uniform.getFloatBuffer());
+        } else {
+            this.uniformBuffers.remove(uniformName);
+            return null;
+        }
+        MappedBuffer mapped = MappedBuffer.createFromBuffer(buffer);
+        this.uniformBuffers.put(uniformName, new UniformBufferView(uniform, mapped));
+        return mapped;
+    }
+
+    @Override
+    public GraphicsPipeline getSablePipeline(VertexFormat drawFormat) {
+        if (drawFormat == null) {
+            return null;
+        }
+        return this.sablePipelines.computeIfAbsent(drawFormat, format -> {
+            try {
+                Pipeline.Builder builder = new Pipeline.Builder(format,
+                        "vulkanmod/compat/sable/terrain/terrain");
+                builder.parseBindingsJSON();
+                builder.compileShaders();
+                return builder.createGraphicsPipeline();
+            } catch (Exception exception) {
+                Initializer.LOGGER.error("Unable to create the Sable terrain pipeline for shader {}", this.name,
+                        exception);
+                return null;
+            }
+        });
     }
 
     @Inject(method = "<init>(Lnet/minecraft/server/packs/resources/ResourceProvider;Lnet/minecraft/resources/ResourceLocation;Lcom/mojang/blaze3d/vertex/VertexFormat;)V", at = @At("RETURN"))
@@ -179,6 +240,13 @@ public class ShaderInstanceM implements ShaderMixed {
             }
         });
         this.variantPipelines.clear();
+        this.sablePipelines.values().forEach(sablePipeline -> {
+            if (sablePipeline != null && sablePipeline != this.pipeline) {
+                sablePipeline.cleanUp();
+            }
+        });
+        this.sablePipelines.clear();
+        this.uniformBuffers.clear();
         ci.cancel();
     }
 
@@ -257,21 +325,15 @@ public class ShaderInstanceM implements ShaderMixed {
                 continue;
             }
 
-            Supplier<MappedBuffer> supplier;
-            ByteBuffer byteBuffer;
-
-            if (uniform.getType() <= 3) {
-                byteBuffer = MemoryUtil.memByteBuffer(uniform.getIntBuffer());
-            } else if (uniform.getType() <= 10) {
-                byteBuffer = MemoryUtil.memByteBuffer(uniform.getFloatBuffer());
-            } else {
+            MappedBuffer mappedBuffer = uniformBuffer(vUniform.getName());
+            if (mappedBuffer == null) {
                 throw new RuntimeException("out of bounds value for uniform " + uniform);
             }
-
-            MappedBuffer mappedBuffer = MappedBuffer.createFromBuffer(byteBuffer);
-            supplier = () -> mappedBuffer;
-
-            vUniform.setSupplier(supplier);
+            if ("ProjMat".equals(vUniform.getName()) && vUniform.getSize() == 16 && uniform.getType() == 10) {
+                vUniform.setSupplier(new LegacyProjectionSupplier(mappedBuffer));
+            } else {
+                vUniform.setSupplier(() -> mappedBuffer);
+            }
         }
 
     }
@@ -298,6 +360,7 @@ public class ShaderInstanceM implements ShaderMixed {
 
             GlslConverter converter = new GlslConverter();
             converter.setFormat(format);
+            converter.reserveUniformNames(this.uniformMap.keySet());
             Pipeline.Builder builder = new Pipeline.Builder(format, this.name);
 
             converter.process(vshSrc, fshSrc);

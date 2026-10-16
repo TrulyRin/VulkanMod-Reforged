@@ -7,9 +7,9 @@ import org.spongepowered.asm.mixin.Overwrite;
 @Mixin(VertexFormat.IndexType.class)
 public class IndexTypeMixin {
 
-    /**
-     * @author
-     */
+       
+              
+       
     @Overwrite
     public static VertexFormat.IndexType least(int number) {
         return VertexFormat.IndexType.SHORT;

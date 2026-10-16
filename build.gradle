@@ -13,6 +13,20 @@ base {
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
+repositories {
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
+            includeGroup "maven.modrinth"
+        }
+    }
+}
+
 neoForge {
     version = project.neo_version
 
@@ -67,7 +81,9 @@ project.ext.devNatives = host.windows ? "natives-windows"
         : "natives-linux"
 
 dependencies {
-    // Standard LWJGL for Vulkan
+
+    compileOnly "io.github.llamalad7:mixinextras-neoforge:0.5.3"
+
     implementation "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
     implementation "org.lwjgl:lwjgl-shaderc:$lwjglVersion"
     implementation "org.lwjgl:lwjgl-vma:$lwjglVersion"
@@ -75,14 +91,12 @@ dependencies {
     runtimeOnly "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$devNatives"
     runtimeOnly "org.lwjgl:lwjgl-vma:$lwjglVersion:$devNatives"
 
-    // Add to runtime classpath for Dev Runs
     additionalRuntimeClasspath "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:$lwjglVersion"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-vma:$lwjglVersion"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$devNatives"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-vma:$lwjglVersion:$devNatives"
 
-    // Bundle them for production via JarJar
     jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
     jarJar "org.lwjgl:lwjgl-shaderc:$lwjglVersion"
     jarJar "org.lwjgl:lwjgl-vma:$lwjglVersion"
@@ -93,26 +107,19 @@ dependencies {
     jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-macos"
     jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-macos-arm64"
 
-    // Flywheel backend SPI (runtime ships inside Create's jar-in-jar; compile against the same version)
     compileOnly files("libs/flywheel-neoforge-1.21.1-1.0.6.jar")
+    compileOnly("maven.modrinth:T9PomCSv:1L6XJqnY") {
+        transitive = false
+    }
 
-    testImplementation "org.junit.jupiter:junit-jupiter:5.10.2"
-    testImplementation "com.google.code.gson:gson:2.10.1"
-    testImplementation "it.unimi.dsi:fastutil:8.5.12"
-    testImplementation "org.apache.commons:commons-lang3:3.14.0"
-    testImplementation "org.lwjgl:lwjgl-opengl:$lwjglVersion"
-    testRuntimeOnly "org.lwjgl:lwjgl:$lwjglVersion:$devNatives"
-    testRuntimeOnly "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$devNatives"
 }
 
-// Ensure JarJar only contains what we want
 configurations.jarJar {
     exclude group: 'org.lwjgl', module: 'lwjgl'
     exclude group: 'org.lwjgl', module: 'lwjgl-glfw'
     exclude group: 'org.lwjgl', module: 'lwjgl-opengl'
     exclude group: 'org.lwjgl', module: 'lwjgl-stb'
 }
-
 
 processResources {
     inputs.property "version", project.version
@@ -125,11 +132,6 @@ processResources {
 tasks.withType(JavaCompile).configureEach {
     it.options.release = 21
 }
-
-test {
-    useJUnitPlatform()
-}
-
 
 java {
     withSourcesJar()
@@ -156,21 +158,15 @@ publishing {
     }
 }
 
-// Post-process: strip module-info.class from embedded LWJGL JarJar jars.
-// Without this, lwjgl-vulkan ends up in its own JPMS module layer,
-// invisible to org.lwjgl.glfw in the boot layer, causing:
-//   NoClassDefFoundError: org/lwjgl/vulkan/VkInstance
 tasks.named('jar') {
     doLast {
         def jarFile = archiveFile.get().asFile
         def tmpDir = new File(temporaryDir, "repack")
 
-        // Extract the fat jar
         tmpDir.deleteDir()
         tmpDir.mkdirs()
         ant.unzip(src: jarFile, dest: tmpDir)
 
-        // Strip module-info.class from each embedded LWJGL jar
         def jarjarDir = new File(tmpDir, "META-INF/jarjar")
         if (jarjarDir.exists()) {
             jarjarDir.listFiles().findAll { it.name.endsWith('.jar') && it.name.startsWith('lwjgl-') }.each { embeddedJar ->
@@ -185,7 +181,6 @@ tasks.named('jar') {
                 stripped.renameTo(embeddedJar)
             }
 
-            // Fix metadata.json because NeoForge JarJar generates duplicate identifiers for natives
             def metadataFile = new File(jarjarDir, "metadata.json")
             if (metadataFile.exists()) {
                 def slurper = new groovy.json.JsonSlurper()
@@ -200,7 +195,6 @@ tasks.named('jar') {
             }
         }
 
-        // Repack
         jarFile.delete()
         ant.zip(destfile: jarFile, basedir: tmpDir)
     }

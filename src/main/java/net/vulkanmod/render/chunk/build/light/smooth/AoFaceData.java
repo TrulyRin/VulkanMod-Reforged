@@ -26,7 +26,7 @@ class AoFaceData {
         final int z;
 
         if (offset) {
-            // Requested face is outer hence light data is referring to adjacent block
+                                                                                      
             x = oX + direction.getStepX();
             y = oY + direction.getStepY();
             z = oZ + direction.getStepZ();
@@ -54,7 +54,7 @@ class AoFaceData {
 
         SimpleDirection[] faces = AoNeighborInfo.get(direction).faces;
 
-        // Edges
+                
         final int e0 = cache.get(x, y, z, faces[0]);
         final int e0lm = getLightmap(e0);
         final float e0ao = unpackAO(e0);
@@ -79,8 +79,8 @@ class AoFaceData {
         final boolean e3op = unpackOP(e3);
         final boolean e3em = unpackEM(e3);
 
-        // If both edges of a corner are occluded, use edge value
-        // This is generally right since full blocks should have the same ao value
+                                                                 
+                                                                                  
         final int c0lm;
         final float c0ao;
         final boolean c0em;
@@ -209,21 +209,21 @@ class AoFaceData {
     }
 
     static int calculateCornerBrightness(int a, int b, int c, int d, boolean aem, boolean bem, boolean cem, boolean dem) {
-        // FIX: Normalize corner vectors correctly to the minimum non-zero value between each one to prevent
-        // strange issues
+                                                                                                            
+                         
         if ((a == 0) || (b == 0) || (c == 0) || (d == 0)) {
-            // Find the minimum value between all corners
+                                                         
             final int min = minNonZero(minNonZero(a, b), minNonZero(c, d));
 
-            // Normalize the corner values
+                                          
             a = Math.max(a, min);
             b = Math.max(b, min);
             c = Math.max(c, min);
             d = Math.max(d, min);
         }
 
-        // FIX: Apply the fullbright lightmap from emissive blocks at the very end so it cannot influence
-        // the minimum lightmap and produce incorrect results (for example, sculk sensors in a dark room)
+                                                                                                         
+                                                                                                         
         if (aem) {
             a = LightTexture.FULL_BRIGHT;
         }

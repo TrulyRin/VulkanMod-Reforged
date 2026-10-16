@@ -87,6 +87,10 @@ public class GL11M {
     @NativeType("void")
     @Overwrite(remap = false)
     public static int glGetInteger(@NativeType("GLenum") int pname) {
+        if (pname == GL11.GL_VIEWPORT) {
+            ensureViewport();
+            return viewport[0];
+        }
         if (GlPixelStore.isPixelStoreParameter(pname)) {
             return GlPixelStore.getInteger(pname);
         }
@@ -267,7 +271,9 @@ public class GL11M {
     public static void glGetFloatv(@NativeType("GLenum") int pname, @NativeType("GLfloat *") float[] params) {
         if (pname == GL11.GL_VIEWPORT) {
             ensureViewport();
-            System.arraycopy(viewport, 0, params, 0, Math.min(4, params.length));
+            for (int i = 0; i < Math.min(4, params.length); i++) {
+                params[i] = viewport[i];
+            }
         } else if (pname == GL_COLOR_CLEAR_VALUE) {
             for (int i = 0; i < Math.min(4, params.length); i++) {
                 params[i] = VRenderSystem.clearColor.get(i);
@@ -490,6 +496,9 @@ public class GL11M {
 
     @Overwrite(remap = false)
     public static double glGetDouble(@NativeType("GLenum") int pname) {
+        if (pname == GL11.GL_DEPTH_CLEAR_VALUE) {
+            return VRenderSystem.clearDepthValue;
+        }
         return glGetInteger(pname);
     }
 
@@ -559,6 +568,12 @@ public class GL11M {
     }
 
     private static void ensureViewport() {
+        if (Renderer.isViewportInitialized()) {
+            for (int i = 0; i < 4; i++) {
+                viewport[i] = Renderer.getViewportBox(i);
+            }
+            return;
+        }
         if (viewport[2] == 0 || viewport[3] == 0) {
             var window = Minecraft.getInstance().getWindow();
             viewport[0] = 0;

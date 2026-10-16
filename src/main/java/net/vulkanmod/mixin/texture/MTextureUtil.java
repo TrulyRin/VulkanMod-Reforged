@@ -5,7 +5,6 @@ import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.platform.TextureUtil;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.vulkanmod.gl.GlTexture;
-import net.vulkanmod.vulkan.texture.VTextureSelector;
 import net.vulkanmod.vulkan.texture.VulkanImage;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL30;
@@ -47,7 +46,6 @@ public class MTextureUtil {
                     .createVulkanImage();
 
             glTexture.setVulkanImage(image);
-            VTextureSelector.bindTexture(image);
         }
     }
 }

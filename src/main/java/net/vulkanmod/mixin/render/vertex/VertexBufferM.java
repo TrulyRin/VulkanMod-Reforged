@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(value = VertexBuffer.class, priority = 900)
+@Mixin(value = VertexBuffer.class, priority = 1100)
 public class VertexBufferM {
 
     private VBO vbo;
@@ -50,7 +50,9 @@ public class VertexBufferM {
 
     @Inject(method = "uploadIndexBuffer(Lcom/mojang/blaze3d/vertex/ByteBufferBuilder$Result;)V", at = @At("HEAD"), cancellable = true)
     private void uploadIndexBuffer(ByteBufferBuilder.Result result, CallbackInfo ci) {
-        vbo.uploadIndexBuffer(result.byteBuffer());
+        try (result) {
+            vbo.uploadIndexBuffer(result.byteBuffer());
+        }
         ci.cancel();
     }
 

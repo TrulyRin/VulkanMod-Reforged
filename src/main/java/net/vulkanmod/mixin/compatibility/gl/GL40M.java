@@ -1,5 +1,6 @@
 package net.vulkanmod.mixin.compatibility.gl;
 
+import net.vulkanmod.compat.gl.GlPatchState;
 import net.vulkanmod.vulkan.VRenderSystem;
 import org.lwjgl.opengl.GL40C;
 import org.lwjgl.system.NativeType;
@@ -76,6 +77,7 @@ public class GL40M {
 
     @Overwrite(remap = false)
     public static void glPatchParameteri(@NativeType("GLenum") int pname, @NativeType("GLint") int value) {
+        GlPatchState.patchParameteri(pname, value);
     }
 
     @Overwrite(remap = false)

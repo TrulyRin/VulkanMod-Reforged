@@ -7,6 +7,8 @@ import net.vulkanmod.render.chunk.ChunkArea;
 import net.vulkanmod.render.chunk.RenderSection;
 import net.vulkanmod.render.chunk.buffer.DrawBuffers;
 import net.vulkanmod.render.chunk.build.UploadBuffer;
+import net.vulkanmod.render.chunk.build.BlockLayerMesh;
+import net.vulkanmod.render.VBO;
 import net.vulkanmod.render.vertex.QuadSorter;
 import net.vulkanmod.render.vertex.TerrainRenderType;
 
@@ -29,6 +31,9 @@ public class CompileResult {
     public final EnumMap<TerrainRenderType, UploadBuffer> renderedLayers = new EnumMap<>(TerrainRenderType.class);
     public final EnumMap<TerrainRenderType, DrawBuffers.PendingUpload> stagedLayers =
             new EnumMap<>(TerrainRenderType.class);
+
+    public BlockLayerMesh blockLayerMesh;
+    private VBO stagedBlockLayer;
 
     VisibilitySet visibilitySet;
     QuadSorter.SortState transparencyState;
@@ -60,11 +65,71 @@ public class CompileResult {
                 && this.renderSection.zOffset() == this.zOffset;
     }
 
+                                                                                              
+    public boolean stageBlockLayer() {
+        if (!this.fullUpdate || this.blockLayerMesh == null) return false;
+        BlockLayerMesh cpu = this.blockLayerMesh;
+        this.blockLayerMesh = null;
+        VBO candidate = null;
+        try (cpu) {
+            candidate = new VBO();
+            candidate.upload(cpu.mesh());
+        } catch (RuntimeException | Error failure) {
+            if (candidate != null) {
+                try { candidate.close(); }
+                catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            }
+            throw failure;
+        }
+        this.stagedBlockLayer = candidate;
+        return true;
+    }
+
+                                                                                              
+    public boolean commitBlockLayer() {
+        if (!this.matchesCurrentSection()) {
+            this.releaseBuffers();
+            return false;
+        }
+        if (!this.fullUpdate) return true;
+        VBO replacement = this.stagedBlockLayer;
+        this.stagedBlockLayer = null;
+        this.renderSection.replaceBlockLayerVbo(replacement);
+        return true;
+    }
+
     public void releaseBuffers() {
-        this.renderedLayers.values().forEach(UploadBuffer::release);
+        Throwable failure = null;
+        for (UploadBuffer buffer : this.renderedLayers.values()) {
+            try { buffer.release(); }
+            catch (RuntimeException | Error cleanup) { failure = accumulate(failure, cleanup); }
+        }
         this.renderedLayers.clear();
-        this.stagedLayers.values().forEach(DrawBuffers.PendingUpload::discard);
+        for (DrawBuffers.PendingUpload buffer : this.stagedLayers.values()) {
+            try { buffer.discard(); }
+            catch (RuntimeException | Error cleanup) { failure = accumulate(failure, cleanup); }
+        }
         this.stagedLayers.clear();
+        BlockLayerMesh cpu = this.blockLayerMesh;
+        this.blockLayerMesh = null;
+        if (cpu != null) {
+            try { cpu.close(); }
+            catch (RuntimeException | Error cleanup) { failure = accumulate(failure, cleanup); }
+        }
+        VBO candidate = this.stagedBlockLayer;
+        this.stagedBlockLayer = null;
+        if (candidate != null) {
+            try { candidate.close(); }
+            catch (RuntimeException | Error cleanup) { failure = accumulate(failure, cleanup); }
+        }
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
+    }
+
+    private static Throwable accumulate(Throwable failure, Throwable cleanup) {
+        if (failure == null) return cleanup;
+        if (failure != cleanup) failure.addSuppressed(cleanup);
+        return failure;
     }
 
     public void updateSection() {

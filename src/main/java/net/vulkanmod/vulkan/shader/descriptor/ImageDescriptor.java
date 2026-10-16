@@ -1,5 +1,6 @@
 package net.vulkanmod.vulkan.shader.descriptor;
 
+import net.vulkanmod.gl.GlSampler;
 import net.vulkanmod.vulkan.texture.VTextureSelector;
 import net.vulkanmod.vulkan.texture.VulkanImage;
 
@@ -68,7 +69,19 @@ public class ImageDescriptor implements Descriptor {
     }
 
     public VulkanImage getImage() {
-        return VTextureSelector.getImage(this.imageIdx);
+        return VTextureSelector.getImage(getTextureUnit());
+    }
+
+    public int getTextureUnit() {
+        return this.imageIdx;
+    }
+
+    public boolean usesVanillaTextureBinding() {
+        return true;
+    }
+
+    public long getSampler(VulkanImage image) {
+        return this.useSampler ? GlSampler.resolveSampler(getTextureUnit(), image) : 0L;
     }
 
     public long getImageView(VulkanImage image) {

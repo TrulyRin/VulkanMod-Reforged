@@ -13,7 +13,7 @@ import net.vulkanmod.vulkan.texture.VulkanImage;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL30;
 
-import static org.lwjgl.vulkan.VK11.VK_ATTACHMENT_LOAD_OP_CLEAR;
+import static org.lwjgl.vulkan.VK11.VK_ATTACHMENT_LOAD_OP_LOAD;
 import static org.lwjgl.vulkan.VK11.VK_ATTACHMENT_STORE_OP_STORE;
 import static org.lwjgl.vulkan.VK11.VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 import static org.lwjgl.vulkan.VK10.VK_IMAGE_ASPECT_COLOR_BIT;
@@ -27,6 +27,7 @@ public class GlFramebuffer {
     private static int boundReadId = 0;
     private static GlFramebuffer boundDrawFramebuffer;
     private static GlFramebuffer boundReadFramebuffer;
+    private static long borrowedAttachmentGeneration;
 
     public static void resetBoundFramebuffer() {
         boundDrawFramebuffer = null;
@@ -42,10 +43,13 @@ public class GlFramebuffer {
         int viewWidth = framebuffer.getWidth();
         int viewHeight = framebuffer.getHeight();
 
-        Renderer.setInvertedViewport(0, 0, viewWidth, viewHeight);
+        if (glFramebuffer.borrowedPairs != null) {
+                                                                                                               
+            Renderer.setViewport(0, 0, viewWidth, viewHeight);
+        } else {
+            Renderer.setInvertedViewport(0, 0, viewWidth, viewHeight);
+        }
         Renderer.setScissor(0, 0, viewWidth, viewHeight);
-
-        VRenderSystem.disableCull();
 
         boundDrawFramebuffer = glFramebuffer;
         boundDrawId = glFramebuffer.id;
@@ -132,16 +136,17 @@ public class GlFramebuffer {
             return;
         }
 
-        framebuffer.cleanUp();
-
-        if (boundDrawFramebuffer == framebuffer) {
-            boundDrawFramebuffer = null;
-            boundDrawId = 0;
-        }
-
-        if (boundReadFramebuffer == framebuffer) {
-            boundReadFramebuffer = null;
-            boundReadId = 0;
+        try {
+            framebuffer.cleanUp();
+        } finally {
+            if (boundDrawFramebuffer == framebuffer) {
+                boundDrawFramebuffer = null;
+                boundDrawId = 0;
+            }
+            if (boundReadFramebuffer == framebuffer) {
+                boundReadFramebuffer = null;
+                boundReadId = 0;
+            }
         }
     }
 
@@ -419,6 +424,92 @@ public class GlFramebuffer {
         return map.get(id);
     }
 
+                                                                                                     
+    public static boolean refreshBorrowedAttachments(int framebufferId, int colorTextureId, int depthTextureId, int capacity) {
+        GlFramebuffer target = map.get(framebufferId);
+        if (target == null || capacity < 1 || boundDrawFramebuffer == target || boundDrawId == framebufferId) {
+            return false;
+        }
+
+        GlTexture colorTexture = GlTexture.getTexture(colorTextureId);
+        GlTexture depthTexture = GlTexture.getTexture(depthTextureId);
+        VulkanImage color = colorTexture != null ? colorTexture.vulkanImage : null;
+        VulkanImage depth = depthTexture != null ? depthTexture.vulkanImage : null;
+        if (color == null || depth == null || color.width <= 0 || color.height <= 0
+                || color.width != depth.width || color.height != depth.height) {
+            return false;
+        }
+
+        BorrowedFramebufferCache<NativePair> previousCache = target.borrowedPairs;
+        BorrowedFramebufferCache<NativePair> cache = previousCache;
+        if (cache == null || target.borrowedCapacity != capacity) {
+            cache = new BorrowedFramebufferCache<>(capacity,
+                    key -> target.borrowedPairFactory != null
+                            ? target.borrowedPairFactory.apply(key)
+                            : createBorrowedNativePair((VulkanImage) key.colorIdentity(), (VulkanImage) key.depthIdentity()),
+                    NativePair::cleanUp);
+        }
+
+        NativePair pair;
+        try {
+            pair = cache.acquire(borrowedAttachmentGeneration,
+                    color, color.getId(), color.getImageView(), color.width, color.height, color.format,
+                    depth, depth.getId(), depth.getImageView(), depth.width, depth.height, depth.format);
+        } catch (RuntimeException | Error failure) {
+                                                                                                
+                                                                                                  
+            if (previousCache != null && target.borrowedCurrentPair != null
+                    && !previousCache.retains(target.borrowedCurrentPair)) {
+                target.framebuffer = null;
+                target.renderPass = null;
+                target.colorAttachment = null;
+                target.depthAttachment = null;
+                target.borrowedCurrentPair = null;
+            }
+            throw failure;
+        }
+        NativePair previousOrdinary = previousCache == null && (target.framebuffer != null || target.renderPass != null)
+                ? new NativePair(target.framebuffer, target.renderPass) : null;
+
+                                                                                                       
+        target.borrowedPairs = cache;
+        target.borrowedCapacity = capacity;
+        target.borrowedCurrentPair = pair;
+        target.colorAttachment = color;
+        target.depthAttachment = depth;
+        target.framebuffer = pair.framebuffer;
+        target.renderPass = pair.renderPass;
+        target.trackBorrowedTexture(GL30.GL_COLOR_ATTACHMENT0, colorTextureId);
+        target.trackBorrowedTexture(GL30.GL_DEPTH_ATTACHMENT, depthTextureId);
+        if (target.attachments.containsKey(GL30.GL_DEPTH_STENCIL_ATTACHMENT)) {
+            target.trackBorrowedTexture(GL30.GL_DEPTH_STENCIL_ATTACHMENT, depthTextureId);
+        }
+        if (target.attachments.containsKey(GL30.GL_STENCIL_ATTACHMENT)) {
+            target.trackBorrowedTexture(GL30.GL_STENCIL_ATTACHMENT, depthTextureId);
+        }
+
+        if (previousCache != null && previousCache != cache) previousCache.invalidate();
+        if (previousOrdinary != null) previousOrdinary.cleanUp();
+        return true;
+    }
+
+    public static void invalidateBorrowedAttachments() {
+        borrowedAttachmentGeneration++;
+        Throwable firstFailure = null;
+        for (GlFramebuffer target : map.values()) {
+            if (target.borrowedPairs == null) continue;
+            try {
+                target.cleanUp();
+            } catch (RuntimeException | Error failure) {
+                firstFailure = appendFailure(firstFailure, failure);
+            } finally {
+                target.colorAttachment = null;
+                target.depthAttachment = null;
+            }
+        }
+        rethrowFailure(firstFailure);
+    }
+
     private static GlFramebuffer framebufferForTarget(int target) {
         return switch (target) {
             case GL30.GL_READ_FRAMEBUFFER -> boundReadFramebuffer;
@@ -450,6 +541,10 @@ public class GlFramebuffer {
     private final int id;
     Framebuffer framebuffer;
     RenderPass renderPass;
+    java.util.function.Function<BorrowedFramebufferCache.Key, NativePair> borrowedPairFactory;
+    private BorrowedFramebufferCache<NativePair> borrowedPairs;
+    private int borrowedCapacity;
+    private NativePair borrowedCurrentPair;
 
     VulkanImage colorAttachment;
     VulkanImage depthAttachment;
@@ -513,6 +608,13 @@ public class GlFramebuffer {
         this.attachments.put(attachment, AttachmentInfo.texture(texture, level));
     }
 
+    private void trackBorrowedTexture(int attachment, int texture) {
+        AttachmentInfo previous = this.attachments.get(attachment);
+        if (previous == null || previous.objectType != GL11.GL_TEXTURE || previous.objectName != texture || previous.textureLevel != 0) {
+            trackAttachmentTexture(attachment, texture, 0);
+        }
+    }
+
     void trackAttachmentRenderbuffer(int attachment, int renderbuffer) {
         this.attachments.put(attachment, AttachmentInfo.renderbuffer(renderbuffer));
     }
@@ -571,7 +673,7 @@ public class GlFramebuffer {
             boundDrawId = this.id;
         }
 
-        if (this.framebuffer != null) {
+        if (this.framebuffer != null || this.borrowedPairs != null) {
             this.cleanUp();
         }
 
@@ -581,13 +683,16 @@ public class GlFramebuffer {
         this.framebuffer = Framebuffer.builder(this.colorAttachment, depthImage).build();
         RenderPass.Builder builder = RenderPass.builder(this.framebuffer);
 
+                                                                                              
+                                                                             
         if (builder.getColorAttachmentInfo() != null)
             builder.getColorAttachmentInfo()
+                    .setOps(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE)
                     .setFinalLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         if (hasDepthImage)
             builder.getDepthAttachmentInfo()
-                    .setOps(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE)
+                    .setOps(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE)
                     .setFinalLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         this.renderPass = builder.build();
@@ -602,16 +707,51 @@ public class GlFramebuffer {
     }
 
     void cleanUp() {
-        if (this.framebuffer != null) {
-            this.framebuffer.cleanUp(false);
-        }
-
-        if (this.renderPass != null) {
-            this.renderPass.cleanUp();
-        }
-
+        BorrowedFramebufferCache<NativePair> cache = this.borrowedPairs;
+        Framebuffer oldFramebuffer = this.framebuffer;
+        RenderPass oldRenderPass = this.renderPass;
+        this.borrowedPairs = null;
+        this.borrowedCapacity = 0;
+        this.borrowedCurrentPair = null;
         this.framebuffer = null;
         this.renderPass = null;
+        if (cache != null) {
+            cache.invalidate();
+        } else if (oldFramebuffer != null || oldRenderPass != null) {
+            new NativePair(oldFramebuffer, oldRenderPass).cleanUp();
+        }
+    }
+
+    private static NativePair createBorrowedNativePair(VulkanImage color, VulkanImage depth) {
+        Framebuffer framebuffer = Framebuffer.builder(color, depth).build();
+        try {
+            RenderPass.Builder builder = RenderPass.builder(framebuffer);
+            builder.getColorAttachmentInfo()
+                    .setOps(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE)
+                    .setFinalLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            builder.getDepthAttachmentInfo()
+                    .setOps(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE)
+                    .setFinalLayout(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            return new NativePair(framebuffer, builder.build());
+        } catch (RuntimeException | Error failure) {
+            try {
+                framebuffer.cleanUp(false);
+            } catch (RuntimeException | Error cleanupFailure) {
+                appendFailure(failure, cleanupFailure);
+            }
+            throw failure;
+        }
+    }
+
+    private static Throwable appendFailure(Throwable first, Throwable later) {
+        if (first == null) return later;
+        if (first != later) first.addSuppressed(later);
+        return first;
+    }
+
+    private static void rethrowFailure(Throwable failure) {
+        if (failure instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+        if (failure instanceof Error errorFailure) throw errorFailure;
     }
 
     private record AttachmentInfo(int objectType, int objectName, int textureLevel) {
@@ -621,6 +761,23 @@ public class GlFramebuffer {
 
         static AttachmentInfo renderbuffer(int objectName) {
             return new AttachmentInfo(GL30.GL_RENDERBUFFER, objectName, 0);
+        }
+    }
+
+    record NativePair(Framebuffer framebuffer, RenderPass renderPass) {
+        void cleanUp() {
+            Throwable firstFailure = null;
+            try {
+                if (framebuffer != null) framebuffer.cleanUp(false);
+            } catch (RuntimeException | Error failure) {
+                firstFailure = failure;
+            }
+            try {
+                if (renderPass != null) renderPass.cleanUp();
+            } catch (RuntimeException | Error failure) {
+                firstFailure = appendFailure(firstFailure, failure);
+            }
+            rethrowFailure(firstFailure);
         }
     }
 

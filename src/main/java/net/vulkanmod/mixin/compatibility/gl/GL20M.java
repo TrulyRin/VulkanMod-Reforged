@@ -1,6 +1,8 @@
 package net.vulkanmod.mixin.compatibility.gl;
 
 import net.vulkanmod.gl.GlProgram;
+import net.vulkanmod.gl.GlProgramQueries;
+import net.vulkanmod.gl.GlVertexArray;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL20C;
@@ -150,7 +152,9 @@ public class GL20M {
 
     @Overwrite(remap = false)
     public static void glGetProgramiv(@NativeType("GLuint") int program, @NativeType("GLenum") int pname, @NativeType("GLint *") IntBuffer params) {
-        params.put(params.position(), GL20.GL_TRUE);
+        if (params != null && params.hasRemaining()) {
+            params.put(params.position(), GlProgram.getProgrami(program, pname));
+        }
     }
 
     @Overwrite(remap = false)
@@ -237,7 +241,7 @@ public class GL20M {
 
     @Overwrite(remap = false)
     public static int glGetAttribLocation(@NativeType("GLuint") int program, @NativeType("GLchar const *") ByteBuffer name) {
-        return 0;
+        return GlProgram.getAttribLocation(program, GlProgramQueries.decodeName(name));
     }
 
     @Overwrite(remap = false)
@@ -247,7 +251,7 @@ public class GL20M {
 
     @Overwrite(remap = false)
     public static int glGetUniformLocation(@NativeType("GLuint") int program, @NativeType("GLchar const *") ByteBuffer name) {
-        return GlProgram.getUniformLocation(program, "");
+        return GlProgram.getUniformLocation(program, GlProgramQueries.decodeName(name));
     }
 
     @Overwrite(remap = false)
@@ -304,6 +308,7 @@ public class GL20M {
 
     @Overwrite(remap = false)
     public static void glDetachShader(@NativeType("GLuint") int program, @NativeType("GLuint") int shader) {
+        GlProgram.detachShader(program, shader);
     }
 
     @Overwrite(remap = false)
@@ -332,16 +337,12 @@ public class GL20M {
 
     @Overwrite(remap = false)
     public static void glUniform1fv(@NativeType("GLint") int location, @NativeType("GLfloat const *") FloatBuffer value) {
-        if (value != null && value.remaining() >= 1) {
-            GlProgram.uniform1f(location, value.get(value.position()));
-        }
+        GlProgram.uniform1fv(location, value);
     }
 
     @Overwrite(remap = false)
     public static void glUniform1fv(@NativeType("GLint") int location, @NativeType("GLfloat const *") float[] value) {
-        if (value != null && value.length >= 1) {
-            GlProgram.uniform1f(location, value[0]);
-        }
+        GlProgram.uniform1fv(location, value);
     }
 
     @Overwrite(remap = false)
@@ -440,17 +441,17 @@ public class GL20M {
 
     @Overwrite(remap = false)
     public static void glUniformMatrix3fv(@NativeType("GLint") int location, @NativeType("GLboolean") boolean transpose, @NativeType("GLfloat const *") FloatBuffer value) {
+        GlProgram.uniformMatrix3fv(location, transpose, value);
     }
 
     @Overwrite(remap = false)
     public static void glUniformMatrix3fv(@NativeType("GLint") int location, @NativeType("GLboolean") boolean transpose, @NativeType("GLfloat const *") float[] value) {
+        GlProgram.uniformMatrix3fv(location, transpose, value);
     }
 
     @Overwrite(remap = false)
     public static void glUniformMatrix4fv(@NativeType("GLint") int location, @NativeType("GLboolean") boolean transpose, @NativeType("GLfloat const *") float[] value) {
-        if (value != null) {
-            GlProgram.uniformMatrix4fv(location, transpose, FloatBuffer.wrap(value));
-        }
+        GlProgram.uniformMatrix4fv(location, transpose, value);
     }
 
     @Overwrite(remap = false)
@@ -482,37 +483,37 @@ public class GL20M {
 
     @Overwrite(remap = false)
     public static float glGetUniformf(@NativeType("GLuint") int program, @NativeType("GLint") int location) {
-        return 0.0f;
+        return GlProgram.getUniformf(program, location);
     }
 
     @Overwrite(remap = false)
     public static int glGetUniformi(@NativeType("GLuint") int program, @NativeType("GLint") int location) {
-        return 0;
+        return GlProgram.getUniformi(program, location);
     }
 
     @Overwrite(remap = false)
     public static int glGetVertexAttribi(@NativeType("GLuint") int index, @NativeType("GLenum") int pname) {
-        return 0;
+        return GlVertexArray.getVertexAttribi(index, pname);
     }
 
     @Overwrite(remap = false)
     public static void glGetUniformfv(@NativeType("GLuint") int program, @NativeType("GLint") int location, @NativeType("GLfloat *") FloatBuffer params) {
-        vulkanmod$putZero(params);
+        GlProgram.getUniformfv(program, location, params);
     }
 
     @Overwrite(remap = false)
     public static void glGetUniformfv(@NativeType("GLuint") int program, @NativeType("GLint") int location, @NativeType("GLfloat *") float[] params) {
-        vulkanmod$putZero(params);
+        GlProgram.getUniformfv(program, location, params);
     }
 
     @Overwrite(remap = false)
     public static void glGetUniformiv(@NativeType("GLuint") int program, @NativeType("GLint") int location, @NativeType("GLint *") IntBuffer params) {
-        vulkanmod$putZero(params);
+        GlProgram.getUniformiv(program, location, params);
     }
 
     @Overwrite(remap = false)
     public static void glGetUniformiv(@NativeType("GLuint") int program, @NativeType("GLint") int location, @NativeType("GLint *") int[] params) {
-        vulkanmod$putZero(params);
+        GlProgram.getUniformiv(program, location, params);
     }
 
     @Overwrite(remap = false)
@@ -530,98 +531,86 @@ public class GL20M {
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribdv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("GLdouble *") DoubleBuffer params) {
-        vulkanmod$putZero(params);
+        if (params != null && params.remaining() > 0) {
+            params.put(params.position(), GlVertexArray.getVertexAttribi(index, pname));
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribdv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("GLdouble *") double[] params) {
-        vulkanmod$putZero(params);
+        if (params != null && params.length > 0) {
+            params[0] = GlVertexArray.getVertexAttribi(index, pname);
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribfv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("GLfloat *") FloatBuffer params) {
-        vulkanmod$putZero(params);
+        if (params != null && params.remaining() > 0) {
+            params.put(params.position(), GlVertexArray.getVertexAttribi(index, pname));
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribfv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("GLfloat *") float[] params) {
-        vulkanmod$putZero(params);
+        if (params != null && params.length > 0) {
+            params[0] = GlVertexArray.getVertexAttribi(index, pname);
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribiv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("GLint *") IntBuffer params) {
-        vulkanmod$putZero(params);
+        if (params != null && params.remaining() > 0) {
+            params.put(params.position(), GlVertexArray.getVertexAttribi(index, pname));
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribiv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("GLint *") int[] params) {
-        vulkanmod$putZero(params);
+        if (params != null && params.length > 0) {
+            params[0] = GlVertexArray.getVertexAttribi(index, pname);
+        }
     }
 
     @Overwrite(remap = false)
     @NativeType("GLuint")
     public static String glGetActiveUniform(@NativeType("GLuint") int program, @NativeType("GLuint") int index, @NativeType("GLsizei") int maxLength, @NativeType("GLint *") IntBuffer size, @NativeType("GLenum *") IntBuffer type) {
-        if (size != null && size.remaining() > 0) {
-            size.put(size.position(), 0);
-        }
-        if (type != null && type.remaining() > 0) {
-            type.put(type.position(), 0);
-        }
-        return "";
+        return GlProgramQueries.activeName(GlProgram.activeUniform(program, index), maxLength, size, type);
     }
 
     @Overwrite(remap = false)
     public static String glGetActiveUniform(@NativeType("GLuint") int program, @NativeType("GLuint") int index, @NativeType("GLint *") IntBuffer size, @NativeType("GLenum *") IntBuffer type) {
-        vulkanmod$putZero(size);
-        vulkanmod$putZero(type);
-        return "";
+        return GlProgramQueries.activeName(GlProgram.activeUniform(program, index), Integer.MAX_VALUE, size, type);
     }
 
     @Overwrite(remap = false)
     public static void glGetActiveUniform(@NativeType("GLuint") int program, @NativeType("GLuint") int index, @NativeType("GLsizei *") IntBuffer length, @NativeType("GLint *") IntBuffer size, @NativeType("GLenum *") IntBuffer type, @NativeType("GLchar *") ByteBuffer name) {
-        vulkanmod$writeEmptyString(length, name);
-        vulkanmod$putZero(size);
-        vulkanmod$putZero(type);
+        GlProgramQueries.activeVariable(GlProgram.activeUniform(program, index), length, size, type, name);
     }
 
     @Overwrite(remap = false)
     public static void glGetActiveUniform(@NativeType("GLuint") int program, @NativeType("GLuint") int index, @NativeType("GLsizei *") int[] length, @NativeType("GLint *") int[] size, @NativeType("GLenum *") int[] type, @NativeType("GLchar *") ByteBuffer name) {
-        vulkanmod$writeEmptyString(length, name);
-        vulkanmod$putZero(size);
-        vulkanmod$putZero(type);
+        GlProgramQueries.activeVariable(GlProgram.activeUniform(program, index), length, size, type, name);
     }
 
     @Overwrite(remap = false)
     @NativeType("GLuint")
     public static String glGetActiveAttrib(@NativeType("GLuint") int program, @NativeType("GLuint") int index, @NativeType("GLsizei") int maxLength, @NativeType("GLint *") IntBuffer size, @NativeType("GLenum *") IntBuffer type) {
-        if (size != null && size.remaining() > 0) {
-            size.put(size.position(), 0);
-        }
-        if (type != null && type.remaining() > 0) {
-            type.put(type.position(), 0);
-        }
-        return "";
+        return GlProgramQueries.activeName(GlProgram.activeAttribute(program, index), maxLength, size, type);
     }
 
     @Overwrite(remap = false)
     public static String glGetActiveAttrib(@NativeType("GLuint") int program, @NativeType("GLuint") int index, @NativeType("GLint *") IntBuffer size, @NativeType("GLenum *") IntBuffer type) {
-        vulkanmod$putZero(size);
-        vulkanmod$putZero(type);
-        return "";
+        return GlProgramQueries.activeName(GlProgram.activeAttribute(program, index), Integer.MAX_VALUE, size, type);
     }
 
     @Overwrite(remap = false)
     public static void glGetActiveAttrib(@NativeType("GLuint") int program, @NativeType("GLuint") int index, @NativeType("GLsizei *") IntBuffer length, @NativeType("GLint *") IntBuffer size, @NativeType("GLenum *") IntBuffer type, @NativeType("GLchar *") ByteBuffer name) {
-        vulkanmod$writeEmptyString(length, name);
-        vulkanmod$putZero(size);
-        vulkanmod$putZero(type);
+        GlProgramQueries.activeVariable(GlProgram.activeAttribute(program, index), length, size, type, name);
     }
 
     @Overwrite(remap = false)
     public static void glGetActiveAttrib(@NativeType("GLuint") int program, @NativeType("GLuint") int index, @NativeType("GLsizei *") int[] length, @NativeType("GLint *") int[] size, @NativeType("GLenum *") int[] type, @NativeType("GLchar *") ByteBuffer name) {
-        vulkanmod$writeEmptyString(length, name);
-        vulkanmod$putZero(size);
-        vulkanmod$putZero(type);
+        GlProgramQueries.activeVariable(GlProgram.activeAttribute(program, index), length, size, type, name);
     }
 
     @Overwrite(remap = false)

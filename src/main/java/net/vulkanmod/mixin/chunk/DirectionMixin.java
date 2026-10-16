@@ -13,10 +13,10 @@ public class DirectionMixin {
 
     @Shadow @Final private int oppositeIndex;
 
-    /**
-     * @author
-     * @reason
-     */
+       
+              
+              
+       
     @Overwrite
     public Direction getOpposite() {
         return BY_3D_DATA[this.oppositeIndex];

@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.ints.Int2FloatOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2ReferenceOpenHashMap;
 import net.vulkanmod.Initializer;
+import net.vulkanmod.compat.gl.TextureUnitLimits;
 import net.vulkanmod.vulkan.texture.SamplerManager;
 import net.vulkanmod.vulkan.texture.VulkanImage;
 
@@ -18,6 +19,42 @@ public final class GlSampler {
     private static final Int2ReferenceOpenHashMap<GlSampler> map = new Int2ReferenceOpenHashMap<>();
     private static final Int2IntOpenHashMap boundByUnit = new Int2IntOpenHashMap();
     private static final Set<Integer> invalidSamplerWarnings = new HashSet<>();
+    private static final int[] EMPTY_BINDINGS = new int[0];
+    private static final GlSampler[] EMPTY_OWNERS = new GlSampler[0];
+
+                                                                                                
+    public static BindingSnapshot captureBindings() {
+        int count=boundByUnit.size();
+        if(count==0) return new BindingSnapshot(EMPTY_BINDINGS,EMPTY_BINDINGS,EMPTY_OWNERS);
+        int[] units=new int[count],names=new int[count];
+        GlSampler[] owners=new GlSampler[count];
+        int index=0;
+        for(var entry:boundByUnit.int2IntEntrySet()) {
+            units[index]=entry.getIntKey(); names[index]=entry.getIntValue(); owners[index]=map.get(names[index]);
+            index++;
+        }
+        return new BindingSnapshot(units,names,owners);
+    }
+
+    public static final class BindingSnapshot {
+        private final int[] units,names;
+        private final GlSampler[] owners;
+        private boolean restored;
+
+        private BindingSnapshot(int[] units,int[] names,GlSampler[] owners) {
+            this.units=units; this.names=names; this.owners=owners;
+        }
+
+                                                                                                                         
+        public void restore() {
+            if(restored) return;
+            restored=true;
+            boundByUnit.clear();
+            for(int index=0;index<units.length;index++) {
+                if(owners[index]!=null && map.get(names[index])==owners[index]) boundByUnit.put(units[index],names[index]);
+            }
+        }
+    }
 
     private static final int GL_TEXTURE_WRAP_R = 0x8072;
     private static final int GL_TEXTURE_MIN_LOD = 0x813A;
@@ -72,7 +109,7 @@ public final class GlSampler {
     }
 
     public static void bindSampler(int unit, int sampler) {
-        if (unit < 0) {
+        if (!TextureUnitLimits.isValid(unit)) {
             return;
         }
         if (sampler == 0) {

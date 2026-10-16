@@ -623,33 +623,41 @@ public class GL30M {
 
     @Overwrite(remap = false)
     public static int glGetVertexAttribIi(@NativeType("GLuint") int index, @NativeType("GLenum") int pname) {
-        return 0;
+        return GlVertexArray.getVertexAttribi(index, pname);
     }
 
     @Overwrite(remap = false)
     @NativeType("GLuint")
     public static int glGetVertexAttribIui(@NativeType("GLuint") int index, @NativeType("GLenum") int pname) {
-        return 0;
+        return GlVertexArray.getVertexAttribi(index, pname);
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribIiv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("GLint *") IntBuffer params) {
-        vulkanmod$putZero(params);
+        if (params != null && params.remaining() > 0) {
+            params.put(params.position(), GlVertexArray.getVertexAttribi(index, pname));
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribIiv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("GLint *") int[] params) {
-        vulkanmod$putZero(params);
+        if (params != null && params.length > 0) {
+            params[0] = GlVertexArray.getVertexAttribi(index, pname);
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribIuiv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("GLuint *") IntBuffer params) {
-        vulkanmod$putZero(params);
+        if (params != null && params.remaining() > 0) {
+            params.put(params.position(), GlVertexArray.getVertexAttribi(index, pname));
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribIuiv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("GLuint *") int[] params) {
-        vulkanmod$putZero(params);
+        if (params != null && params.length > 0) {
+            params[0] = GlVertexArray.getVertexAttribi(index, pname);
+        }
     }
 
     @Overwrite(remap = false)

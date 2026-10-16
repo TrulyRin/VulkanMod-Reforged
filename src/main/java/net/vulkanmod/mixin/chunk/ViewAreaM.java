@@ -17,7 +17,7 @@ public abstract class ViewAreaM {
 
 	@Inject(method = "createSections", at = @At("HEAD"))
 	private void skipAllocation(SectionRenderDispatcher sectionRenderDispatcher, CallbackInfo ci) {
-		// It's not possible to completely skip allocation since it would cause an error if repositionCamera is called
+		                                                                                                              
 		this.setViewDistance(0);
 	}
 }

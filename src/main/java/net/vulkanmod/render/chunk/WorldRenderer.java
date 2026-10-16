@@ -24,6 +24,8 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.Vec3;
 import net.vulkanmod.Initializer;
+import net.vulkanmod.compat.sable.aeronautics.AeronauticsWorldLayers;
+import net.vulkanmod.compat.sable.aeronautics.AeronauticsWorldRenderer;
 import net.vulkanmod.render.PipelineManager;
 import net.vulkanmod.render.chunk.buffer.DrawBuffers;
 import net.vulkanmod.render.chunk.frustum.VFrustum;
@@ -241,6 +243,7 @@ public class WorldRenderer {
     public void allChanged() {
         AdaptiveChunkUploadBudget.reset();
         if (this.level != null) {
+            AeronauticsWorldLayers.initialize();
 
             this.level.clearTintCaches();
 
@@ -307,6 +310,14 @@ public class WorldRenderer {
     }
 
     public void renderSectionLayer(RenderType renderType, double camX, double camY, double camZ, Matrix4f modelView, Matrix4f projection) {
+                                                                                                 
+                                                                                       
+        if (AeronauticsWorldLayers.isBase(renderType)) {
+            AeronauticsWorldRenderer.renderBase(renderType, this.sectionGraph.getChunkAreaQueue().queue(),
+                    camX, camY, camZ, modelView, projection);
+            return;
+        }
+        if (AeronauticsWorldLayers.isGhost(renderType)) return;
         TerrainRenderType terrainRenderType = TerrainRenderType.get(renderType);
         TerrainRenderState.prepareWorldTerrainState();
         renderType.setupRenderState();

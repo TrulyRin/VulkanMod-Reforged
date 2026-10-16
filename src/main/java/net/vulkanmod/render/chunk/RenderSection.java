@@ -7,6 +7,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.vulkanmod.render.chunk.buffer.DrawBuffers;
+import net.vulkanmod.render.VBO;
 import net.vulkanmod.render.chunk.build.RenderRegion;
 import net.vulkanmod.render.chunk.build.RenderRegionBuilder;
 import net.vulkanmod.render.chunk.build.TaskDispatcher;
@@ -27,6 +28,7 @@ public class RenderSection {
     static final Map<RenderSection, Set<BlockEntity>> globalBlockEntitiesMap = new Reference2ReferenceOpenHashMap<>();
 
     private ChunkArea chunkArea;
+    private VBO blockLayerVbo;
     public byte frustumIndex;
     public short lastFrame = -1;
     private short lastFrame2 = -1;
@@ -78,6 +80,17 @@ public class RenderSection {
         this.yOffset = y;
         this.zOffset = z;
     }
+
+    public VBO getBlockLayerVbo() { return this.blockLayerVbo; }
+
+    public void replaceBlockLayerVbo(VBO replacement) {
+        VBO previous = this.blockLayerVbo;
+        if (previous == replacement) return;
+        this.blockLayerVbo = replacement;
+        if (previous != null) previous.close();
+    }
+
+    public void releaseBlockLayerVbo() { this.replaceBlockLayerVbo(null); }
 
     public void addDir(int direction) {
         sourceDirs |= (byte) (1 << direction);
@@ -411,7 +424,6 @@ public class RenderSection {
         ++this.compileStatus.buildRevision;
         ++this.compileStatus.transparencyRevision;
         this.lastRebuildScheduledNanos = Long.MIN_VALUE;
-        this.clearGlobalBlockEntities();
         this.cancelTasks();
         this.compileStatus.compiledSection = CompiledSection.UNCOMPILED;
         this.compileStatus.compiledBuildRevision = -1L;
@@ -421,7 +433,21 @@ public class RenderSection {
         this.completelyEmpty = true;
         this.containsBlockEntities = false;
 
-        this.resetDrawParameters();
+        Throwable failure = null;
+        try { this.clearGlobalBlockEntities(); }
+        catch (RuntimeException | Error cleanup) { failure = cleanup; }
+        try { this.resetDrawParameters(); }
+        catch (RuntimeException | Error cleanup) {
+            if (failure == null) failure = cleanup;
+            else if (failure != cleanup) failure.addSuppressed(cleanup);
+        }
+        try { this.releaseBlockLayerVbo(); }
+        catch (RuntimeException | Error cleanup) {
+            if (failure == null) failure = cleanup;
+            else if (failure != cleanup) failure.addSuppressed(cleanup);
+        }
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
     }
 
     private void clearGlobalBlockEntities() {

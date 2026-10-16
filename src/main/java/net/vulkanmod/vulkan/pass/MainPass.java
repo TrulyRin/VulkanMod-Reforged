@@ -12,6 +12,12 @@ public interface MainPass {
 
     void end(VkCommandBuffer commandBuffer);
 
+                                                                                     
+    default void onResize() {}
+
+                                                                           
+    default void cleanUp() {}
+
     default void mainTargetBindWrite() {}
 
     default void mainTargetUnbindWrite() {}

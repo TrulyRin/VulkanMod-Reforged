@@ -191,6 +191,7 @@ public class Vulkan {
 
     public static void cleanUp() {
         vkDeviceWaitIdle(DeviceManager.vkDevice);
+        net.vulkanmod.compat.sable.veil.VeilProgramPipelines.cleanUp();
         vkDestroyCommandPool(DeviceManager.vkDevice, commandPool, null);
         vkDestroyFence(DeviceManager.vkDevice, immediateFence, null);
 

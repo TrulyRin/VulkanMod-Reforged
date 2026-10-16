@@ -54,7 +54,21 @@ public class SectionGrid {
     }
 
     public void releaseAllBuffers() {
-        this.chunkAreaManager.releaseAllBuffers();
+        Throwable failure = null;
+        for (RenderSection section : this.sections) {
+            try { section.releaseBlockLayerVbo(); }
+            catch (RuntimeException | Error cleanup) {
+                if (failure == null) failure = cleanup;
+                else if (failure != cleanup) failure.addSuppressed(cleanup);
+            }
+        }
+        try { this.chunkAreaManager.releaseAllBuffers(); }
+        catch (RuntimeException | Error cleanup) {
+            if (failure == null) failure = cleanup;
+            else if (failure != cleanup) failure.addSuppressed(cleanup);
+        }
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
     }
 
     private int getChunkIndex(int x, int y, int z) {
@@ -68,10 +82,10 @@ public class SectionGrid {
         this.gridWidth = i;
     }
 
-    /**
-     * This method has been optimized with circular lists to remove costly modulo computations
-     * and to reduce section repositioning to only the necessary.
-     */
+       
+                                                                                              
+                                                                 
+       
     public void repositionCamera(double x, double z) {
         int secX = Mth.floor(x) >> 4;
         int secZ = Mth.floor(z) >> 4;
@@ -82,7 +96,7 @@ public class SectionGrid {
         int dz = Mth.clamp(secZ - this.prevSecZ, -this.gridWidth, this.gridWidth);
 
         int xAbsChunkIndex = secX - this.gridWidth / 2;
-        int xStart = Math.floorMod(xAbsChunkIndex, this.gridWidth); // needs positive modulo
+        int xStart = Math.floorMod(xAbsChunkIndex, this.gridWidth);                         
         int zAbsChunkIndex = secZ - this.gridWidth / 2;
         int zStart = Math.floorMod(zAbsChunkIndex, this.gridWidth);
 
@@ -215,7 +229,7 @@ public class SectionGrid {
     }
 
     private void unsetNeighbours(RenderSection section) {
-        //Reset only X-Z directions
+                                   
         section.adjDirs &= 0b11;
 
         for (int i = 2; i < 6; i++) {

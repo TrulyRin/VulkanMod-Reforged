@@ -38,7 +38,7 @@ public class VButtonWidget extends VAbstractWidget {
         int textColor = this.isActive()
                 ? VGuiConstants.COLOR_WHITE
                 : VGuiConstants.COLOR_GRAY;
-        //noinspection DuplicatedCode
+                                     
         int selectionOutlineColor = ColorUtil.ARGB.multiplyAlpha(VGuiConstants.COLOR_RED, 0.8f);
         int selectionFillColor = ColorUtil.ARGB.multiplyAlpha(VGuiConstants.COLOR_RED, 0.2f);
 
@@ -56,7 +56,7 @@ public class VButtonWidget extends VAbstractWidget {
 
         this.renderHovering(0, 0);
 
-        // text is down here because of layering
+                                                
         if (this.centeredText) {
             GuiRenderer.drawCenteredString(
                     Minecraft.getInstance().font,

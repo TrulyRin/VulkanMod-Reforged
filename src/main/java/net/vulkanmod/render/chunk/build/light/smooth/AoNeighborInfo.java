@@ -2,10 +2,10 @@ package net.vulkanmod.render.chunk.build.light.smooth;
 
 import net.vulkanmod.render.chunk.util.SimpleDirection;
 
-/**
- * The neighbor information for each face of a block, used when performing smooth lighting in order to calculate
- * the occlusion of each corner.
- */
+   
+                                                                                                                
+                                
+   
 @SuppressWarnings("UnnecessaryLocalVariable")
 enum AoNeighborInfo {
     DOWN(new SimpleDirection[] { SimpleDirection.SOUTH, SimpleDirection.WEST, SimpleDirection.NORTH, SimpleDirection.EAST },
@@ -171,26 +171,26 @@ enum AoNeighborInfo {
         }
     };
 
-    /**
-     * The direction of each corner block from this face, which can be retrieved by offsetting the position of the origin
-     * block by the direction vector.
-     */
+       
+                                                                                                                         
+                                     
+       
     public final SimpleDirection[] faces;
 
-    /**
-     * The constant brightness modifier for this face. This data exists to emulate the results of the OpenGL lighting
-     * model which gives a faux directional light appearance to blocks in the game. Not currently used.
-     */
+       
+                                                                                                                     
+                                                                                                       
+       
     public final float strength;
 
-    /**
-     * The indexes of each inner corner occlusion bit for every model vertex.
-     */
+       
+                                                                             
+       
     public final int[] inCornerBits = new int[4 * 2];
 
-    /**
-     * The indexes of each outer corner occlusion bit for every model vertex.
-     */
+       
+                                                                             
+       
     public final int[] outCornerBits = new int[3 * 4 * 2];
 
     AoNeighborInfo(SimpleDirection[] directions, int[] indices, float strength) {
@@ -201,30 +201,30 @@ enum AoNeighborInfo {
         getOutCornerBits(this.outCornerBits, indices);
     }
 
-    /**
-     * Calculates how much each corner contributes to the final "darkening" of the vertex at the specified position. The
-     * weight is a function of the distance from the vertex's position to the corner block's position.
-     *
-     * @param x The x-position of the vertex
-     * @param y The y-position of the vertex
-     * @param z The z-position of the vertex
-     * @param out The weight values for each corner
-     */
+       
+                                                                                                                        
+                                                                                                      
+      
+                                            
+                                            
+                                            
+                                                   
+       
     public abstract void calculateCornerWeights(float x, float y, float z, float[] out);
 
     public abstract float getU(float x, float y, float z);
 
     public abstract float getV(float x, float y, float z);
 
-    /**
-     * Maps the light map and occlusion value arrays {@param lm0} and {@param ao0} from {@link AoFaceData} to the
-     * correct corners for this facing.
-     *
-     * @param lm0 The input light map texture coordinates array
-     * @param ao0 The input ambient occlusion color array
-     * @param lm1 The re-orientated output light map texture coordinates array
-     * @param ao1 The re-orientated output ambient occlusion color array
-     */
+       
+                                                                                                                 
+                                       
+      
+                                                               
+                                                         
+                                                                              
+                                                                        
+       
     public void copyLightValues(int[] lm0, float[] ao0, int[] lm1, float[] ao1) {
         lm1[0] = lm0[0];
         lm1[1] = lm0[1];
@@ -237,29 +237,29 @@ enum AoNeighborInfo {
         ao1[3] = ao0[3];
     }
 
-    /**
-     * Calculates the depth (or inset) of the vertex into this facing of the block. Used to determine
-     * how much shadow is contributed by the direct neighbors of a block.
-     *
-     * @param x The x-position of the vertex
-     * @param y The y-position of the vertex
-     * @param z The z-position of the vertex
-     * @return The depth of the vertex into this face
-     */
+       
+                                                                                                     
+                                                                         
+      
+                                            
+                                            
+                                            
+                                                     
+       
     public abstract float getDepth(float x, float y, float z);
 
     private static final AoNeighborInfo[] VALUES = AoNeighborInfo.values();
 
-    /**
-     * @return Returns the {@link AoNeighborInfo} which corresponds with the specified direction
-     */
+       
+                                                                                                
+       
     public static AoNeighborInfo get(SimpleDirection direction) {
         return VALUES[direction.get3DDataValue()];
     }
 
-    /**
-     * Calculates corner weights using bilinear interpolation.
-     */
+       
+                                                              
+       
     public static void calculateCornerWeights(float u, float v, float[] out) {
         out[0] = u * v;
         out[1] = u * (1.0f - v);
@@ -267,10 +267,10 @@ enum AoNeighborInfo {
         out[3] = (1.0f - u) * v;
     }
 
-    /**
-     * Prepares corner occlusion indexes which will be used by {@link SubBlockAoFace} to calculate
-     * face AO values.
-     */
+       
+                                                                                                  
+                      
+       
     private static void copyInCornerBits(int[] cornersBits, int[] idxs) {
         cornersBits[0] = idxs[0];
         cornersBits[1] = idxs[1];
@@ -282,10 +282,10 @@ enum AoNeighborInfo {
         cornersBits[7] = idxs[7];
     }
 
-    /**
-     * Prepares corner occlusion indexes which will be used by {@link SubBlockAoFace} to calculate
-     * face AO values.
-     */
+       
+                                                                                                  
+                      
+       
     private static void getOutCornerBits(int[] cornersBits, int[] idxs) {
         cornersBits[0] = idxs[0];
         cornersBits[1] = idxs[3];

@@ -1,5 +1,7 @@
 package net.vulkanmod.compat;
 
+import net.vulkanmod.compat.sable.SableCompatibilityAdapter;
+
 public final class CompatBootstrap {
     private static boolean initialized;
 
@@ -17,6 +19,7 @@ public final class CompatBootstrap {
             return;
         }
 
+        CompatAdapterRegistry.register(new SableCompatibilityAdapter());
         registerRenderPathClaims("/assets/vulkanmod/compat/hud_path_claim_mod_ids.txt");
     }
 

@@ -344,10 +344,7 @@ public class GL45M {
 
     @Overwrite(remap = false)
     public static void glBindTextureUnit(@NativeType("GLuint") int unit, @NativeType("GLuint") int texture) {
-        int previousUnit = GlTexture.getActiveTexture();
-        GlTexture.activeTexture(GL30.GL_TEXTURE0 + unit);
-        GlTexture.bindTexture(texture);
-        GlTexture.activeTexture(previousUnit);
+        GlTexture.bindTextureUnit(unit, texture);
     }
 
     @Overwrite(remap = false)

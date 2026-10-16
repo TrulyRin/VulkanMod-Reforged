@@ -8,10 +8,10 @@ import java.util.StringTokenizer;
 
 public abstract class CodeParser {
 
-    /* TODO: this is not a proper parser, it just serves the purpose of converting glsl shaders
-        to solve some simple and common compatibility issues.
-        Implementing an AST would be a better solution.
-     */
+                                                                                               
+                                                             
+                                                       
+       
     public static String parseCodeLine(String line) {
         return parseCodeLine(line, null);
     }

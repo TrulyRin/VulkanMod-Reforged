@@ -50,7 +50,7 @@ public class VOptionList extends GuiElement implements SettingsPageListener {
             int width = this.itemWidth;
             int height = this.itemHeight;
 
-            // add a header (this is MOSTLY for the search)
+                                                           
             String title = block.title();
             if (title != null && !title.isEmpty()) {
                 this.addEntry(new Entry(null, 8, title));
@@ -210,7 +210,7 @@ public class VOptionList extends GuiElement implements SettingsPageListener {
         this.renderList(mouseX, mouseY);
         GuiRenderer.disableScissor();
 
-        // Scroll bar
+                     
         int maxScroll = this.getMaxScroll();
         if (maxScroll > 0) {
             RenderSystem.enableBlend();
@@ -292,7 +292,7 @@ public class VOptionList extends GuiElement implements SettingsPageListener {
         }
 
         public void render(int y, int mouseX, int mouseY, boolean updateState, int listX) {
-            // if there is a title, RENDER IT!!!
+                                                
             if (headerTitle != null && !headerTitle.isEmpty()) {
                 int headerY = y + 4;
                 GuiRenderer.drawString(

@@ -16,6 +16,8 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 import net.vulkanmod.render.chunk.TerrainRenderState;
 import net.vulkanmod.render.chunk.WorldRenderer;
+import net.vulkanmod.Initializer;
+import net.vulkanmod.compat.sable.render.SublevelRenderScope;
 import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
@@ -63,6 +65,15 @@ public abstract class LevelRendererMixin {
     @Inject(method = "renderLevel", at = @At("HEAD"))
     private void prepareLevelRenderState(DeltaTracker deltaTracker, boolean bl, Camera camera, GameRenderer gameRenderer, LightTexture lightTexture, Matrix4f matrix4f, Matrix4f matrix4f2, CallbackInfo ci) {
         prepareWorldPassRenderState();
+    }
+
+    @Inject(method = "renderLevel", at = @At("RETURN"))
+    private void finishLevelRenderState(DeltaTracker deltaTracker, boolean bl, Camera camera, GameRenderer gameRenderer,
+                                        LightTexture lightTexture, Matrix4f matrix4f, Matrix4f matrix4f2, CallbackInfo ci) {
+        int leakedScopes = SublevelRenderScope.forceUnwind();
+        if (leakedScopes > 0) {
+            Initializer.LOGGER.error("Leaked Sable render scopes at frame end: {}", leakedScopes);
+        }
     }
 
     @Inject(method = "setupRender", at = @At("HEAD"))

@@ -2,6 +2,7 @@ package net.vulkanmod.vulkan.device;
 
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.vulkanmod.Initializer;
+import net.vulkanmod.compat.gl.GlPatchState;
 import net.vulkanmod.vulkan.VRenderSystem;
 import net.vulkanmod.vulkan.Vulkan;
 import net.vulkanmod.vulkan.queue.*;
@@ -32,6 +33,7 @@ public abstract class DeviceManager {
     public static VkDevice vkDevice;
 
     public static Device device;
+    private static boolean tessellationEnabled;
 
     public static VkPhysicalDeviceProperties deviceProperties;
     public static VkPhysicalDeviceMemoryProperties memoryProperties;
@@ -142,6 +144,15 @@ public abstract class DeviceManager {
         return device != null && device.isDrawIndirectSupported() && !device.isIntel();
     }
 
+    public static boolean isTessellationEnabled() {
+        return tessellationEnabled && vkDevice != null;
+    }
+
+    public static int maxTessellationPatchSize() {
+        return isTessellationEnabled() && deviceProperties != null
+                ? deviceProperties.limits().maxTessellationPatchSize() : 0;
+    }
+
     static Device autoPickDevice() {
         ArrayList<Device> integratedGPUs = new ArrayList<>();
         ArrayList<Device> otherDevices = new ArrayList<>();
@@ -176,6 +187,8 @@ public abstract class DeviceManager {
     }
 
     public static void createLogicalDevice() {
+        tessellationEnabled = false;
+        GlPatchState.configureLimit(0);
         try (MemoryStack stack = stackPush()) {
 
             net.vulkanmod.vulkan.queue.Queue.QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
@@ -199,6 +212,7 @@ public abstract class DeviceManager {
             deviceFeatures.sType$Default();
             deviceFeatures.features().samplerAnisotropy(device.availableFeatures.features().samplerAnisotropy());
             deviceFeatures.features().logicOp(device.availableFeatures.features().logicOp());
+            deviceFeatures.features().tessellationShader(device.availableFeatures.features().tessellationShader());
 
             deviceFeatures.features().multiDrawIndirect(device.isDrawIndirectSupported());
 
@@ -237,6 +251,8 @@ public abstract class DeviceManager {
             Vulkan.checkResult(res, "Failed to create logical device");
 
             vkDevice = new VkDevice(pDevice.get(0), physicalDevice, createInfo, VK_API_VERSION_1_2);
+            tessellationEnabled = deviceFeatures.features().tessellationShader();
+            GlPatchState.configureLimit(maxTessellationPatchSize());
 
             graphicsQueue = new GraphicsQueue(stack, indices.graphicsFamily);
             transferQueue = new TransferQueue(stack, indices.transferFamily);
@@ -348,11 +364,17 @@ public abstract class DeviceManager {
     }
 
     public static void destroy() {
-        graphicsQueue.cleanUp();
-        transferQueue.cleanUp();
-        computeQueue.cleanUp();
+        try {
+            graphicsQueue.cleanUp();
+            transferQueue.cleanUp();
+            computeQueue.cleanUp();
 
-        vkDestroyDevice(vkDevice, null);
+            vkDestroyDevice(vkDevice, null);
+        } finally {
+            vkDevice = null;
+            tessellationEnabled = false;
+            GlPatchState.configureLimit(0);
+        }
     }
 
     public static GraphicsQueue getGraphicsQueue() {

@@ -21,7 +21,7 @@ public final class CompatReport {
 
     public static String format(CompatDiagnosticsSnapshot snapshot) {
         StringBuilder report = new StringBuilder(4096);
-        report.append("=== Vulkan Reforged Diagnostics Report ===\n");
+        report.append("=== VulkanMod Reforged Diagnostics Report ===\n");
         report.append("Captured (UTC): ").append(snapshot.capturedAt()).append('\n');
         report.append("Overall status: ").append(snapshot.severity()).append("\n\n");
 

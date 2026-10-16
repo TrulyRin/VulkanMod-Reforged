@@ -104,7 +104,7 @@ public class Renderer {
 
     private static int currentFrame = 0;
     private static int imageIndex;
-    private static int lastReset = -1;
+    private final FramePreparationState framePreparation = new FramePreparationState();
     private VkCommandBuffer currentCmdBuffer;
     private boolean recordingCmds = false;
 
@@ -206,6 +206,9 @@ public class Renderer {
     }
 
     public void beginFrame() {
+        if (recordingCmds)
+            return;
+
         if (swapChainUpdate) {
             recreateSwapChain();
             swapChainUpdate = false;
@@ -219,9 +222,12 @@ public class Renderer {
             }
         }
 
-        if (skipRendering || recordingCmds)
+        if (skipRendering)
             return;
 
+                                                                                   
+                                                                                       
+        preInitFrame();
         currentCmdBuffer = commandBuffers.get(currentFrame);
         vkResetCommandBuffer(currentCmdBuffer, 0);
 
@@ -323,6 +329,10 @@ public class Renderer {
                 throw new RuntimeException("Failed to submit draw command buffer: %s".formatted(VkResult.decode(vkResult)));
             }
 
+                                                                                    
+                                                                                    
+            framePreparation.submitted();
+
             VkPresentInfoKHR presentInfo = VkPresentInfoKHR.calloc(stack);
             presentInfo.sType(VK_STRUCTURE_TYPE_PRESENT_INFO_KHR);
 
@@ -416,9 +426,12 @@ public class Renderer {
     }
 
     public void preInitFrame() {
+        if (!framePreparation.needsPreparation(currentFrame, recordingCmds))
+            return;
+
         net.vulkanmod.compat.observer.CompatProfiler.cpuFrameStart = System.nanoTime();
 
-        if (lastReset == currentFrame) {
+        if (framePreparation.needsIdleWait(currentFrame)) {
             Vulkan.waitIdle();
             long fenceWaitStart = System.nanoTime();
             Synchronization.INSTANCE.waitFences();
@@ -440,7 +453,6 @@ public class Renderer {
         MemoryManager.getInstance().initFrame(currentFrame);
         drawer.setCurrentFrame(currentFrame);
         resetDescriptors();
-        lastReset = currentFrame;
 
         drawer.resetBuffers(currentFrame);
 
@@ -454,6 +466,7 @@ public class Renderer {
             AdaptiveChunkUploadBudget.recordUploadWork(uploadPhaseNanos);
         }
         net.vulkanmod.render.optimization.ChunkFrameDiagnostics.recordUploadPhase(uploadPhaseNanos);
+        framePreparation.preparationCompleted(currentFrame);
     }
 
     public void addUsedPipeline(Pipeline pipeline) {
@@ -473,8 +486,8 @@ public class Renderer {
         boundPipeline = null;
         boundPipelineHandle = 0;
 
-        // Dynamic state lives in the per-frame command buffer; force a re-set on the
-        // first pipeline bind of the new frame.
+                                                                                     
+                                                
         blendConstantsApplied = false;
         stencilStateApplied = false;
     }
@@ -503,6 +516,7 @@ public class Renderer {
         commandBuffers.forEach(commandBuffer -> vkResetCommandBuffer(commandBuffer, 0));
 
         Vulkan.getSwapChain().recreate();
+        this.mainPass.onResize();
 
         destroySyncObjects();
 
@@ -527,6 +541,7 @@ public class Renderer {
         }
 
         createSyncObjects();
+        framePreparation.recreated();
 
         this.onResizeCallbacks.forEach(Runnable::run);
         ((WindowAccessor) (Object) Minecraft.getInstance().getWindow()).getEventHandler().resizeDisplay();
@@ -535,12 +550,14 @@ public class Renderer {
     }
 
     public void cleanUpResources() {
+        this.mainPass.cleanUp();
+
         destroySyncObjects();
 
         drawer.cleanUpResources();
 
         PipelineManager.destroyPipelines();
-        VTextureSelector.getWhiteTexture().free();
+        VTextureSelector.freeWhiteTexture();
     }
 
     private void destroySyncObjects() {
@@ -665,6 +682,15 @@ public class Renderer {
         return boundPipeline;
     }
 
+    public void restoreGraphicsPipeline(Pipeline previousPipeline) {
+        if (previousPipeline instanceof GraphicsPipeline graphicsPipeline) {
+            bindGraphicsPipeline(graphicsPipeline);
+            return;
+        }
+        boundPipeline = null;
+        boundPipelineHandle = 0;
+    }
+
     private static void resetDynamicState(VkCommandBuffer commandBuffer) {
         vkCmdSetDepthBias(commandBuffer, 0.0F, 0.0F, 0.0F);
 
@@ -757,12 +783,14 @@ public class Renderer {
     }
 
     private static final int[] VIEWPORT_BOX = new int[4];
+    private static boolean viewportInitialized;
 
     public static void setViewport(int x, int y, int width, int height, MemoryStack stack) {
         VIEWPORT_BOX[0] = x;
         VIEWPORT_BOX[1] = y;
         VIEWPORT_BOX[2] = width;
         VIEWPORT_BOX[3] = height;
+        viewportInitialized = true;
 
         if (!INSTANCE.recordingCmds)
             return;
@@ -817,6 +845,7 @@ public class Renderer {
         VIEWPORT_BOX[1] = 0;
         VIEWPORT_BOX[2] = getSwapChain().getWidth();
         VIEWPORT_BOX[3] = getSwapChain().getHeight();
+        viewportInitialized = true;
         try (MemoryStack stack = stackPush()) {
             int width = getSwapChain().getWidth();
             int height = getSwapChain().getHeight();
@@ -833,8 +862,19 @@ public class Renderer {
         }
     }
 
+                                                                                                                
+    public static int getBoundFramebufferHeight() {
+        Renderer renderer = INSTANCE;
+        Framebuffer framebuffer = renderer != null ? renderer.boundFramebuffer : null;
+        return framebuffer != null ? framebuffer.getHeight() : 0;
+    }
+
     public static int getViewportBox(int component) {
         return component >= 0 && component < VIEWPORT_BOX.length ? VIEWPORT_BOX[component] : 0;
+    }
+
+    public static boolean isViewportInitialized() {
+        return viewportInitialized;
     }
 
     private static final int[] SCISSOR_BOX = new int[4];

@@ -39,12 +39,12 @@ public class ARBShaderObjectsM {
                 vulkanmod$currentProgramObject = 0;
             }
         } else {
-            Integer shader = vulkanmod$shaderObjects.remove(obj);
-            vulkanmod$shaderTypes.remove(obj);
+            Integer shader = vulkanmod$shaderObjects.get(obj);
             if (shader != null) {
                 GlProgram.deleteShader(shader);
             }
         }
+        vulkanmod$pruneShaderObjects();
     }
 
     @Overwrite(remap = false)
@@ -55,6 +55,8 @@ public class ARBShaderObjectsM {
 
     @Overwrite(remap = false)
     public static void glDetachObjectARB(@NativeType("GLhandleARB") int containerObj, @NativeType("GLhandleARB") int attachedObj) {
+        GlProgram.detachShader(vulkanmod$coreProgram(containerObj), vulkanmod$coreShader(attachedObj));
+        vulkanmod$pruneShaderObjects();
     }
 
     @Overwrite(remap = false)
@@ -63,6 +65,7 @@ public class ARBShaderObjectsM {
         int handle = vulkanmod$genObjectHandle();
         vulkanmod$shaderObjects.put(handle, GlProgram.createShader(shaderType));
         vulkanmod$shaderTypes.put(handle, shaderType);
+        vulkanmod$pruneShaderObjects();
         return handle;
     }
 
@@ -96,6 +99,7 @@ public class ARBShaderObjectsM {
     public static int glCreateProgramObjectARB() {
         int handle = vulkanmod$genObjectHandle();
         vulkanmod$programObjects.put(handle, GlProgram.createProgram());
+        vulkanmod$pruneShaderObjects();
         return handle;
     }
 
@@ -159,9 +163,7 @@ public class ARBShaderObjectsM {
 
     @Overwrite(remap = false)
     public static void glUniform1fvARB(@NativeType("GLint") int location, @NativeType("GLfloat const *") FloatBuffer value) {
-        if (value != null && value.remaining() >= 1) {
-            GlProgram.uniform1f(location, value.get(value.position()));
-        }
+        GlProgram.uniform1fv(location, value);
     }
 
     @Overwrite(remap = false)
@@ -213,6 +215,7 @@ public class ARBShaderObjectsM {
 
     @Overwrite(remap = false)
     public static void glUniformMatrix3fvARB(@NativeType("GLint") int location, @NativeType("GLboolean") boolean transpose, @NativeType("GLfloat const *") FloatBuffer value) {
+        GlProgram.uniformMatrix3fv(location, transpose, value);
     }
 
     @Overwrite(remap = false)
@@ -403,9 +406,7 @@ public class ARBShaderObjectsM {
 
     @Overwrite(remap = false)
     public static void glUniform1fvARB(@NativeType("GLint") int location, @NativeType("GLfloat const *") float[] value) {
-        if (value != null && value.length >= 1) {
-            GlProgram.uniform1f(location, value[0]);
-        }
+        GlProgram.uniform1fv(location, value);
     }
 
     @Overwrite(remap = false)
@@ -457,13 +458,12 @@ public class ARBShaderObjectsM {
 
     @Overwrite(remap = false)
     public static void glUniformMatrix3fvARB(@NativeType("GLint") int location, @NativeType("GLboolean") boolean transpose, @NativeType("GLfloat const *") float[] value) {
+        GlProgram.uniformMatrix3fv(location, transpose, value);
     }
 
     @Overwrite(remap = false)
     public static void glUniformMatrix4fvARB(@NativeType("GLint") int location, @NativeType("GLboolean") boolean transpose, @NativeType("GLfloat const *") float[] value) {
-        if (value != null) {
-            GlProgram.uniformMatrix4fv(location, transpose, FloatBuffer.wrap(value));
-        }
+        GlProgram.uniformMatrix4fv(location, transpose, value);
     }
 
     @Unique
@@ -480,6 +480,18 @@ public class ARBShaderObjectsM {
             case ARBShaderObjects.GL_OBJECT_SHADER_SOURCE_LENGTH_ARB -> GL20.GL_SHADER_SOURCE_LENGTH;
             default -> pname;
         };
+    }
+
+    @Unique
+    private static void vulkanmod$pruneShaderObjects() {
+        var iterator = vulkanmod$shaderObjects.entrySet().iterator();
+        while (iterator.hasNext()) {
+            var entry = iterator.next();
+            if (!GlProgram.isShader(entry.getValue())) {
+                vulkanmod$shaderTypes.remove(entry.getKey());
+                iterator.remove();
+            }
+        }
     }
 
     @Unique

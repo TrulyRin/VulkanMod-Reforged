@@ -242,28 +242,30 @@ public class TaskDispatcher {
             }
         }
 
-        this.clearBatchQueue();
-        closeResources(this.resources);
-        this.fixedBuffers.closeAll();
+        BuilderResources[] resourcesToClose = this.resources;
         this.resources = null;
         this.threads = null;
-
-        if (interrupted) {
-            Thread.currentThread().interrupt();
-        }
-
+        Throwable failure = null;
+        try { this.clearBatchQueue(); }
+        catch (RuntimeException | Error cleanup) { failure = cleanup; }
+        try { closeResources(resourcesToClose); }
+        catch (RuntimeException | Error cleanup) { failure = collectFailure(failure, cleanup); }
+        try { this.fixedBuffers.closeAll(); }
+        catch (RuntimeException | Error cleanup) { failure = collectFailure(failure, cleanup); }
+        if (interrupted) Thread.currentThread().interrupt();
+        rethrowCleanup(failure);
     }
 
     private static void closeResources(BuilderResources[] resourcesArray) {
-        if (resourcesArray == null) {
-            return;
-        }
-
+        if (resourcesArray == null) return;
+        Throwable failure = null;
         for (BuilderResources resources : resourcesArray) {
             if (resources != null) {
-                resources.close();
+                try { resources.close(); }
+                catch (RuntimeException | Error cleanup) { failure = collectFailure(failure, cleanup); }
             }
         }
+        rethrowCleanup(failure);
     }
 
     public boolean updateSections() {
@@ -318,7 +320,17 @@ public class TaskDispatcher {
             }
 
 
-            boolean completed = this.uploadNextLayer(this.activeCompileResult);
+            boolean completed;
+            try {
+                completed = this.uploadNextLayer(this.activeCompileResult);
+            } catch (RuntimeException | Error failure) {
+                CompileResult rejected = this.activeCompileResult;
+                this.activeCompileResult = null;
+                this.activeRenderLayerIndex = 0;
+                try { rejected.releaseBuffers(); }
+                catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+                throw failure;
+            }
             uploadStepsThisFrame++;
             if (completed) {
                 boolean fullUpdate = this.activeCompileResult.fullUpdate;
@@ -391,6 +403,8 @@ public class TaskDispatcher {
         DrawBuffers drawBuffers = renderArea.getDrawBuffers();
 
         if(compileResult.fullUpdate) {
+                                                                                           
+            if (this.activeRenderLayerIndex == 0 && compileResult.stageBlockLayer()) return false;
             while (this.activeRenderLayerIndex < TerrainRenderType.VALUES.length) {
                 TerrainRenderType renderType = TerrainRenderType.VALUES[this.activeRenderLayerIndex++];
                 UploadBuffer uploadBuffer = compileResult.renderedLayers.remove(renderType);
@@ -400,17 +414,13 @@ public class TaskDispatcher {
                             section, uploadBuffer, renderType, true);
                     compileResult.stagedLayers.put(renderType, pendingUpload);
                     if (this.activeRenderLayerIndex == TerrainRenderType.VALUES.length) {
-                        drawBuffers.commitFullUpdate(section, compileResult.stagedLayers);
-                        compileResult.updateSection();
-                        return true;
+                        return this.commitFullResult(compileResult, drawBuffers);
                     }
                     return false;
                 }
             }
 
-            drawBuffers.commitFullUpdate(section, compileResult.stagedLayers);
-            compileResult.updateSection();
-            return true;
+            return this.commitFullResult(compileResult, drawBuffers);
         }
 
         UploadBuffer uploadBuffer = compileResult.renderedLayers.remove(TerrainRenderType.TRANSLUCENT);
@@ -421,6 +431,16 @@ public class TaskDispatcher {
             drawBuffers.commitPartialUpdate(section, pendingUpload);
             compileResult.stagedLayers.remove(TerrainRenderType.TRANSLUCENT);
         }
+        return true;
+    }
+
+    private boolean commitFullResult(CompileResult result, DrawBuffers drawBuffers) {
+        if (!result.matchesCurrentSection()) {
+            result.releaseBuffers();
+            return true;
+        }
+        drawBuffers.commitFullUpdate(result.renderSection, result.stagedLayers);
+        if (result.commitBlockLayer()) result.updateSection();
         return true;
     }
 
@@ -436,35 +456,43 @@ public class TaskDispatcher {
     }
 
     public void clearBatchQueue() {
-        while(!this.highPriorityTasks.isEmpty()) {
-            ChunkTask chunkTask = this.highPriorityTasks.poll();
-            if (chunkTask != null) {
-                chunkTask.discard();
-            }
+        Throwable failure = null;
+        ChunkTask task;
+        while ((task = this.highPriorityTasks.poll()) != null) {
+            try { task.discard(); }
+            catch (RuntimeException | Error cleanup) { failure = collectFailure(failure, cleanup); }
         }
-
-        while(!this.lowPriorityTasks.isEmpty()) {
-            ChunkTask chunkTask = this.lowPriorityTasks.poll();
-            if (chunkTask != null) {
-                chunkTask.discard();
-            }
+        while ((task = this.lowPriorityTasks.poll()) != null) {
+            try { task.discard(); }
+            catch (RuntimeException | Error cleanup) { failure = collectFailure(failure, cleanup); }
         }
-
-        CompileResult compileResult;
-        while ((compileResult = this.compileResults.poll()) != null) {
-            compileResult.releaseBuffers();
+        CompileResult result;
+        while ((result = this.compileResults.poll()) != null) {
+            try { result.releaseBuffers(); }
+            catch (RuntimeException | Error cleanup) { failure = collectFailure(failure, cleanup); }
         }
-
-        if (this.activeCompileResult != null) {
-            this.activeCompileResult.releaseBuffers();
-            this.activeCompileResult = null;
-            this.activeRenderLayerIndex = 0;
+        CompileResult active = this.activeCompileResult;
+        this.activeCompileResult = null;
+        this.activeRenderLayerIndex = 0;
+        if (active != null) {
+            try { active.releaseBuffers(); }
+            catch (RuntimeException | Error cleanup) { failure = collectFailure(failure, cleanup); }
         }
-
         this.failedTasks.clear();
-
         this.taskSignal.drainPermits();
         this.consecutiveHighPriorityTasks = 0;
+        rethrowCleanup(failure);
+    }
+
+    private static Throwable collectFailure(Throwable failure, Throwable cleanup) {
+        if (failure == null) return cleanup;
+        if (failure != cleanup) failure.addSuppressed(cleanup);
+        return failure;
+    }
+
+    private static void rethrowCleanup(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
     }
 
     public String getStats() {

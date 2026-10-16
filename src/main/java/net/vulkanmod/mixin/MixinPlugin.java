@@ -1,6 +1,7 @@
 package net.vulkanmod.mixin;
 
 import net.vulkanmod.compat.RuntimeOptions;
+import net.vulkanmod.compat.sable.SableCompatibilityOptions;
 import org.objectweb.asm.tree.ClassNode;
 import org.spongepowered.asm.mixin.extensibility.IMixinConfigPlugin;
 import org.spongepowered.asm.mixin.extensibility.IMixinInfo;
@@ -20,6 +21,13 @@ public class MixinPlugin implements IMixinConfigPlugin {
     private static final String ESSENTIAL_MIXIN_PACKAGE = "net.vulkanmod.mixin.compatibility.essential.";
     private static final String ESSENTIAL_UI_3D_PLAYER_MIXIN = ESSENTIAL_MIXIN_PACKAGE + "EssentialUI3DPlayerMixin";
     private static final String ESSENTIAL_UI_3D_PLAYER = "gg.essential.gui.common.UI3DPlayer";
+    private static final String SABLE_MIXIN_PACKAGE = "net.vulkanmod.mixin.compatibility.sable.";
+    private static final Set<String> VEIL_CORE_MIXINS = Set.of(
+            SABLE_MIXIN_PACKAGE + "VeilVertexAttribDivisorMixin",
+            SABLE_MIXIN_PACKAGE + "VeilSamplerObjectMixin",
+            SABLE_MIXIN_PACKAGE + "VeilMultiBindLegacySamplerMixin",
+            SABLE_MIXIN_PACKAGE + "VeilFirstPersonRendererMixin",
+            SABLE_MIXIN_PACKAGE + "VeilRenderSystemMixin");
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -32,6 +40,12 @@ public class MixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (VEIL_CORE_MIXINS.contains(mixinClassName)) {
+            return isVeilPresent();
+        }
+        if (mixinClassName.startsWith(SABLE_MIXIN_PACKAGE)) {
+            return SableCompatibilityOptions.mode().enabled() && isSablePresent();
+        }
         if (mixinClassName.startsWith(CREATE_MIXIN_PACKAGE)) {
             return CREATE_MAIN_MENU_SCREEN_MIXIN.equals(mixinClassName)
                     && CREATE_MAIN_MENU_SCREEN.equals(targetClassName);
@@ -72,6 +86,18 @@ public class MixinPlugin implements IMixinConfigPlugin {
     private static boolean isOldF3Mixin(String mixinClassName) {
         return mixinClassName.equals("net.vulkanmod.mixin.debug.DebugScreenOverlayM")
                 || mixinClassName.equals("net.vulkanmod.mixin.debug.GlDebugInfoM");
+    }
+
+    private static boolean isSablePresent() {
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        return loader != null && loader.getResource(
+                "dev/ryanhcode/sable/sublevel/render/dispatcher/SubLevelRenderDispatcher.class") != null;
+    }
+
+    private static boolean isVeilPresent() {
+        ClassLoader loader = Thread.currentThread().getContextClassLoader();
+        return loader != null && loader.getResource(
+                "foundry/veil/api/client/render/VeilRenderSystem.class") != null;
     }
 
     @Override

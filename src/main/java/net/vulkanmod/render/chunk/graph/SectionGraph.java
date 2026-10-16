@@ -209,10 +209,11 @@ public class SectionGraph {
         for (int i = 0; i < this.rebuildQueue.size(); i++) {
             RenderSection section = this.rebuildQueue.get(i);
 
-            boolean bypassDelay = section.isDirtyFromPlayer()
+            boolean urgent = isUrgentRebuild(section);
+            boolean bypassDelay = urgent
                     || !section.isInRebuildCooldown(nowNanos, ChunkSchedulingPolicy.REBUILD_COOLDOWN_NANOS);
             if (bypassDelay && this.delayedRebuilds.remove(section)) {
-                this.enqueueReadyRebuild(section, section.isDirtyFromPlayer());
+                this.enqueueReadyRebuild(section, urgent);
                 continue;
             }
 
@@ -220,7 +221,7 @@ public class SectionGraph {
                 continue;
             }
 
-            this.enqueueReadyRebuild(section, section.isDirtyFromPlayer());
+            this.enqueueReadyRebuild(section, urgent);
         }
         this.rebuildQueue.clear();
     }
@@ -240,6 +241,14 @@ public class SectionGraph {
         }
     }
 
+    private boolean isUrgentRebuild(RenderSection section) {
+        BlockPos camera=this.minecraft.gameRenderer.getMainCamera().getBlockPosition();
+                                                                                
+                                                                                            
+        return SectionRebuildPolicy.isUrgent(section.isDirtyFromPlayer(),
+                section.xOffset(),section.yOffset(),section.zOffset(),camera.getX(),camera.getY(),camera.getZ());
+    }
+
     private void promoteEligibleRebuilds(long nowNanos) {
         for (int promoted = 0;
              promoted < ChunkSchedulingPolicy.MAX_DELAYED_REBUILD_PROMOTIONS_PER_FRAME;
@@ -248,7 +257,7 @@ public class SectionGraph {
             if (section == null) {
                 break;
             }
-            this.enqueueReadyRebuild(section, section.isDirtyFromPlayer());
+            this.enqueueReadyRebuild(section, isUrgentRebuild(section));
         }
     }
 
@@ -289,7 +298,7 @@ public class SectionGraph {
                 continue;
             }
 
-            if (!section.isDirtyFromPlayer()
+            if (!isUrgentRebuild(section)
                     && section.isInRebuildCooldown(startNanos, ChunkSchedulingPolicy.REBUILD_COOLDOWN_NANOS)) {
                 if (this.delayedRebuilds.defer(section,
                         section.rebuildCooldownDeadlineNanos(ChunkSchedulingPolicy.REBUILD_COOLDOWN_NANOS))) {
