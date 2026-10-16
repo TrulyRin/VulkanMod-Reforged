@@ -25,7 +25,7 @@ public class MOverlayTexture {
         VTextureSelector.setActiveTexture(1);
     }
 
-//    @Inject(method = "<init>", at = @At(value = "RETURN", target = "Lnet/minecraft/client/texture/NativeImageBackedTexture;bindTexture()V"))
+                                                                                                                                              
     @Inject(method = "<init>", at = @At(value = "RETURN"))
     private void overlay(CallbackInfo ci) {
         VTextureSelector.setActiveTexture(0);

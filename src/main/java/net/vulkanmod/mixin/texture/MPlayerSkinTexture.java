@@ -12,8 +12,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(value = HttpTexture.class, priority = 900)
 public class MPlayerSkinTexture {
 
-    // upload: inject-and-cancel instead of @Overwrite so other mods' handlers targeting
-    // HttpTexture still apply without a mixin crash.
+                                                                                        
+                                                     
     @Inject(method = "m_118020_", at = @At("HEAD"), cancellable = true, remap = false)
     private void upload(NativeImage image, CallbackInfo ci) {
         VulkanImage vulkanImage = new VulkanImage.Builder(image.getWidth(), image.getHeight()).createVulkanImage();

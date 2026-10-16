@@ -36,8 +36,8 @@ public class ChunkStatusMap {
 
         if ((current & CHUNK_READY) == CHUNK_READY) {
             updateNeighbours(x, z);
-            // A newly ready chunk must be picked up by the visibility graph — uploads alone no
-            // longer force a graph rebuild (see WorldRenderer.uploadSections).
+                                                                                               
+                                                                               
             scheduleGraphUpdateIfRendererExists();
         }
     }
@@ -92,7 +92,7 @@ public class ChunkStatusMap {
         }
         return true;
 
-//        return flags == CHUNK_READY;
+                                      
     }
 
     public boolean chunkRenderReady(int x, int z) {

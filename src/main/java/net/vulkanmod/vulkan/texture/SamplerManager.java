@@ -62,7 +62,7 @@ public abstract class SamplerManager {
             }
 
             samplerInfo.anisotropyEnable(false);
-            //samplerInfo.maxAnisotropy(16.0f);
+                                               
             samplerInfo.borderColor(VK_BORDER_COLOR_INT_OPAQUE_WHITE);
             samplerInfo.unnormalizedCoordinates(false);
             samplerInfo.compareEnable(false);
@@ -83,7 +83,7 @@ public abstract class SamplerManager {
                 samplerInfo.mipLodBias(MIP_BIAS);
             }
 
-            //Reduction Mode
+                            
             if ((flags & (REDUCTION_MAX_BIT | REDUCTION_MIN_BIT)) != 0) {
                 VkSamplerReductionModeCreateInfo reductionModeInfo = VkSamplerReductionModeCreateInfo.calloc(stack);
                 reductionModeInfo.sType$Default();

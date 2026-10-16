@@ -502,8 +502,8 @@ public class VOptionScreen extends Screen {
             modEntry.runOnApply();
         }
 
-        // Fork behavior: preset options can rewrite many settings at once, so
-        // rebuild the pages from the freshly-applied values to refresh all widgets.
+                                                                              
+                                                                                    
         this.rebuildPagesFromCurrentOptions();
     }
 

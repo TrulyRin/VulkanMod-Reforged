@@ -20,8 +20,8 @@ public abstract class PostChainM {
     @Shadow(remap = false) private float f_110016_;
     @Shadow(remap = false) private float f_110015_;
 
-    // process: inject-and-cancel instead of @Overwrite so other mods' handlers targeting
-    // PostChain.process (e.g. Lodestone's redirects) still apply without a mixin crash.
+                                                                                         
+                                                                                        
     @Inject(method = "m_110023_", at = @At("HEAD"), cancellable = true, remap = false)
     private void process(float f, CallbackInfo ci) {
         ci.cancel();

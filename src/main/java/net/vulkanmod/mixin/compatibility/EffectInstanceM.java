@@ -67,9 +67,9 @@ public class EffectInstanceM {
 
     @Inject(method = "<init>", at = @At("RETURN"))
     private void inj(ResourceManager resourceManager, String string, CallbackInfo ci) {
-        // Namespace-aware path (Forge/NeoForge allows "namespace:program" post-shader programs, e.g.
-        // Cracker's Wither Storm "witherstormmod:aberration_distortion"). Building the path from the raw
-        // string would put the colon inside the ResourceLocation path -> ResourceLocationException.
+                                                                                                     
+                                                                                                         
+                                                                                                    
         String[] programPathInfo = this.decompose(string, ':');
         ResourceLocation resourceLocation = new ResourceLocation(programPathInfo[0], "shaders/program/" + programPathInfo[1] + ".json");
 
@@ -180,10 +180,10 @@ public class EffectInstanceM {
         return strings;
     }
 
-    // VulkanMod's GLSL->SPIR-V converter only accepts modern GLSL. Some mods ship legacy post-shaders
-    // (#version 110/120: varying, attribute, texture2D, gl_FragColor) that otherwise fail to convert
-    // ("'sampler/image' : cannot construct this type"), e.g. Cracker's Wither Storm aberration_distortion.
-    // Modernize them to #version 150. Strict no-op for shaders already at 150+ (guarded by the version check).
+                                                                                                      
+                                                                                                     
+                                                                                                           
+                                                                                                               
     private static String modernizeLegacyGlsl(String src, boolean fragment) {
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("#version\\s+(\\d{3})").matcher(src);
         if (!m.find() || Integer.parseInt(m.group(1)) >= 150) {

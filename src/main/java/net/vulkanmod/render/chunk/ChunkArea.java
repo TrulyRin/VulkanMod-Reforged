@@ -17,7 +17,7 @@ public class ChunkArea {
 
     DrawBuffers drawBuffers;
 
-    //Help JIT optimisations by hardcoding the queue size to the max possible ChunkArea limit
+                                                                                             
     public final StaticQueue<RenderSection> sectionQueue = new StaticQueue<>(512);
 
     public ChunkArea(int i, Vector3i origin, int minHeight) {
@@ -27,11 +27,11 @@ public class ChunkArea {
     }
 
     public void updateFrustum(VFrustum frustum) {
-        //TODO: maybe move to an aux class
+                                          
         int frustumResult = frustum.cubeInFrustum(this.position.x(), this.position.y(), this.position.z(),
                 this.position.x() + (8 << 4) , this.position.y() + (8 << 4), this.position.z() + (8 << 4));
 
-        //Inner cubes
+                     
         if (frustumResult == FrustumIntersection.INTERSECT) {
             int width = 8 << 4;
             int l = width >> 1;

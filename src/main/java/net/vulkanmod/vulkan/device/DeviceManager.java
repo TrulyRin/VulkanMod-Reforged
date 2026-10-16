@@ -223,7 +223,7 @@ public abstract class DeviceManager {
             }
 
             java.util.Set<String> deviceExtensions = new java.util.HashSet<>(Vulkan.REQUIRED_EXTENSION);
-            // MoltenVK / portability devices require VK_KHR_portability_subset to be enabled when supported.
+                                                                                                             
             if (device.isPortabilitySubset()) {
                 deviceExtensions.add(KHRPortabilitySubset.VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
             }
@@ -267,8 +267,8 @@ public abstract class DeviceManager {
         try (MemoryStack stack = stackPush()) {
             Queue.QueueFamilyIndices indices = findQueueFamilies(device);
 
-            // Heap-allocated enumeration (Device.getAvailableExtensions): drivers exposing many
-            // extensions overflow the small LWJGL MemoryStack ("Out of stack space" on init).
+                                                                                                
+                                                                                              
             boolean extensionsSupported = Device.getAvailableExtensions(device)
                     .containsAll(Vulkan.REQUIRED_EXTENSION);
 

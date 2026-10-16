@@ -446,8 +446,8 @@ public class Renderer {
         boundPipeline = null;
         boundPipelineHandle = 0;
 
-        // Dynamic state lives in the per-frame command buffer; force a re-set on the
-        // first pipeline bind of the new frame.
+                                                                                     
+                                                
         blendConstantsApplied = false;
         stencilStateApplied = false;
     }

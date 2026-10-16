@@ -22,8 +22,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
 
-// 1.20.1 port of the 1.21.x CubeModel fast model path: transforms 8 vertices per cube instead of
-// 24, and writes vertices through the packed ExtendedVertexBuilder fast path when available.
+                                                                                                 
+                                                                                             
 @Mixin(value = ModelPart.class, priority = 900)
 public class ModelPartM {
 
@@ -32,12 +32,12 @@ public class ModelPartM {
     @Unique
     private final Vector3f vulkanMod$normal = new Vector3f();
 
-    // compile
+              
     @Inject(method = "m_104290_", at = @At("HEAD"), cancellable = true, remap = false)
     private void compile(PoseStack.Pose pose, VertexConsumer vertexConsumer, int light, int overlay, float r, float g, float b, float a, CallbackInfo ci) {
         if (GuiEntityRenderState.isGuiEntityPreview(light)) {
             GuiEntityRenderState.prepareDeferredDraw();
-            return; // vanilla compile draws the GUI preview through the deferred state
+            return;                                                                    
         }
 
         Matrix4f matrix4f = pose.pose();

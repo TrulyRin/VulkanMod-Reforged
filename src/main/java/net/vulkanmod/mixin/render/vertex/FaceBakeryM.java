@@ -20,9 +20,9 @@ public class FaceBakeryM {
 
     private static final float d = 1.0f / 16.0f;
 
-    /**
-     * @author
-     */
+       
+              
+       
     @Overwrite(remap = false)
     private float[] m_111592_(Vector3f vector3f, Vector3f vector3f2) {
         float[] fs = new float[Direction.values().length];
@@ -35,9 +35,9 @@ public class FaceBakeryM {
         return fs;
     }
 
-    /**
-     * @author
-     */
+       
+              
+       
     @Overwrite(remap = false)
     public static BlockFaceUV m_111581_(BlockFaceUV blockFaceUV, Direction direction, Transformation transformation, ResourceLocation resourceLocation) {
         float q;

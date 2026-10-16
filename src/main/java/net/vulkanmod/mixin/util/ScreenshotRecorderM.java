@@ -11,9 +11,9 @@ import org.spongepowered.asm.mixin.Overwrite;
 @Mixin(Screenshot.class)
 public class ScreenshotRecorderM {
 
-    /**
-     * @author
-     */
+       
+              
+       
     @Overwrite(remap = false)
     public static NativeImage m_92279_(RenderTarget target) {
         int width = target.width;
@@ -22,8 +22,8 @@ public class ScreenshotRecorderM {
         NativeImage nativeimage = new NativeImage(width, height, false);
         GlTexture.bindTexture(target.getColorTextureId());
 
-        // Need to submit and wait cmds if screenshot was requested
-        // before the end of the frame
+                                                                   
+                                      
         Renderer.getInstance().flushCmds();
 
         nativeimage.downloadTexture(0, true);

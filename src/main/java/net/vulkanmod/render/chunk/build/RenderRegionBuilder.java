@@ -37,7 +37,7 @@ public class RenderRegionBuilder {
 
         PalettedContainer<BlockState>[] blockData = new PalettedContainer[RenderRegion.SIZE];
 
-        DataLayer[][] lightData = new DataLayer[RenderRegion.SIZE][2 /* Light types */];
+        DataLayer[][] lightData = new DataLayer[RenderRegion.SIZE][2                  ];
 
         final int minHeightSec = level.getMinBuildHeight() >> 4;
         for (int x = minSecX; x <= maxSecX; ++x) {

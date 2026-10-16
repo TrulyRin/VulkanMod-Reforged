@@ -15,11 +15,11 @@ public class MFontTexture implements VAbstractTextureI {
 
     @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/TextureUtil;prepareImage(Lcom/mojang/blaze3d/platform/NativeImage$InternalGlFormat;III)V"))
     private void redirect(NativeImage.InternalGlFormat internalFormat, int id, int width, int height) {
-        //this.vulkanImage = new VulkanImage(1, 256, 256, 4, false, false);
+                                                                           
         VulkanImage image = new VulkanImage.Builder(width, height).setFormat(internalFormat).createVulkanImage();
         this.setId(id);
         this.setVulkanImage(image);
-        //((VAbstractTextureI)(this)).bind();
+                                             
     }
 
     @Override

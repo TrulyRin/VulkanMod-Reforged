@@ -41,10 +41,10 @@ public class PostPassM {
 
     @Shadow(remap = false) private Matrix4f f_110059_;
 
-    // process: inject-and-cancel instead of @Overwrite so other mods' handlers targeting
-    // PostPass.process still apply without a mixin crash. The snapshot restores render state
-    // even if effect.apply() or the draw throws, so one broken shader pass cannot poison
-    // every later draw of the frame.
+                                                                                         
+                                                                                             
+                                                                                         
+                                     
     @Inject(method = "m_110065_", at = @At("HEAD"), cancellable = true, remap = false)
     private void process(float f, CallbackInfo ci) {
         ci.cancel();

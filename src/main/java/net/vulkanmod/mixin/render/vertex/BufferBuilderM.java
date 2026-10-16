@@ -32,11 +32,11 @@ public abstract class BufferBuilderM extends DefaultedVertexConsumer
     @Shadow(remap = false) private @Nullable VertexFormatElement f_85655_;
     @Shadow(remap = false) private VertexFormat f_85658_;
 
-//    @Shadow @Nullable private Vector3f[] sortingPoints;
-//    @Shadow private float sortX;
-//    @Shadow private float sortY;
-//    @Shadow private float sortZ;
-//    @Shadow private VertexFormat.Mode mode;
+                                                         
+                                  
+                                  
+                                  
+                                             
 
     private long bufferPtr;
     private long ptr;
@@ -82,7 +82,7 @@ public abstract class BufferBuilderM extends DefaultedVertexConsumer
             this.light(light);
             this.fastNormal(packedNormal);
             this.m_5752_();
-//            throw new RuntimeException("unaccepted format: " + this.format);
+                                                                              
         }
 
     }
@@ -160,9 +160,9 @@ public abstract class BufferBuilderM extends DefaultedVertexConsumer
         this.m_5751_();
     }
 
-    /**
-     * @author
-     */
+       
+              
+       
     @Overwrite(remap = false)
     public void m_5954_(float x, float y, float z, float red, float green, float blue, float alpha, float u, float v, int overlay, int light, float normalX, float normalY, float normalZ) {
         if (this.f_85659_) {
@@ -197,9 +197,9 @@ public abstract class BufferBuilderM extends DefaultedVertexConsumer
         }
     }
 
-    /**
-     * @author
-     */
+       
+              
+       
     @Overwrite(remap = false)
     public void m_5751_() {
         VertexFormatElement vertexFormatElement;
@@ -218,38 +218,38 @@ public abstract class BufferBuilderM extends DefaultedVertexConsumer
         }
     }
 
-//    /**
-//     * @author
-//     */
-//    @Overwrite
-//    private void putSortedQuadIndices(VertexFormat.IndexType indexType) {
-//        float[] distances = new float[this.sortingPoints.length];
-//        int[] is = new int[this.sortingPoints.length];
-//
-//        for(int i = 0; i < this.sortingPoints.length; is[i] = i++) {
-//            float f = this.sortingPoints[i].x() - this.sortX;
-//            float g = this.sortingPoints[i].y() - this.sortY;
-//            float h = this.sortingPoints[i].z() - this.sortZ;
-//            distances[i] = f * f + g * g + h * h;
-//        }
-//
-////		IntArrays.mergeSort(is, (ix, jx) -> Floats.compare(distances[jx], distances[ix]));
-////        SortUtil.quickSort(is, (ix, jx) -> Float.compare(distances[jx], distances[ix]));
-//        SortUtil.mergeSort(is, distances);
-////        SortUtil.quickSort2(is, distances);
-//
-//        IntConsumer intConsumer = this.intConsumer(this.nextElementByte, indexType);
-//
-//        for(int i = 0; i < is.length; ++i) {
-//            int j = is[i];
-//            intConsumer.accept(j * this.mode.primitiveStride + 0);
-//            intConsumer.accept(j * this.mode.primitiveStride + 1);
-//            intConsumer.accept(j * this.mode.primitiveStride + 2);
-//            intConsumer.accept(j * this.mode.primitiveStride + 2);
-//            intConsumer.accept(j * this.mode.primitiveStride + 3);
-//            intConsumer.accept(j * this.mode.primitiveStride + 0);
-//        }
-//    }
+         
+                
+         
+                
+                                                                           
+                                                                   
+                                                        
+  
+                                                                      
+                                                               
+                                                               
+                                                               
+                                                   
+           
+  
+    		                                                                                  
+                                                                                            
+                                            
+                                               
+  
+                                                                                      
+  
+                                              
+                            
+                                                                    
+                                                                    
+                                                                    
+                                                                    
+                                                                    
+                                                                    
+           
+       
 
     public void putByte(int index, byte value) {
         MemoryUtil.memPutByte(this.bufferPtr + this.f_85652_ + index, value);

@@ -123,8 +123,8 @@ public abstract class Queue {
             }
 
             if (indices.presentFamily == -1) {
-                // Some drivers will not show present support even if some queue supports it
-                // Use compute queue as fallback
+                                                                                            
+                                                
 
                 indices.presentFamily = indices.computeFamily;
                 Initializer.LOGGER.warn("Using compute queue as present fallback");

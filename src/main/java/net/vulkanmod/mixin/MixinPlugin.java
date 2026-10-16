@@ -90,10 +90,10 @@ public class MixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public List<String> getMixins() {
-        // WitherStormRenderBuffererM is registered statically in vulkanmod.mixins.json and gated by
-        // shouldApplyMixin (the same pattern as the create/tensura compat mixins). Registering it here
-        // as well would double-register it; and the getResource() probe used previously is unreliable on
-        // NeoForge 1.20.1, where other mods' classes are not yet queryable at mixin-config-load time.
+                                                                                                    
+                                                                                                       
+                                                                                                         
+                                                                                                      
         return new ArrayList<>();
     }
 

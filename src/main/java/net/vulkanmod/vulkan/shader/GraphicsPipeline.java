@@ -79,14 +79,14 @@ public class GraphicsPipeline extends Pipeline {
             fragShaderStageInfo.module(fragShaderModule);
             fragShaderStageInfo.pName(entryPoint);
 
-            // ===> VERTEX STAGE <===
+                                     
 
             VkPipelineVertexInputStateCreateInfo vertexInputInfo = VkPipelineVertexInputStateCreateInfo.calloc(stack);
             vertexInputInfo.sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO);
             vertexInputInfo.pVertexBindingDescriptions(getBindingDescription(vertexFormat));
             vertexInputInfo.pVertexAttributeDescriptions(getAttributeDescriptions(vertexFormat));
 
-            // ===> ASSEMBLY STAGE <===
+                                       
 
             final int topology = PipelineState.AssemblyRasterState.decodeTopology(state.assemblyRasterState);
 
@@ -95,7 +95,7 @@ public class GraphicsPipeline extends Pipeline {
             inputAssembly.topology(topology);
             inputAssembly.primitiveRestartEnable(false);
 
-            // ===> VIEWPORT & SCISSOR
+                                      
 
             VkPipelineViewportStateCreateInfo viewportState = VkPipelineViewportStateCreateInfo.calloc(stack);
             viewportState.sType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO);
@@ -103,7 +103,7 @@ public class GraphicsPipeline extends Pipeline {
             viewportState.viewportCount(1);
             viewportState.scissorCount(1);
 
-            // ===> RASTERIZATION STAGE <===
+                                            
 
             final int polygonMode = PipelineState.AssemblyRasterState.decodePolygonMode(state.assemblyRasterState);
             final int cullMode = PipelineState.AssemblyRasterState.decodeCullMode(state.assemblyRasterState);
@@ -118,14 +118,14 @@ public class GraphicsPipeline extends Pipeline {
             rasterizer.frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE);
             rasterizer.depthBiasEnable(true);
 
-            // ===> MULTISAMPLING <===
+                                      
 
             VkPipelineMultisampleStateCreateInfo multisampling = VkPipelineMultisampleStateCreateInfo.calloc(stack);
             multisampling.sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO);
             multisampling.sampleShadingEnable(false);
             multisampling.rasterizationSamples(VK_SAMPLE_COUNT_1_BIT);
 
-            // ===> DEPTH TEST <===
+                                   
 
             VkPipelineDepthStencilStateCreateInfo depthStencil = VkPipelineDepthStencilStateCreateInfo.calloc(stack);
             depthStencil.sType(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO);
@@ -133,11 +133,11 @@ public class GraphicsPipeline extends Pipeline {
             depthStencil.depthWriteEnable(PipelineState.DepthState.depthMask(state.depthState_i));
             depthStencil.depthCompareOp(PipelineState.DepthState.decodeDepthFun(state.depthState_i));
             depthStencil.depthBoundsTestEnable(false);
-            depthStencil.minDepthBounds(0.0f); // Optional
-            depthStencil.maxDepthBounds(1.0f); // Optional
+            depthStencil.minDepthBounds(0.0f);            
+            depthStencil.maxDepthBounds(1.0f);            
             depthStencil.stencilTestEnable(false);
 
-            // ===> COLOR BLENDING <===
+                                       
 
             VkPipelineColorBlendAttachmentState.Buffer colorBlendAttachment = VkPipelineColorBlendAttachmentState.calloc(1, stack);
             colorBlendAttachment.colorWriteMask(state.colorMask_i);
@@ -161,7 +161,7 @@ public class GraphicsPipeline extends Pipeline {
             colorBlending.pAttachments(colorBlendAttachment);
             colorBlending.blendConstants(stack.floats(0.0f, 0.0f, 0.0f, 0.0f));
 
-            // ===> DYNAMIC STATES <===
+                                       
 
             VkPipelineDynamicStateCreateInfo dynamicStates = VkPipelineDynamicStateCreateInfo.calloc(stack);
             dynamicStates.sType(VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO);
@@ -190,7 +190,7 @@ public class GraphicsPipeline extends Pipeline {
                 pipelineInfo.renderPass(state.renderPass.getId());
                 pipelineInfo.subpass(0);
             } else {
-                //dyn-rendering
+                               
                 VkPipelineRenderingCreateInfoKHR renderingInfo = VkPipelineRenderingCreateInfoKHR.calloc(stack);
                 renderingInfo.sType(KHRDynamicRendering.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR);
                 renderingInfo.pColorAttachmentFormats(stack.ints(state.renderPass.getFramebuffer().getFormat()));
@@ -279,7 +279,7 @@ public class GraphicsPipeline extends Pipeline {
                     posDescription.format(VK_FORMAT_R8G8B8A8_UNORM);
                     posDescription.offset(offset);
 
-//                offset += 16;
+                               
                     offset += 4;
                     break;
 
@@ -310,7 +310,7 @@ public class GraphicsPipeline extends Pipeline {
                     break;
 
                 case PADDING:
-                    //Do nothing as padding format (VK_FORMAT_R8) is not supported everywhere
+                                                                                             
                     break;
 
                 case GENERIC:

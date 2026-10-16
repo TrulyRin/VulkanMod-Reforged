@@ -20,8 +20,8 @@ public class InventoryScreenM {
     @Unique
     private static final ThreadLocal<RenderStateSnapshot> vulkanMod$inventoryEntityStateSnapshot = new ThreadLocal<>();
 
-    // 1.20.1 renderEntityInInventory signature is (GuiGraphics, int x, int y, int scale, Quaternionf, Quaternionf,
-    // LivingEntity) — 1.21.x switched x/y/scale to float and added a Vector3f translate. Handler matches 1.20.1.
+                                                                                                                   
+                                                                                                                 
     @Inject(method = "renderEntityInInventory", at = @At("HEAD"))
     private static void vulkanMod$beginInventoryEntityRenderStateBoundary(GuiGraphics guiGraphics, int x, int y, int scale,
                                                                           Quaternionf pose,

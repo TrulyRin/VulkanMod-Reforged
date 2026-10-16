@@ -1,5 +1,5 @@
 # Renderer/OpenGL pipeline mods. Do not add compatibility adapters for these;
-# Vulkan Reforged should report them as incompatible instead.
+# VulkanMod Reforged should report them as incompatible instead.
 distanthorizons
 immediatelyfast
 exordium

@@ -72,11 +72,11 @@ public class ShaderInstanceM implements ShaderMixed {
         return pipeline;
     }
 
-    // Target Forge's ResourceLocation constructor: mod shaders registered via RegisterShadersEvent
-    // are constructed through it DIRECTLY, while the vanilla String constructor merely delegates to
-    // it. Injecting here covers both paths exactly once — an inject on the String overload never
-    // fires for mod shaders, leaving them with no pipeline (invisible geometry, e.g. the Wither
-    // Storm body).
+                                                                                                   
+                                                                                                    
+                                                                                                 
+                                                                                                
+                   
     @Inject(method = "<init>(Lnet/minecraft/server/packs/resources/ResourceProvider;Lnet/minecraft/resources/ResourceLocation;Lcom/mojang/blaze3d/vertex/VertexFormat;)V", at = @At("RETURN"))
     private void create(ResourceProvider resourceProvider, ResourceLocation shaderLocation, VertexFormat format, CallbackInfo ci) {
         String name = this.f_173300_;
@@ -100,11 +100,11 @@ public class ShaderInstanceM implements ShaderMixed {
         }
     }
 
-    // Bundled Vulkan shaders for mod namespaces can declare mod-custom uniforms (e.g. the Wither
-    // Storm's OverlayTextureColor) that VulkanMod's supplier registry doesn't know — those
-    // uniforms would NPE the UBO upload on first draw. Feed them from the ShaderInstance's own
-    // uniform buffers, which is where the mod writes the values; zero-fill anything that has no
-    // ShaderInstance uniform either, so an unknown name can never crash the frame.
+                                                                                                 
+                                                                                           
+                                                                                               
+                                                                                                
+                                                                                   
     private void wireUnresolvedUniforms() {
         if (this.pipeline == null) {
             return;
@@ -153,8 +153,8 @@ public class ShaderInstanceM implements ShaderMixed {
     @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/shaders/Uniform;m_166710_(IILjava/lang/CharSequence;)V", remap = false), require = 0)
     private void bindAttr(int program, int index, CharSequence name) {}
 
-    // The methods below replace vanilla behavior with inject-and-cancel instead of @Overwrite so
-    // other mods' handlers targeting ShaderInstance still apply without a mixin crash.
+                                                                                                 
+                                                                                       
 
     @Inject(method = "close", at = @At("HEAD"), cancellable = true, remap = false)
     private void onClose(CallbackInfo ci) {
@@ -163,7 +163,7 @@ public class ShaderInstanceM implements ShaderMixed {
         ci.cancel();
     }
 
-    // apply
+            
     @Inject(method = "m_173363_", at = @At("HEAD"), cancellable = true, remap = false)
     private void apply(CallbackInfo ci) {
         ci.cancel();
@@ -224,14 +224,14 @@ public class ShaderInstanceM implements ShaderMixed {
             this.f_173318_.set(RenderSystem.getShaderLineWidth());
         }
 
-        // Vanilla ShaderInstance.apply() calls setupShaderLights to feed LIGHT0/1_DIRECTION; this @Overwrite
-        // omitted it. Custom mod shaders that use minecraft_mix_light (e.g. Cracker's Wither Storm body)
-        // then get unset (0,0,0) directions -> normalize() NaN -> NaN lighting -> the whole model renders
-        // invisible. Setting them fixes any custom shader that relies on the vanilla light uniforms.
+                                                                                                             
+                                                                                                         
+                                                                                                          
+                                                                                                     
         RenderSystem.setupShaderLights((ShaderInstance) (Object) this);
     }
 
-    // clear: descriptor cleanup is handled by the pipeline itself.
+                                                                   
     @Inject(method = "m_173362_", at = @At("HEAD"), cancellable = true, remap = false)
     private void clear(CallbackInfo ci) {
         ci.cancel();
@@ -304,10 +304,10 @@ public class ShaderInstanceM implements ShaderMixed {
         }
     }
 
-    // When a mod shader can neither use a bundled Vulkan shader nor be converted from GLSL, bind a
-    // bundled vanilla pipeline matching its vertex format instead of leaving the pipeline null —
-    // a null pipeline silently drops every draw (invisible geometry). Approximate shading beats
-    // nothing rendering at all.
+                                                                                                   
+                                                                                                 
+                                                                                                
+                                
     private void createFallbackShader(VertexFormat format) {
         String fallbackPath = fallbackShaderPath(format);
         if (fallbackPath == null) {

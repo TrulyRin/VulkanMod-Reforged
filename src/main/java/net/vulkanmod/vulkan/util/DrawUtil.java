@@ -15,7 +15,7 @@ import org.lwjgl.vulkan.VkCommandBuffer;
 public class DrawUtil {
 
     public static void blitToScreen() {
-//        defualtBlit();
+                        
         fastBlit();
     }
 
@@ -48,7 +48,7 @@ public class DrawUtil {
         posestack.popPose();
 
         ShaderInstance shaderInstance = Minecraft.getInstance().gameRenderer.blitShader;
-//        RenderSystem.setShader(() -> shaderInstance);
+                                                       
 
         Tesselator tesselator = RenderSystem.renderThreadTesselator();
         BufferBuilder bufferBuilder = tesselator.getBuilder();

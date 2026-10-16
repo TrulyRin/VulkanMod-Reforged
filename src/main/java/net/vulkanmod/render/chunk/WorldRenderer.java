@@ -50,6 +50,8 @@ import org.lwjgl.opengl.GL11;
 
 import java.util.*;
 
+import net.vulkanmod.render.chunk.util.StaticQueue;
+
 public class WorldRenderer {
     private static WorldRenderer INSTANCE;
 
@@ -111,10 +113,10 @@ public class WorldRenderer {
 
         for (int i = 0; i < this.indirectBuffers.length; ++i) {
             this.indirectBuffers[i] = new IndirectBuffer(1000000, MemoryTypes.HOST_MEM);
-//            this.indirectBuffers[i] = new IndirectBuffer(1000000, MemoryTypes.GPU_MEM);
+                                                                                         
         }
 
-//        uniformBuffers = new UniformBuffers(100000, MemoryTypes.GPU_MEM);
+                                                                           
     }
 
     public static WorldRenderer init(RenderBuffers renderBuffers) {
@@ -185,8 +187,8 @@ public class WorldRenderer {
         this.graphNeedsUpdate |= cameraMoved;
 
         if (!isCapturedFrustum) {
-            //Debug
-//            this.graphNeedsUpdate = true;
+                   
+                                           
 
             if (this.graphNeedsUpdate) {
                 this.graphNeedsUpdate = false;
@@ -201,7 +203,7 @@ public class WorldRenderer {
         }
 
         this.indirectBuffers[Renderer.getCurrentFrame()].reset();
-//        this.uniformBuffers.reset();
+                                      
 
         this.minecraft.getProfiler().pop();
         profiler.pop();
@@ -218,11 +220,11 @@ public class WorldRenderer {
         profiler.push("Uploads");
 
         try {
-            // Do NOT force a graph rebuild when sections upload (1.21.x parity): uploaded geometry
-            // lands in the already-visible sections' draw buffers directly, while forcing
-            // graphNeedsUpdate here re-runs the full visibility traversal every frame whenever any
-            // section rebuilds (fluids, Create machines, Wither Storm destruction) — a large,
-            // constant CPU cost. Chunk loads still schedule a graph update via scheduleGraphUpdate.
+                                                                                                   
+                                                                                          
+                                                                                                   
+                                                                                              
+                                                                                                    
             this.taskDispatcher.updateSections();
         } catch (Exception e) {
             Initializer.LOGGER.error("Failed to upload chunk sections; resetting renderer", e);
@@ -241,14 +243,14 @@ public class WorldRenderer {
 
     public void allChanged() {
         if (this.level != null) {
-//            this.graphicsChanged();
+                                     
             this.level.clearTintCaches();
 
             this.renderRegionCache.clear();
             this.taskDispatcher.createThreads();
 
             this.graphNeedsUpdate = true;
-//            this.generateClouds = true;
+                                         
 
             this.renderDistance = this.minecraft.options.getEffectiveRenderDistance();
             if (this.sectionGrid != null) {
@@ -281,7 +283,7 @@ public class WorldRenderer {
         this.lastCameraSectionY = Integer.MIN_VALUE;
         this.lastCameraSectionZ = Integer.MIN_VALUE;
 
-//        this.entityRenderDispatcher.setLevel(level);
+                                                      
         this.level = level;
         ChunkStatusMap.createInstance(renderDistance);
         if (level != null) {
@@ -335,16 +337,26 @@ public class WorldRenderer {
         Set<TerrainRenderType> allowedRenderTypes = Initializer.CONFIG.uniqueOpaqueLayer ? TerrainRenderType.COMPACT_RENDER_TYPES : TerrainRenderType.SEMI_COMPACT_RENDER_TYPES;
         if (allowedRenderTypes.contains(terrainRenderType)) {
             terrainRenderType.setCutoutUniform();
+            boolean ubosBound = false;
 
-            for (Iterator<ChunkArea> iterator = this.sectionGraph.getChunkAreaQueue().iterator(isTranslucent); iterator.hasNext(); ) {
-                ChunkArea chunkArea = iterator.next();
+            final StaticQueue<ChunkArea> chunkAreaQueue = this.sectionGraph.getChunkAreaQueue().queue();
+            final int areaCount = chunkAreaQueue.size();
+            for (int areaIdx = 0; areaIdx < areaCount; areaIdx++) {
+                ChunkArea chunkArea = chunkAreaQueue.get(isTranslucent ? areaCount - 1 - areaIdx : areaIdx);
                 var queue = chunkArea.sectionQueue;
                 DrawBuffers drawBuffers = chunkArea.drawBuffers;
 
                 if (drawBuffers.getAreaBuffer(terrainRenderType) != null && queue.size() > 0) {
 
+                    if (!ubosBound) {
+                                                                                                    
+                                                                                                  
+                                                                                          
+                        renderer.uploadAndBindUBOs(pipeline);
+                        ubosBound = true;
+                    }
+
                     drawBuffers.bindBuffers(Renderer.getCommandBuffer(), pipeline, terrainRenderType, camX, camY, camZ);
-                    renderer.uploadAndBindUBOs(pipeline);
 
                     if (indirectDraw)
                         drawBuffers.buildDrawBatchesIndirect(indirectBuffers[currentFrame], queue, terrainRenderType);
@@ -356,10 +368,10 @@ public class WorldRenderer {
 
         if (terrainRenderType == TerrainRenderType.CUTOUT || terrainRenderType == TerrainRenderType.TRIPWIRE) {
             indirectBuffers[currentFrame].submitUploads();
-//            uniformBuffers.submitUploads();
+                                             
         }
 
-        //Need to reset push constants in case the pipeline will still be used for rendering
+                                                                                            
         if (!indirectDraw) {
             VRenderSystem.setChunkOffset(0, 0, 0);
             renderer.pushConstants(pipeline);
@@ -376,21 +388,16 @@ public class WorldRenderer {
         double d0 = camX - this.xTransparentOld;
         double d1 = camY - this.yTransparentOld;
         double d2 = camZ - this.zTransparentOld;
-//        if (d0 * d0 + d1 * d1 + d2 * d2 > 1.0D) {
+                                                   
         if (d0 * d0 + d1 * d1 + d2 * d2 > 2.0D) {
             this.xTransparentOld = camX;
             this.yTransparentOld = camY;
             this.zTransparentOld = camZ;
-            int j = 0;
+            var sectionQueue = this.sectionGraph.getSectionQueue();
+            final int sortCount = Math.min(sectionQueue.size(), 15);
 
-            Iterator<RenderSection> iterator = this.sectionGraph.getSectionQueue().iterator(false);
-
-            while (iterator.hasNext() && j < 15) {
-                RenderSection section = iterator.next();
-
-                section.resortTransparency(this.taskDispatcher);
-
-                ++j;
+            for (int i = 0; i < sortCount; i++) {
+                sectionQueue.get(i).resortTransparency(this.taskDispatcher);
             }
         }
 
@@ -406,7 +413,10 @@ public class WorldRenderer {
         MultiBufferSource bufferSource = this.renderBuffers.bufferSource();
         VFrustum frustum = this.sectionGraph.getFrustum();
 
-        for (RenderSection renderSection : this.sectionGraph.getBlockEntitiesSections()) {
+        var blockEntitiesSections = this.sectionGraph.getBlockEntitiesSections();
+        final int blockEntitySectionCount = blockEntitiesSections.size();
+        for (int sectionIdx = 0; sectionIdx < blockEntitySectionCount; sectionIdx++) {
+            RenderSection renderSection = blockEntitiesSections.get(sectionIdx);
             List<BlockEntity> list = renderSection.getCompiledSection().getBlockEntities();
             if (!list.isEmpty()) {
                 for (BlockEntity blockEntity : list) {

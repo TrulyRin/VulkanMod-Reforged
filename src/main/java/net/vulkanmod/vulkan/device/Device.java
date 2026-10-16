@@ -58,7 +58,7 @@ public class Device {
         if (this.availableFeatures.features().multiDrawIndirect() && this.availableFeatures11.shaderDrawParameters())
             this.drawIndirectSupported = true;
 
-        // On portability drivers (MoltenVK) VK_KHR_portability_subset is mandatory to enable if present.
+                                                                                                         
         this.portabilitySubset = getUnsupportedExtensions(
                 Set.of(KHRPortabilitySubset.VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME)).isEmpty();
     }
@@ -111,8 +111,8 @@ public class Device {
         return unsupportedExtensions;
     }
 
-    // Heap-allocates the extension buffer: some drivers (e.g. NVIDIA) expose ~240 device extensions,
-    // which would overflow the small thread-local LWJGL MemoryStack ("Out of stack space" on init).
+                                                                                                     
+                                                                                                    
     static Set<String> getAvailableExtensions(VkPhysicalDevice physicalDevice) {
         try (MemoryStack stack = stackPush()) {
 
@@ -149,7 +149,7 @@ public class Device {
         return vendorId == 0x8086;
     }
 
-    // True when this GPU exposes VK_KHR_portability_subset (MoltenVK); it must then be enabled on the logical device.
+                                                                                                                      
     public boolean isPortabilitySubset() {
         return portabilitySubset;
     }

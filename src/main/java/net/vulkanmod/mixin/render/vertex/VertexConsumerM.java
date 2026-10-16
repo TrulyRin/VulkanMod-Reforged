@@ -23,9 +23,9 @@ public interface VertexConsumerM {
     @Shadow(remap = false)
     void m_5954_(float x, float y, float z, float red, float green, float blue, float alpha, float u, float v, int overlay, int light, float normalX, float normalY, float normalZ);
 
-    /**
-     * @author
-     */
+       
+              
+       
     @Overwrite(remap = false)
     default public void m_85995_(PoseStack.Pose matrixEntry, BakedQuad quad, float[] brightness, float red, float green, float blue, int[] lights, int overlay, boolean useQuadColorData) {
         int[] vertices = quad.getVertices();

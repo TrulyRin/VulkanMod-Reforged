@@ -124,8 +124,8 @@ public class Vulkan {
     private static long debugMessenger;
     private static long surface;
 
-    // True when running on a portability driver (e.g. MoltenVK on macOS): the instance
-    // must opt into portability enumeration to see the GPU.
+                                                                                       
+                                                            
     private static boolean portabilityEnumeration = false;
 
     private static SwapChain swapChain;
@@ -223,9 +223,9 @@ public class Vulkan {
             throw new RuntimeException("Validation requested but not supported");
         }
 
-        // MoltenVK (macOS) and other portability ICDs advertise this instance extension;
-        // when present we must enable it and set the portability flag or no GPU is enumerated.
-        // Done in its own stack frame so the enumeration buffer is released before instance creation.
+                                                                                         
+                                                                                               
+                                                                                                      
         try (MemoryStack stack = stackPush()) {
             portabilityEnumeration = getAvailableInstanceExtensions(stack)
                     .contains(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
@@ -271,17 +271,17 @@ public class Vulkan {
         }
     }
 
-    // LWJGL's VkInstance constructor enumerates every device's extensions on the calling thread's
-    // MemoryStack. On systems with many extensions (e.g. hybrid Intel+NVIDIA laptops) this overflows
-    // the render thread's small (64 KB) stack with "Out of stack space". The stack size is fixed when
-    // a thread first touches a MemoryStack, so raising Configuration.STACK_SIZE on the render thread is
-    // too late. Instead we build the instance on a fresh thread whose larger stack honours the setting.
+                                                                                                  
+                                                                                                     
+                                                                                                      
+                                                                                                        
+                                                                                                        
     private static VkInstance createVkInstance(long handle, VkInstanceCreateInfo createInfo) {
         final VkInstance[] result = new VkInstance[1];
         final Throwable[] error = new Throwable[1];
 
         Integer previousStackSize = Configuration.STACK_SIZE.get(64);
-        Configuration.STACK_SIZE.set(Math.max(previousStackSize, 1024)); // KB
+        Configuration.STACK_SIZE.set(Math.max(previousStackSize, 1024));      
 
         Thread initThread = new Thread(() -> {
             try {

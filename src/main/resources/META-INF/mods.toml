@@ -5,7 +5,7 @@ license="LGPL-3.0"
 [[mods]]
 modId="vulkanmod"
 version="${version}"
-displayName="Vulkan Reforged"
+displayName="VulkanMod Reforged"
 logoFile="assets/vulkanmod/Vlogo.png"
 authors="Rindw"
 credits="Rindw, and XCollateral (Original mod creator)"
@@ -19,7 +19,7 @@ config="vulkanmod.mixins.json"
 [[dependencies.vulkanmod]]
     modId="forge"
     mandatory=true
-    versionRange="[47.1.106,)"
+    versionRange="[47.1.106,48)"
     ordering="NONE"
     side="BOTH"
 [[dependencies.vulkanmod]]

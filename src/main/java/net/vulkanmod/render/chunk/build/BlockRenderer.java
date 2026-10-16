@@ -88,7 +88,7 @@ public class BlockRenderer {
         boolean useAO = Minecraft.useAmbientOcclusion() && blockState.getLightEmission() == 0 && bakedModel.useAmbientOcclusion();
         LightPipeline lightPipeline = useAO ? resources.smoothLightPipeline : resources.flatLightPipeline;
 
-        //noinspection ForLoopReplaceableByForEach
+                                                  
         for (int i = 0; i < DIRECTIONS.length; ++i) {
             Direction direction = DIRECTIONS[i];
 
@@ -144,7 +144,7 @@ public class BlockRenderer {
         float[] brightnessArr = quadLightData.br;
         int[] lights = quadLightData.lm;
 
-        // Rotate triangles if needed to fix AO anisotropy
+                                                          
         int idx = QuadUtils.getIterationStartIdx(brightnessArr, lights);
 
         bufferBuilder.ensureCapacity();

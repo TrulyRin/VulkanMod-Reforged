@@ -59,7 +59,7 @@ public abstract class AlignedStruct {
         }
 
         public UBO buildUBO(int binding, int stages) {
-            //offset is expressed in floats/ints
+                                                
             return new UBO(binding, stages, this.currentOffset * 4, this.uniformsInfo);
         }
 

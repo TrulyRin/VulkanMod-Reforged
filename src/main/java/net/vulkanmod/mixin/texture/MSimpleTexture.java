@@ -12,8 +12,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(value = SimpleTexture.class, priority = 900)
 public class MSimpleTexture {
 
-    // doLoad: inject-and-cancel instead of @Overwrite so other mods' handlers targeting
-    // SimpleTexture still apply without a mixin crash.
+                                                                                        
+                                                       
     @Inject(method = "m_118136_", at = @At("HEAD"), cancellable = true, remap = false)
     private void doLoad(NativeImage nativeImage, boolean blur, boolean clamp, CallbackInfo ci) {
         VulkanImage image = new VulkanImage.Builder(nativeImage.getWidth(), nativeImage.getHeight())

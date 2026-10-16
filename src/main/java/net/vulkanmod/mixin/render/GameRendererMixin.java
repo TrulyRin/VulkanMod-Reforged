@@ -113,9 +113,9 @@ public abstract class GameRendererMixin {
 
             ShaderInstance positionColor = new ShaderInstance(provider, "position_color", DefaultVertexFormat.POSITION_COLOR);
             shaders.add(Pair.of(positionColor, (shaderInstance) -> positionColorShader = shaderInstance));
-//            shaders.add(Pair.of(new ShaderInstance(provider, "position_color_lightmap", DefaultVertexFormat.POSITION_COLOR_LIGHTMAP), (shaderInstance) -> {
-//               positionColorLightmapShader = shaderInstance;
-//            }));
+                                                                                                                                                             
+                                                              
+                  
             shaders.add(Pair.of(new ShaderInstance(provider, "position_color_tex", DefaultVertexFormat.POSITION_COLOR_TEX), (shaderInstance) -> {
                 positionColorTexShader = shaderInstance;
             }));
@@ -131,9 +131,9 @@ public abstract class GameRendererMixin {
             shaders.add(Pair.of(new ShaderInstance(provider, "position_tex_color_normal", DefaultVertexFormat.POSITION_TEX_COLOR_NORMAL), (shaderInstance) -> {
                 positionTexColorNormalShader = shaderInstance;
             }));
-//            shaders.add(Pair.of(new ShaderInstance(provider, "position_tex_lightmap_color", DefaultVertexFormat.POSITION_TEX_LIGHTMAP_COLOR), (shaderInstance) -> {
-//               positionTexLightmapColorShader = shaderInstance;
-//            }));
+                                                                                                                                                                     
+                                                                 
+                  
             shaders.add(Pair.of(new ShaderInstance(provider, "rendertype_solid", DefaultVertexFormat.BLOCK), (shaderInstance) -> {
                 rendertypeSolidShader = shaderInstance;
             }));
@@ -159,14 +159,14 @@ public abstract class GameRendererMixin {
                 rendertypeEntityCutoutShader = shaderInstance;
             }));
 
-            //No diff in these shaders
+                                      
             ShaderInstance entity_no_cull = new ShaderInstance(provider, "rendertype_entity_cutout_no_cull", DefaultVertexFormat.NEW_ENTITY);
             shaders.add(Pair.of(entity_no_cull, (shaderInstance) -> {
                 rendertypeEntityCutoutNoCullShader = shaderInstance;
             }));
-//            shaders.add(Pair.of(new ShaderInstance(provider, "rendertype_entity_cutout_no_cull_z_offset", DefaultVertexFormat.POSITION_COLOR_TEX_OVERLAY_LIGHTMAP), (p_172654_) -> {
-//               rendertypeEntityCutoutNoCullZOffsetShader = p_172654_;
-//            }));
+                                                                                                                                                                                      
+                                                                       
+                  
             shaders.add(Pair.of(entity_no_cull, (shaderInstance) -> {
                 rendertypeEntityCutoutNoCullZOffsetShader = shaderInstance;
             }));
@@ -238,7 +238,7 @@ public abstract class GameRendererMixin {
                 rendertypeEntityGlintDirectShader = shaderInstance;
             }));
 
-            //Text
+                  
             shaders.add(Pair.of(new ShaderInstance(provider, "rendertype_text", DefaultVertexFormat.POSITION_COLOR_TEX_LIGHTMAP), (shaderInstance) -> {
                 rendertypeTextShader = shaderInstance;
             }));
@@ -307,10 +307,10 @@ public abstract class GameRendererMixin {
         ci.cancel();
     }
 
-    /**
-     * @author
-     * @reason
-     */
+       
+              
+              
+       
     @Overwrite(remap = false)
     private void m_172759_() {
         RenderSystem.assertOnRenderThread();
@@ -321,10 +321,10 @@ public abstract class GameRendererMixin {
         this.shaders.clear();
     }
 
-    /**
-     * @author
-     * @reason
-     */
+       
+              
+              
+       
     @Overwrite(remap = false)
     public void m_172722_(ResourceProvider resourceProvider) {
         if (this.f_172635_ != null) {
@@ -348,10 +348,10 @@ public abstract class GameRendererMixin {
         }
     }
 
-    /**
-     * @author
-     * @reason
-     */
+       
+              
+              
+       
     @Overwrite(remap = false)
     public float m_172790_() {
         return Float.POSITIVE_INFINITY;

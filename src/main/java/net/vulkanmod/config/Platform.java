@@ -17,26 +17,26 @@ public abstract class Platform {
         GLFW.glfwInit();
     }
 
-    //Actually detect the currently active Display Server (if both Wayland and X11 are present on the system and/or GLFW is compiled to support both)
+                                                                                                                                                     
     private static int determineDisplayServer() {
 
-        //Return Null platform if not on Linux (i.e. no X11 or Wayland)
+                                                                       
         String xdgSessionType = System.getenv("XDG_SESSION_TYPE");
-        if (xdgSessionType == null) return GLFW_ANY_PLATFORM; //Likely Android
+        if (xdgSessionType == null) return GLFW_ANY_PLATFORM;                 
         return switch (xdgSessionType) {
-            case "wayland" -> GLFW_PLATFORM_WAYLAND; //Wayland
-            case "x11" -> GLFW_PLATFORM_X11; //X11
-            default -> GLFW_ANY_PLATFORM; //Either unknown Platform or Display Server
+            case "wayland" -> GLFW_PLATFORM_WAYLAND;          
+            case "x11" -> GLFW_PLATFORM_X11;      
+            default -> GLFW_ANY_PLATFORM;                                            
         };
     }
 
     private static int getSupportedPlat() {
-        //Switch statement would be ideal, but couldn't find a good way of implementing it, so fell back to basic if statements/branches
+                                                                                                                                        
         if (SystemUtils.IS_OS_WINDOWS) return GLFW_PLATFORM_WIN32;
         if (SystemUtils.IS_OS_MAC_OSX) return GLFW_PLATFORM_COCOA;
-        if (SystemUtils.IS_OS_LINUX) return determineDisplayServer(); //Linux Or Android
+        if (SystemUtils.IS_OS_LINUX) return determineDisplayServer();                   
 
-        return GLFW_ANY_PLATFORM; //Unknown platform
+        return GLFW_ANY_PLATFORM;                   
     }
 
     private static String getStringFromPlat(int plat) {
@@ -64,7 +64,7 @@ public abstract class Platform {
         return activePlat;
     }
 
-    //Allows platform specific checks to be handled
+                                                   
     public static boolean isWayLand() {
         return activePlat == GLFW_PLATFORM_WAYLAND;
     }
@@ -85,7 +85,7 @@ public abstract class Platform {
         return activePlat == GLFW_ANY_PLATFORM;
     }
 
-    //Desktop Environment Names: https://wiki.archlinux.org/title/Xdg-utils#Usage
+                                                                                 
     public static boolean isGnome() {
         return activeDE.contains("gnome");
     }

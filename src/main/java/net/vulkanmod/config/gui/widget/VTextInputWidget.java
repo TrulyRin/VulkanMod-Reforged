@@ -16,7 +16,7 @@ import java.util.function.Consumer;
 
 public class VTextInputWidget extends VAbstractWidget {
     public boolean selected = false;
-    Consumer<VTextInputWidget> onSearch; // when the search is "activated", like pressing enter
+    Consumer<VTextInputWidget> onSearch;                                                       
     private String text;
     private final Component placeholder;
 
@@ -25,7 +25,7 @@ public class VTextInputWidget extends VAbstractWidget {
     private long lastBlinkTime = 0;
     private boolean showCursor = true;
 
-    private static final int CURSOR_BLINK_INTERVAL = 500; // ms
+    private static final int CURSOR_BLINK_INTERVAL = 500;      
 
     public VTextInputWidget(int x, int y, int width, int height, Component placeholder, Consumer<VTextInputWidget> onSearch) {
         this.setPosition(x, y, width, height);

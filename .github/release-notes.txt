@@ -1,0 +1,7 @@
+VulkanMod Reforged for Minecraft 1.20.1 (Forge).
+
+Experimental port. Compatibility and feature parity are incomplete.
+
+Install only the production JAR in the matching loader/version. The source JAR and source ZIP are for development. SHA256SUMS.txt lists download checksums.
+
+The source ZIP contains the corresponding source and build scripts for this commit. LGPL-3.0-only; preserve applicable notices and identify modified versions. See LICENSE, COPYING, and NOTICE.

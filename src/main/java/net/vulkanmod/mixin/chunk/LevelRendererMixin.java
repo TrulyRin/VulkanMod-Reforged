@@ -86,39 +86,39 @@ public abstract class LevelRendererMixin {
         this.worldRenderer.renderBlockEntities(poseStack, pos.x(), pos.y(), pos.z(), this.f_109409_, f);
     }
 
-    // The methods below replace vanilla behavior with inject-and-cancel instead of @Overwrite so
-    // other mods' @Inject/@Redirect handlers into these methods still apply (an @Overwrite removes
-    // the target instructions and hard-crashes any mod that redirects into them, e.g. Lodestone).
+                                                                                                 
+                                                                                                   
+                                                                                                  
 
-    // setupRender
+                  
     @Inject(method = "m_194338_", at = @At("HEAD"), cancellable = true, remap = false)
     private void setupRender(Camera camera, Frustum frustum, boolean isCapturedFrustum, boolean spectator, CallbackInfo ci) {
         this.worldRenderer.setupRenderer(camera, frustum, isCapturedFrustum, spectator);
         ci.cancel();
     }
 
-    // compileSections: WorldRenderer uploads sections itself, vanilla dispatcher must not run.
+                                                                                               
     @Inject(method = "m_194370_", at = @At("HEAD"), cancellable = true, remap = false)
     private void skipCompileSections(Camera camera, CallbackInfo ci) {
         ci.cancel();
     }
 
-    // isSectionCompiled
+                        
     @Inject(method = "m_202430_", at = @At("HEAD"), cancellable = true, remap = false)
     private void isSectionCompiled(BlockPos blockPos, CallbackInfoReturnable<Boolean> cir) {
         cir.setReturnValue(this.worldRenderer.isSectionCompiled(blockPos));
     }
 
-    // renderChunkLayer
+                       
     @Inject(method = "m_172993_", at = @At("HEAD"), cancellable = true, remap = false)
     private void renderSectionLayer(RenderType renderType, PoseStack poseStack, double camX, double camY, double camZ, Matrix4f projectionMatrix, CallbackInfo ci) {
         this.worldRenderer.renderSectionLayer(renderType, poseStack, camX, camY, camZ, projectionMatrix);
         ci.cancel();
     }
 
-    // allChanged: skips the vanilla viewArea/chunkRenderDispatcher rebuild (those are replaced by
-    // WorldRenderer) and notifies the WorldRenderer afterwards, matching the old @Overwrite +
-    // RETURN-inject pair this replaces.
+                                                                                                  
+                                                                                              
+                                        
     @Inject(method = "m_109818_", at = @At("HEAD"), cancellable = true, remap = false)
     private void allChanged(CallbackInfo ci) {
         if (this.f_109465_ != null) {
@@ -137,32 +137,32 @@ public abstract class LevelRendererMixin {
         ci.cancel();
     }
 
-    // setSectionDirty
+                      
     @Inject(method = "m_109501_", at = @At("HEAD"), cancellable = true, remap = false)
     private void setSectionDirty(int x, int y, int z, boolean flag, CallbackInfo ci) {
         this.worldRenderer.setSectionDirty(x, y, z, flag);
         ci.cancel();
     }
 
-    // getSectionStatistics
+                           
     @Inject(method = "m_109820_", at = @At("HEAD"), cancellable = true, remap = false)
     private void getSectionStatistics(CallbackInfoReturnable<String> cir) {
         cir.setReturnValue(this.worldRenderer.getChunkStatistics());
     }
 
-    // hasRenderedAllSections
+                             
     @Inject(method = "m_109825_", at = @At("HEAD"), cancellable = true, remap = false)
     private void hasRenderedAllSections(CallbackInfoReturnable<Boolean> cir) {
         cir.setReturnValue(this.worldRenderer.graphNeedsUpdate());
     }
 
-    // countRenderedSections
+                            
     @Inject(method = "m_109821_", at = @At("HEAD"), cancellable = true, remap = false)
     private void countRenderedSections(CallbackInfoReturnable<Integer> cir) {
         cir.setReturnValue(this.worldRenderer.getVisibleSectionsCount());
     }
 
-    // renderEntity
+                   
     @Inject(method = "m_109517_", at = @At("HEAD"), cancellable = true, remap = false)
     private void renderEntity(Entity entity, double d, double e, double f, float g, PoseStack poseStack, MultiBufferSource multiBufferSource, CallbackInfo ci) {
         double h = Mth.lerp(g, entity.xOld, entity.getX());
@@ -178,59 +178,59 @@ public abstract class LevelRendererMixin {
         return instance.getRenderDistance() * 4F;
     }
 
-//    @Redirect(method = "renderLevel", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/multiplayer/ClientLevel;entitiesForRendering()Ljava/lang/Iterable;"))
-//    private Iterable<Entity> replaceIterator(ClientLevel instance) {
-//
-//        return () -> new Iterator<Entity>() {
-//            @Override
-//            public boolean hasNext() {
-//                return false;
-//            }
-//
-//            @Override
-//            public Entity next() {
-//                return null;
-//            }
-//        };
-//    }
-//
-//    @Inject(method = "renderLevel", at = @At(value = "INVOKE",
-//            target = "Lnet/minecraft/client/multiplayer/ClientLevel;entitiesForRendering()Ljava/lang/Iterable;",
-//            shift = At.Shift.AFTER),
-//            locals = LocalCapture.CAPTURE_FAILHARD
-//    )
-//    private void renderEntities(PoseStack poseStack, float f, long l, boolean bl, Camera camera, GameRenderer gameRenderer, LightTexture lightTexture, Matrix4f matrix4f, CallbackInfo ci) {
-//        for(Entity entity : this.level.entitiesForRendering()) {
-//            if (this.entityRenderDispatcher.shouldRender(entity, frustum, d0, d1, d2) || entity.hasIndirectPassenger(this.minecraft.player)) {
-//                BlockPos blockpos = entity.blockPosition();
-//                if ((this.level.isOutsideBuildHeight(blockpos.getY()) || this.isChunkCompiled(blockpos)) && (entity != p_109604_.getEntity() || p_109604_.isDetached() || p_109604_.getEntity() instanceof LivingEntity && ((LivingEntity)p_109604_.getEntity()).isSleeping()) && (!(entity instanceof LocalPlayer) || p_109604_.getEntity() == entity)) {
-//                    ++this.renderedEntities;
-//                    if (entity.tickCount == 0) {
-//                        entity.xOld = entity.getX();
-//                        entity.yOld = entity.getY();
-//                        entity.zOld = entity.getZ();
-//                    }
-//
-//                    MultiBufferSource multibuffersource;
-//                    if (this.shouldShowEntityOutlines() && this.minecraft.shouldEntityAppearGlowing(entity)) {
-//                        flag3 = true;
-//                        OutlineBufferSource outlinebuffersource = this.renderBuffers.outlineBufferSource();
-//                        multibuffersource = outlinebuffersource;
-//                        int i = entity.getTeamColor();
-//                        int j = 255;
-//                        int k = i >> 16 & 255;
-//                        int l = i >> 8 & 255;
-//                        int i1 = i & 255;
-//                        outlinebuffersource.setColor(k, l, i1, 255);
-//                    } else {
-//                        multibuffersource = bu;
-//                    }
-//
-//                    this.renderEntity(entity, d0, d1, d2, p_109601_, p_109600_, multibuffersource);
-//                }
-//            }
-//        }
-//    }
+                                                                                                                                                                        
+                                                                      
+  
+                                               
+                       
+                                        
+                               
+               
+  
+                       
+                                    
+                              
+               
+            
+       
+  
+                                                                
+                                                                                                                  
+                                      
+                                                    
+       
+                                                                                                                                                                                              
+                                                                  
+                                                                                                                                                
+                                                             
+                                                                                                                                                                                                                                                                                                                                                            
+                                              
+                                                  
+                                                      
+                                                      
+                                                      
+                       
+  
+                                                          
+                                                                                                                
+                                       
+                                                                                                             
+                                                                  
+                                                        
+                                      
+                                                
+                                               
+                                           
+                                                                      
+                              
+                                                 
+                       
+  
+                                                                                                     
+                   
+               
+           
+       
 
 }
 

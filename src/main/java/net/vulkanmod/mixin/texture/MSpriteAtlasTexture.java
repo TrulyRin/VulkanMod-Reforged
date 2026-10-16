@@ -20,8 +20,8 @@ public class MSpriteAtlasTexture {
         ((VAbstractTextureI)(this)).bindTexture();
     }
 
-    // upload: filtering is handled by the Vulkan sampler, so the vanilla GL setFilter call is
-    // skipped. Inject-and-cancel instead of @Overwrite so other mods' handlers still apply.
+                                                                                              
+                                                                                            
     @Inject(method = "m_247255_", at = @At("HEAD"), cancellable = true, remap = false)
     private void skipSetFilter(SpriteLoader.Preparations data, CallbackInfo ci) {
         ci.cancel();

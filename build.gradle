@@ -49,19 +49,15 @@ legacyForge {
 
 project.ext.lwjglVersion = "3.3.3"
 
-// Desktop natives bundled into the production jar so Vulkan/shaderc/VMA — and MoltenVK on
-// macOS — are present on every OS, not only the build host. Vanilla Minecraft does not ship
-// these LWJGL modules, so the mod must carry their natives itself.
 project.ext.bundledNatives = ["natives-windows", "natives-linux", "natives-macos", "natives-macos-arm64"]
 
-// Natives for the current build host, used for dev runs (runClient) and tests.
 def host = org.gradle.internal.os.OperatingSystem.current()
 project.ext.devNatives = host.windows ? "natives-windows"
         : host.macOsX ? (System.getProperty("os.arch").contains("aarch64") ? "natives-macos-arm64" : "natives-macos")
         : "natives-linux"
 
 dependencies {
-    // Standard LWJGL for Vulkan
+
     implementation "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
     implementation "org.lwjgl:lwjgl-shaderc:$lwjglVersion"
     implementation "org.lwjgl:lwjgl-vma:$lwjglVersion"
@@ -69,14 +65,12 @@ dependencies {
     runtimeOnly "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$devNatives"
     runtimeOnly "org.lwjgl:lwjgl-vma:$lwjglVersion:$devNatives"
 
-    // Add to runtime classpath for Dev Runs
     additionalRuntimeClasspath "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:$lwjglVersion"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-vma:$lwjglVersion"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$devNatives"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-vma:$lwjglVersion:$devNatives"
 
-    // Bundle them for production via JarJar
     jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
     jarJar "org.lwjgl:lwjgl-shaderc:$lwjglVersion"
     jarJar "org.lwjgl:lwjgl-vma:$lwjglVersion"
@@ -84,21 +78,19 @@ dependencies {
         jarJar "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$n"
         jarJar "org.lwjgl:lwjgl-vma:$lwjglVersion:$n"
     }
-    // The MoltenVK loader ships only in the lwjgl-vulkan macOS natives.
+
     jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-macos"
     jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-macos-arm64"
 
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
 }
 
-// Ensure JarJar only contains what we want
 configurations.jarJar {
     exclude group: 'org.lwjgl', module: 'lwjgl'
     exclude group: 'org.lwjgl', module: 'lwjgl-glfw'
     exclude group: 'org.lwjgl', module: 'lwjgl-opengl'
     exclude group: 'org.lwjgl', module: 'lwjgl-stb'
 }
-
 
 processResources {
     inputs.property "version", project.version
@@ -160,7 +152,6 @@ tasks.named('compileJava') {
     dependsOn tasks.named('generateNamedToIntermediateSrg')
 }
 
-
 java {
     withSourcesJar()
 }
@@ -196,21 +187,15 @@ publishing {
     }
 }
 
-// Post-process: strip module-info.class from embedded LWJGL JarJar jars.
-// Without this, lwjgl-vulkan ends up in its own JPMS module layer,
-// invisible to org.lwjgl.glfw in the boot layer, causing:
-//   NoClassDefFoundError: org/lwjgl/vulkan/VkInstance
 tasks.named('jar') {
     doLast {
         def jarFile = archiveFile.get().asFile
         def tmpDir = new File(temporaryDir, "repack")
 
-        // Extract the fat jar
         tmpDir.deleteDir()
         tmpDir.mkdirs()
         ant.unzip(src: jarFile, dest: tmpDir)
 
-        // Strip module-info.class from each embedded LWJGL jar
         def jarjarDir = new File(tmpDir, "META-INF/jarjar")
         if (jarjarDir.exists()) {
             jarjarDir.listFiles().findAll { it.name.endsWith('.jar') && it.name.startsWith('lwjgl-') }.each { embeddedJar ->
@@ -225,14 +210,12 @@ tasks.named('jar') {
                 stripped.renameTo(embeddedJar)
             }
 
-            // Fix metadata.json because NeoForge JarJar generates duplicate identifiers for natives
             def metadataFile = new File(jarjarDir, "metadata.json")
             if (metadataFile.exists()) {
                 def slurper = new groovy.json.JsonSlurper()
                 def metadata = slurper.parseText(metadataFile.text)
                 metadata.jars.each { jarEntry ->
-                    // Give every platform's natives a distinct identifier (e.g. lwjgl-vma-natives-linux),
-                    // otherwise JarJar collapses them by shared identifier and only one platform survives.
+
                     def m = (jarEntry.path =~ /-(natives-[a-z0-9-]+)\.jar$/)
                     if (m) {
                         jarEntry.identifier.artifact += "-" + m[0][1]
@@ -242,7 +225,6 @@ tasks.named('jar') {
             }
         }
 
-        // Repack
         jarFile.delete()
         ant.zip(destfile: jarFile, basedir: tmpDir)
     }

@@ -29,20 +29,20 @@ public abstract class MDynamicTexture extends AbstractTexture {
         createTexture();
     }
 
-//    @Redirect(method = "<init>*", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/TextureUtil;prepareImage(III)V"))
-//    private void redirect(int id, int width, int height) {
-//
-//        createTexture();
-//
-//        //debug
-//        System.out.println("Dynamic texture mixin");
-//    }
+                                                                                                                                       
+                                                            
+  
+                          
+  
+                 
+                                                      
+       
 
-//    @Redirect(method = "<init>(Lcom/mojang/blaze3d/platform/NativeImage;)V", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;recordRenderCall(Lcom/mojang/blaze3d/pipeline/RenderCall;)V"))
-//    private void redirect2(RenderCall renderCall) {
-//
-//        createTexture();
-//    }
+                                                                                                                                                                                                                           
+                                                     
+  
+                          
+       
 
     @Redirect(method = "<init>(Lcom/mojang/blaze3d/platform/NativeImage;)V", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;recordRenderCall(Lcom/mojang/blaze3d/pipeline/RenderCall;)V"))
     private void redirect2(RenderCall renderCall) {
@@ -60,7 +60,7 @@ public abstract class MDynamicTexture extends AbstractTexture {
         VulkanImage vulkanImage = new VulkanImage.Builder(this.f_117977_.getWidth(), this.f_117977_.getHeight()).createVulkanImage();
         texture.setVulkanImage(vulkanImage);
         texture.bindTexture();
-//        texture.setId(TextureMap.getId(vulkanImage));
+                                                       
     }
 
 }

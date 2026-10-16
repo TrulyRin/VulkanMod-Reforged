@@ -32,12 +32,12 @@ public class ScreenM {
         RenderSystem.enableBlend();
         RenderSystem.blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ZERO);
 
-        // Give every screen a clean depth buffer before GUI content draws. The world (or a previous
-        // frame) leaves its depth in the framebuffer; GUI 3D previews (vanilla inventory, Essential's
-        // wardrobe, etc.) enable depth testing and would otherwise z-fight against that stale depth,
-        // producing a flickering "blob shadow" under the model. VulkanMod's other screen depth clear
-        // lives in renderBlurredBackground, which is skipped in-world and for custom GUI frameworks
-        // (Essential/Elementa) that never call it, so clear here where it always runs.
+                                                                                                    
+                                                                                                      
+                                                                                                     
+                                                                                                     
+                                                                                                    
+                                                                                       
         Renderer.clearAttachments(GL11.GL_DEPTH_BUFFER_BIT);
     }
 
@@ -51,8 +51,8 @@ public class ScreenM {
         }
     }
 
-    // Screen.renderBlurredBackground does not exist on 1.20.1 (added in 1.20.2 with the menu blur). require=0
-    // lets these injects skip gracefully on 1.20.1 while still applying on versions that have the method.
+                                                                                                              
+                                                                                                          
     @Inject(method = "renderBlurredBackground", at = @At("HEAD"), cancellable = true, require = 0)
     private void vulkanMod$beginBlurBackgroundState(float f, CallbackInfo ci) {
         if (Minecraft.getInstance().level != null) {

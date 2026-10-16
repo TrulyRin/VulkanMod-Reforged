@@ -57,7 +57,7 @@ public class IndirectBuffer extends Buffer {
         commandBuffer = null;
     }
 
-    //debug
+           
     public ByteBuffer getByteBuffer() {
         return this.data.getByteBuffer(0, this.bufferSize);
     }

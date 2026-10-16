@@ -31,36 +31,36 @@ public class VertexBufferM {
         return 0;
     }
 
-    // The methods below replace vanilla behavior with inject-and-cancel instead of @Overwrite so
-    // other mods' handlers targeting VertexBuffer still apply without a mixin crash.
+                                                                                                 
+                                                                                     
 
-    // bind
+           
     @Inject(method = "m_85921_", at = @At("HEAD"), cancellable = true, remap = false)
     private void bind(CallbackInfo ci) {
         ci.cancel();
     }
 
-    // unbind
+             
     @Inject(method = "m_85931_", at = @At("HEAD"), cancellable = true, remap = false)
     private static void unbind(CallbackInfo ci) {
         ci.cancel();
     }
 
-    // upload
+             
     @Inject(method = "m_231221_", at = @At("HEAD"), cancellable = true, remap = false)
     private void upload(BufferBuilder.RenderedBuffer buffer, CallbackInfo ci) {
         vbo.upload(buffer);
         ci.cancel();
     }
 
-    // drawWithShader
+                     
     @Inject(method = "m_253207_", at = @At("HEAD"), cancellable = true, remap = false)
     private void drawWithShader(Matrix4f viewMatrix, Matrix4f projectionMatrix, ShaderInstance shader, CallbackInfo ci) {
         vbo.drawWithShader(viewMatrix, projectionMatrix, shader);
         ci.cancel();
     }
 
-    // draw (chunk layer)
+                         
     @Inject(method = "m_166882_", at = @At("HEAD"), cancellable = true, remap = false)
     private void draw(CallbackInfo ci) {
         vbo.drawChunkLayer();

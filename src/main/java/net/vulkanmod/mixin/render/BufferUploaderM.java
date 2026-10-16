@@ -20,15 +20,15 @@ public class BufferUploaderM {
 
     private static final java.util.Set<String> VM_DBG_LOGGED = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
-    /**
-     * @author
-     */
+       
+              
+       
     @Overwrite(remap = false)
     public static void m_166835_() {}
 
-    /**
-     * @author
-     */
+       
+              
+       
     @Overwrite(remap = false)
     public static void m_231202_(BufferBuilder.RenderedBuffer renderedBuffer) {
         RenderSystem.assertOnRenderThread();
@@ -48,14 +48,14 @@ public class BufferUploaderM {
                         ((ShaderMixed) shaderInstance).getPipeline() != null);
             }
 
-            // Prevent drawing if formats don't match to avoid disturbing visual bugs
+                                                                                     
             if (shaderInstance.getVertexFormat() != renderedBuffer.drawState().format()) {
                 renderedBuffer.release();
                 return;
             }
 
-            // Used to update legacy shader uniforms
-            // TODO it would be faster to allocate a buffer from stack and set all values
+                                                    
+                                                                                         
             shaderInstance.apply();
 
             GraphicsPipeline pipeline = ((ShaderMixed)(shaderInstance)).getPipeline();
@@ -74,9 +74,9 @@ public class BufferUploaderM {
         renderedBuffer.release();
     }
 
-    /**
-     * @author
-     */
+       
+              
+       
     @Overwrite(remap = false)
     public static void m_231209_(BufferBuilder.RenderedBuffer renderedBuffer) {
         BufferBuilder.DrawState parameters = renderedBuffer.drawState();
