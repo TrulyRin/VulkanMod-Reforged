@@ -2,7 +2,7 @@ package net.vulkanmod.config.gui.render;
 
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -18,7 +18,8 @@ public abstract class GuiRenderer {
 
     public static Minecraft minecraft;
     public static GuiGraphics guiGraphics;
-    public static PoseStack pose;
+                                                                                      
+    public static org.joml.Matrix3x2fStack pose;
     public static BufferBuilder bufferBuilder;
 
     public static void enableScissor(int i, int j, int k, int l) {
@@ -112,21 +113,46 @@ public abstract class GuiRenderer {
         return maxWidth;
     }
 
+       
+                                                                           
+      
+                                                                                                 
+                                                                                                  
+                                                                                                
+                                                                                                 
+                                                     
+       
     public static void drawTriangles(float[][] vertices, int color) {
-        Matrix4f matrix4f = guiGraphics.pose().last().pose();
-
-        float a = (color >>> 24 & 0xFF) / 255.0F;
-        float r = (color >>> 16 & 0xFF) / 255.0F;
-        float g = (color >>> 8 & 0xFF) / 255.0F;
-        float b = (color & 0xFF) / 255.0F;
-
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        RenderSystem.enableBlend();
-
-        BufferBuilder bufferBuilder = Tesselator.getInstance().begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
-        for (float[] vertex : vertices) {
-            bufferBuilder.addVertex(matrix4f, vertex[0], vertex[1], 0.0f).setColor(r, g, b, a);
+        for (int i = 0; i + 2 < vertices.length; i += 3) {
+            fillTriangle(vertices[i], vertices[i + 1], vertices[i + 2], color);
         }
-        BufferUploader.drawWithShader(bufferBuilder.buildOrThrow());
+    }
+
+    private static void fillTriangle(float[] a, float[] b, float[] c, int color) {
+        int minY = (int) Math.floor(Math.min(a[1], Math.min(b[1], c[1])));
+        int maxY = (int) Math.ceil(Math.max(a[1], Math.max(b[1], c[1])));
+
+        for (int y = minY; y < maxY; ++y) {
+            float sampleY = y + 0.5f;
+            float left = Float.MAX_VALUE;
+            float right = -Float.MAX_VALUE;
+
+            for (int e = 0; e < 3; ++e) {
+                float[] p = e == 0 ? a : e == 1 ? b : c;
+                float[] q = e == 0 ? b : e == 1 ? c : a;
+
+                                                        
+                if ((p[1] <= sampleY && q[1] > sampleY) || (q[1] <= sampleY && p[1] > sampleY)) {
+                    float t = (sampleY - p[1]) / (q[1] - p[1]);
+                    float x = p[0] + t * (q[0] - p[0]);
+                    left = Math.min(left, x);
+                    right = Math.max(right, x);
+                }
+            }
+
+            if (left <= right) {
+                guiGraphics.fill((int) Math.floor(left), y, (int) Math.ceil(right), y + 1, color);
+            }
+        }
     }
 }

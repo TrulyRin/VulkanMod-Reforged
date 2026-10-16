@@ -10,12 +10,12 @@ public class ManualUBO extends UBO {
     private boolean update = true;
 
     public ManualUBO(int binding, int type, int size) {
-        super(binding, type, size * 4, null);
+        super("manual UBO: %d".formatted(binding), binding, type, size * 4, null);
     }
 
     @Override
     public void update(long ptr) {
-        // update manually
+                          
         if (update)
             MemoryUtil.memCopy(this.srcPtr, ptr, this.srcSize);
     }

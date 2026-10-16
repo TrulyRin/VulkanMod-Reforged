@@ -13,7 +13,6 @@ import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.List;
 
-import static java.util.stream.Collectors.toSet;
 import static net.vulkanmod.vulkan.queue.Queue.findQueueFamilies;
 import static net.vulkanmod.vulkan.util.VUtil.asPointerBuffer;
 import static org.lwjgl.glfw.GLFWVulkan.glfwGetRequiredInstanceExtensions;
@@ -108,27 +107,29 @@ public abstract class DeviceManager {
 
             physicalDevice = DeviceManager.device.physicalDevice;
 
+                                    
             deviceProperties = device.properties;
 
             memoryProperties = VkPhysicalDeviceMemoryProperties.malloc();
             vkGetPhysicalDeviceMemoryProperties(physicalDevice, memoryProperties);
 
             surfaceProperties = querySurfaceProperties(physicalDevice, stack);
-
-            Initializer.LOGGER.info(
-                    "Selected Vulkan device: {} ({}) driver {} Vulkan {} indirectDrawSupported={} fastIndirectDraw={}",
-                    device.deviceName,
-                    device.vendorIdString,
-                    device.driverVersion,
-                    device.vkVersion,
-                    device.isDrawIndirectSupported(),
-                    supportsFastIndirectDraw()
-            );
         }
     }
 
+                                                                                           
     public static boolean supportsFastIndirectDraw() {
         return device != null && device.isDrawIndirectSupported() && !device.isIntel();
+    }
+
+                                                                                                
+    public static int getMaxSupportedAnisotropy() {
+        if (vkDevice == null || device == null || device.availableFeatures == null || deviceProperties == null
+                || !device.availableFeatures.features().samplerAnisotropy()) {
+            return 1;
+        }
+        float limit = deviceProperties.limits().maxSamplerAnisotropy();
+        return Float.isFinite(limit) ? Math.max(1, (int) limit) : 1;
     }
 
     static Device autoPickDevice() {
@@ -188,9 +189,10 @@ public abstract class DeviceManager {
             deviceFeatures.sType$Default();
             deviceFeatures.features().samplerAnisotropy(device.availableFeatures.features().samplerAnisotropy());
             deviceFeatures.features().logicOp(device.availableFeatures.features().logicOp());
-
+                                                                 
             deviceFeatures.features().multiDrawIndirect(device.isDrawIndirectSupported());
 
+                                                                                          
             if (device.availableFeatures.features().wideLines()) {
                 deviceFeatures.features().wideLines(true);
                 VRenderSystem.canSetLineWidth = true;
@@ -210,11 +212,20 @@ public abstract class DeviceManager {
 
                 deviceVulkan11Features.pNext(dynamicRenderingFeaturesKHR.address());
 
+                                                
+                                                                                                                           
+                                                         
+                                                                        
+                                                                                                       
+  
+                                                                
+                                                           
+                                                                                 
             }
 
             createInfo.ppEnabledExtensionNames(asPointerBuffer(Vulkan.REQUIRED_EXTENSION));
 
-            createInfo.ppEnabledLayerNames(Vulkan.ENABLE_VALIDATION_LAYERS ? asPointerBuffer(Vulkan.VALIDATION_LAYERS) : null);
+                                                      
 
             PointerBuffer pDevice = stack.pointers(VK_NULL_HANDLE);
 
@@ -242,6 +253,7 @@ public abstract class DeviceManager {
             extensions.put(glfwExtensions);
             extensions.put(stack.UTF8(VK_EXT_DEBUG_UTILS_EXTENSION_NAME));
 
+                                                                                    
             return extensions.rewind();
         }
 
@@ -252,10 +264,7 @@ public abstract class DeviceManager {
         try (MemoryStack stack = stackPush()) {
             Queue.QueueFamilyIndices indices = findQueueFamilies(device);
 
-            VkExtensionProperties.Buffer availableExtensions = getAvailableExtension(stack, device);
-            boolean extensionsSupported = availableExtensions.stream()
-                    .map(VkExtensionProperties::extensionNameString)
-                    .collect(toSet())
+            boolean extensionsSupported = Device.getAvailableExtensions(device)
                     .containsAll(Vulkan.REQUIRED_EXTENSION);
 
             boolean swapChainAdequate = false;
@@ -273,16 +282,8 @@ public abstract class DeviceManager {
         }
     }
 
-    private static VkExtensionProperties.Buffer getAvailableExtension(MemoryStack stack, VkPhysicalDevice device) {
-        IntBuffer extensionCount = stack.ints(0);
-        vkEnumerateDeviceExtensionProperties(device, (String) null, extensionCount, null);
-
-        VkExtensionProperties.Buffer availableExtensions = VkExtensionProperties.malloc(extensionCount.get(0), stack);
-        vkEnumerateDeviceExtensionProperties(device, (String) null, extensionCount, availableExtensions);
-
-        return availableExtensions;
-    }
-
+                                                                        
+                                                                                             
     public static int findDepthFormat(boolean use24BitsDepthFormat) {
         int[] formats = use24BitsDepthFormat ? new int[]
                 {VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_X8_D24_UNORM_PACK32, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT}

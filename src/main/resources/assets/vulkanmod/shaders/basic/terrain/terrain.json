@@ -4,8 +4,8 @@
         "srcrgb": "srcalpha",
         "dstrgb": "1-srcalpha"
     },
-    "vertex": "rendertype_solid",
-    "fragment": "rendertype_solid",
+    "vertex": "terrain",
+    "fragment": "terrain",
     "attributes": [
         "Position",
         "Color",
@@ -29,7 +29,8 @@
             { "name": "FogColor", "type": "float", "count": 4, "values": [ 0.0, 0.0, 0.0, 0.0 ] },
             { "name": "FogStart", "type": "float", "count": 1, "values": [ 0.0 ] },
             { "name": "FogEnd", "type": "float", "count": 1, "values": [ 1.0 ] },
-            { "name": "AlphaCutout", "type": "float", "count": 1, "values": [ 1.0 ] }
+            { "name": "AlphaCutout", "type": "float", "count": 1, "values": [ 1.0 ] },
+            { "name": "UseRgss", "type": "int", "count": 1, "values": [ 0 ] }
         ] }
     ],
     "PushConstants": [

@@ -1,12 +1,13 @@
 package net.vulkanmod.vulkan.texture;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.vulkanmod.Initializer;
-import net.vulkanmod.gl.GlTexture;
+import net.vulkanmod.gl.VkGlTexture;
+import net.vulkanmod.render.engine.VkGpuTexture;
+import net.vulkanmod.render.texture.SpriteUtil;
+import net.vulkanmod.vulkan.VRenderSystem;
 import net.vulkanmod.vulkan.shader.Pipeline;
-import net.vulkanmod.vulkan.shader.SamplerTextureSlot;
 import net.vulkanmod.vulkan.shader.descriptor.ImageDescriptor;
+import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;
 
@@ -26,7 +27,7 @@ public abstract class VTextureSelector {
     }
 
     public static void bindTexture(int i, VulkanImage texture) {
-        if(i < 0 || i >= SIZE) {
+        if (i < 0 || i >= SIZE) {
             Initializer.LOGGER.error(String.format("On Texture binding: index %d out of range [0, %d]", i, SIZE - 1));
             return;
         }
@@ -36,7 +37,7 @@ public abstract class VTextureSelector {
     }
 
     public static void bindImage(int i, VulkanImage texture, int level) {
-        if(i < 0 || i > 7) {
+        if (i < 0 || i > 7) {
             Initializer.LOGGER.error(String.format("On Texture binding: index %d out of range [0, %d]", i, SIZE - 1));
             return;
         }
@@ -45,33 +46,64 @@ public abstract class VTextureSelector {
         levels[i] = level;
     }
 
-    public static void uploadSubTexture(int mipLevel, int width, int height, int xOffset, int yOffset, int unpackSkipRows, int unpackSkipPixels, int unpackRowLength, ByteBuffer buffer) {
+    public static void uploadSubTexture(int mipLevel, int width, int height, int xOffset, int yOffset,
+                                        int unpackSkipRows, int unpackSkipPixels, int unpackRowLength,
+                                        ByteBuffer buffer) {
+        uploadSubTexture(mipLevel, 0, width, height, xOffset, yOffset, unpackSkipRows, unpackSkipPixels, unpackRowLength,
+                         MemoryUtil.memAddress(buffer));
+    }
+
+    public static void uploadSubTexture(int mipLevel, int arrayLayer, int width, int height, int xOffset, int yOffset,
+                                        int unpackSkipRows, int unpackSkipPixels, int unpackRowLength,
+                                        long bufferPtr) {
         VulkanImage texture = boundTextures[activeTexture];
 
-        if(texture == null)
+        if (texture == null)
             throw new NullPointerException("Texture is null at index: " + activeTexture);
 
-        texture.uploadSubTextureAsync(mipLevel, width, height, xOffset, yOffset, unpackSkipRows, unpackSkipPixels, unpackRowLength, buffer);
+                                                                          
+        SpriteUtil.addTransitionedLayout(texture);
+
+        texture.uploadSubTextureAsync(mipLevel, arrayLayer, width, height, xOffset, yOffset, unpackSkipRows, unpackSkipPixels,
+                                      unpackRowLength, bufferPtr);
     }
 
     public static int getTextureIdx(String name) {
-        return SamplerTextureSlot.getTextureIdx(name);
+        return switch (name) {
+            case "Sampler0", "DiffuseSampler", "InSampler", "Sprite", "CurrentSprite", "uLightMap" -> 0;
+            case "Sampler1", "BlurSampler", "NextSprite" -> 1;
+            case "Sampler2" -> 2;
+            case "Sampler3" -> 3;
+            case "Sampler4" -> 4;
+            case "Sampler5" -> 5;
+            case "Sampler6" -> 6;
+            case "Sampler7" -> 7;
+            default -> -1;
+        };
     }
 
     public static void bindShaderTextures(Pipeline pipeline) {
         var imageDescriptors = pipeline.getImageDescriptors();
 
         for (ImageDescriptor state : imageDescriptors) {
-            final int shaderTexture = RenderSystem.getShaderTexture(state.imageIdx);
+            var textureView = VRenderSystem.getShaderTexture(state.imageIdx);
 
-            GlTexture texture = GlTexture.getTexture(shaderTexture);
+            if (textureView == null)
+                continue;
+
+            VkGpuTexture gpuTexture = (VkGpuTexture) textureView.texture();
+
+            final int shaderTexture = gpuTexture.glId();
+            VkGlTexture texture = VkGlTexture.getTexture(shaderTexture);
 
             if (texture != null && texture.getVulkanImage() != null) {
                 VTextureSelector.bindTexture(state.imageIdx, texture.getVulkanImage());
             }
-            else {
-                VTextureSelector.bindTexture(state.imageIdx, whiteTexture);
-            }
+                   
+                    
+                                                                                                  
+                                                                                          
+               
         }
     }
 
@@ -88,14 +120,23 @@ public abstract class VTextureSelector {
     }
 
     public static void setActiveTexture(int activeTexture) {
-        if(activeTexture < 0 || activeTexture >= SIZE) {
-            Initializer.LOGGER.error(String.format("On Texture binding: index %d out of range [0, %d]", activeTexture, SIZE - 1));
+        if (activeTexture < 0 || activeTexture >= SIZE) {
+            Initializer.LOGGER.error(
+                    String.format("On Texture binding: index %d out of range [0, %d]", activeTexture, SIZE - 1));
         }
 
         VTextureSelector.activeTexture = activeTexture;
     }
 
-    public static VulkanImage getBoundTexture(int i) { return boundTextures[i]; }
+    public static VulkanImage getBoundTexture() {
+        return boundTextures[activeTexture];
+    }
 
-    public static VulkanImage getWhiteTexture() { return whiteTexture; }
+    public static VulkanImage getBoundTexture(int i) {
+        return boundTextures[i];
+    }
+
+    public static VulkanImage getWhiteTexture() {
+        return whiteTexture;
+    }
 }

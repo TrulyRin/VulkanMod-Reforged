@@ -74,9 +74,9 @@ public abstract class LightDataAccess {
         if(this.subBlockLighting)
             op = state.canOcclude();
         else
-            op = state.isViewBlocking(world, pos) && state.getLightBlock(world, pos) != 0;
+            op = state.isViewBlocking(world, pos) && state.getLightBlock() != 0;
 
-        boolean fo = state.isSolidRender(world, pos);
+        boolean fo = state.isSolidRender();
         boolean fc = state.isCollisionShapeFullBlock(world, pos);
 
         int lu = state.getLightEmission();

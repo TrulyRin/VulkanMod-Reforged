@@ -1,60 +1,107 @@
 package net.vulkanmod.render.optimization;
 
-import net.vulkanmod.render.chunk.build.TaskDispatcher;
-
+   
+                                                                      
+  
+                                                                          
+                                                                            
+                                                                           
+                                                                          
+                                                                            
+                                                                            
+   
 public final class AdaptiveChunkUploadBudget {
-    private static final float CALM_FRAME_MS = 16.7f;
-    private static final float SPIKE_FRAME_MS = 33.3f;
-    private static final float EXTREME_FRAME_MS = 66.7f;
-    private static final float PEAK_DROP_MULTIPLIER = 1.6f;
-    private static final float PEAK_DROP_DELTA_MS = 5.0f;
-    private static final float SMOOTHING = 0.18f;
-    private static final int SPIKE_COOLDOWN_FRAMES = 4;
-    private static final int PEAK_DROP_COOLDOWN_FRAMES = 6;
-    private static final long SPIKE_UPLOAD_TIME_BUDGET_NANOS = 1_000_000L;
-    private static final long DEFAULT_UPLOAD_TIME_BUDGET_NANOS = 2_000_000L;
-    private static final long CALM_UPLOAD_TIME_BUDGET_NANOS = 3_000_000L;
-    private static final long TURBO_UPLOAD_TIME_BUDGET_NANOS = 5_000_000L;
+    private static final int PRESSURE_NONE = 0;
+    private static final int PRESSURE_MODERATE = 1;
+    private static final int PRESSURE_HIGH = 2;
 
-    private static float smoothedFrameMs = CALM_FRAME_MS;
-    private static float lastFrameMs = CALM_FRAME_MS;
-    private static int spikeCooldownFrames;
-    private static int calmFrames;
-    private static boolean hasSamples;
+    private static final long UPLOAD_SOFT_LIMIT_NANOS = 2_000_000L;
+    private static final long UPLOAD_HARD_LIMIT_NANOS = 4_000_000L;
+    private static final long GPU_BACKPRESSURE_SOFT_LIMIT_NANOS = 4_000_000L;
+    private static final long GPU_BACKPRESSURE_HARD_LIMIT_NANOS = 12_000_000L;
+    private static final long REBUILD_SOFT_LIMIT_NANOS = 1_000_000L;
+    private static final long REBUILD_HARD_LIMIT_NANOS = 2_000_000L;
+    private static final int RECENT_UPLOAD_ACTIVITY_FRAMES = 4;
+
+    private static final long NORMAL_UPLOAD_TIME_BUDGET_NANOS = 2_000_000L;
+    private static final long MODERATE_UPLOAD_TIME_BUDGET_NANOS = 1_500_000L;
+    private static final long HIGH_UPLOAD_TIME_BUDGET_NANOS = 1_000_000L;
+
+    private static final long NORMAL_UPLOAD_BYTE_BUDGET = 6L * 1024 * 1024;
+    private static final long MODERATE_UPLOAD_BYTE_BUDGET = 4L * 1024 * 1024;
+    private static final long HIGH_UPLOAD_BYTE_BUDGET = 3L * 1024 * 1024;
+
+    private static final int NORMAL_REBUILD_SCHEDULES = 8;
+    private static final int MODERATE_REBUILD_SCHEDULES = 6;
+    private static final int HIGH_REBUILD_SCHEDULES = 4;
+
+    private static final long NORMAL_REBUILD_TIME_BUDGET_NANOS = 1_000_000L;
+    private static final long MODERATE_REBUILD_TIME_BUDGET_NANOS = 750_000L;
+    private static final long HIGH_REBUILD_TIME_BUDGET_NANOS = 500_000L;
+
+    private static long frameUploadWorkNanos;
+    private static long frameGpuBackpressureNanos;
+    private static long frameRebuildPreparationNanos;
+    private static int uploadPressure;
+    private static int gpuPressure;
+    private static int rebuildPressure;
+    private static int recentUploadActivityFrames;
 
     private AdaptiveChunkUploadBudget() {
     }
 
+                                                                                 
+    public static void recordUploadWork(long nanos) {
+        if (nanos > 0L) {
+            frameUploadWorkNanos = saturatingAdd(frameUploadWorkNanos, nanos);
+        }
+    }
+
+                                                                       
+    public static void recordRebuildPreparation(long nanos) {
+        if (nanos > 0L) {
+            frameRebuildPreparationNanos = saturatingAdd(frameRebuildPreparationNanos, nanos);
+        }
+    }
+
+       
+                                                                              
+                                                                           
+                                                                            
+                                                                           
+       
+    public static void recordGpuBackpressure(long nanos) {
+        if (nanos > 0L && (frameUploadWorkNanos > 0L || recentUploadActivityFrames > 0)) {
+            frameGpuBackpressureNanos = saturatingAdd(frameGpuBackpressureNanos, nanos);
+        }
+    }
+
+       
+                                                                               
+                                                                             
+                                                               
+       
     public static void recordFrameTimeMs(float frameTimeMs) {
         if (!Float.isFinite(frameTimeMs) || frameTimeMs <= 0.0f) {
             return;
         }
 
-        float previousSmoothedFrameMs = smoothedFrameMs;
-        boolean peakDrop = hasSamples
-                && frameTimeMs >= previousSmoothedFrameMs * PEAK_DROP_MULTIPLIER
-                && frameTimeMs - previousSmoothedFrameMs >= PEAK_DROP_DELTA_MS;
+        uploadPressure = nextPressure(uploadPressure, frameUploadWorkNanos,
+                UPLOAD_SOFT_LIMIT_NANOS, UPLOAD_HARD_LIMIT_NANOS);
+        gpuPressure = nextPressure(gpuPressure, frameGpuBackpressureNanos,
+                GPU_BACKPRESSURE_SOFT_LIMIT_NANOS, GPU_BACKPRESSURE_HARD_LIMIT_NANOS);
+        rebuildPressure = nextPressure(rebuildPressure, frameRebuildPreparationNanos,
+                REBUILD_SOFT_LIMIT_NANOS, REBUILD_HARD_LIMIT_NANOS);
 
-        lastFrameMs = frameTimeMs;
-        if (frameTimeMs >= SPIKE_FRAME_MS) {
-            spikeCooldownFrames = SPIKE_COOLDOWN_FRAMES;
-        } else if (peakDrop) {
-            spikeCooldownFrames = Math.max(spikeCooldownFrames, PEAK_DROP_COOLDOWN_FRAMES);
+        if (frameUploadWorkNanos > 0L) {
+            recentUploadActivityFrames = RECENT_UPLOAD_ACTIVITY_FRAMES;
+        } else if (recentUploadActivityFrames > 0) {
+            recentUploadActivityFrames--;
         }
 
-        if (!hasSamples) {
-            smoothedFrameMs = frameTimeMs;
-            hasSamples = true;
-            calmFrames = frameTimeMs <= CALM_FRAME_MS ? 1 : 0;
-            return;
-        }
-
-        smoothedFrameMs += (frameTimeMs - smoothedFrameMs) * SMOOTHING;
-        if (!peakDrop && frameTimeMs <= CALM_FRAME_MS && frameTimeMs <= previousSmoothedFrameMs + 3.0f) {
-            calmFrames++;
-        } else {
-            calmFrames = 0;
-        }
+        frameUploadWorkNanos = 0L;
+        frameGpuBackpressureNanos = 0L;
+        frameRebuildPreparationNanos = 0L;
     }
 
     public static int chooseBudget(int configuredUploadsPerFrame) {
@@ -62,31 +109,17 @@ public final class AdaptiveChunkUploadBudget {
     }
 
     public static int chooseBudget(int configuredUploadsPerFrame, int pendingUploads) {
-        int baseBudget = TaskDispatcher.clampMaxUploadsPerFrame(configuredUploadsPerFrame);
-
-        if (lastFrameMs >= EXTREME_FRAME_MS) {
-            consumeCooldownFrame();
-            return 1;
+        int ceiling = ChunkSchedulingPolicy.clampUploadCeiling(configuredUploadsPerFrame);
+        int effectivePressure = effectiveUploadPressure();
+        if (pendingUploads <= 0 || effectivePressure == PRESSURE_NONE) {
+            return ceiling;
         }
 
-        if (lastFrameMs >= SPIKE_FRAME_MS || smoothedFrameMs >= SPIKE_FRAME_MS || spikeCooldownFrames > 0) {
-            consumeCooldownFrame();
-            return Math.max(1, baseBudget / 3);
+        if (effectivePressure == PRESSURE_HIGH) {
+            return Math.min(ceiling, Math.max(4, (ceiling + 1) / 2));
         }
 
-        if (calmFrames >= 6 && smoothedFrameMs <= CALM_FRAME_MS && lastFrameMs <= CALM_FRAME_MS + 3.0f) {
-            int backlogBoost = 1;
-            if (pendingUploads >= baseBudget * 32 && calmFrames >= 12 && lastFrameMs <= CALM_FRAME_MS) {
-                backlogBoost = Math.min(6, Math.max(4, baseBudget));
-            } else if (pendingUploads >= baseBudget * 12 && calmFrames >= 10 && lastFrameMs <= CALM_FRAME_MS) {
-                backlogBoost = 4;
-            } else if (pendingUploads >= baseBudget * 6) {
-                backlogBoost = 2;
-            }
-            return TaskDispatcher.clampMaxUploadsPerFrame(baseBudget + backlogBoost);
-        }
-
-        return baseBudget;
+        return Math.min(ceiling, Math.max(6, (ceiling * 3 + 3) / 4));
     }
 
     public static long uploadTimeBudgetNanos() {
@@ -94,19 +127,19 @@ public final class AdaptiveChunkUploadBudget {
     }
 
     public static long uploadTimeBudgetNanos(int pendingUploads) {
-        if (lastFrameMs >= SPIKE_FRAME_MS || smoothedFrameMs >= SPIKE_FRAME_MS || spikeCooldownFrames > 0) {
-            return SPIKE_UPLOAD_TIME_BUDGET_NANOS;
-        }
+        return switch (effectiveUploadPressure()) {
+            case PRESSURE_HIGH -> HIGH_UPLOAD_TIME_BUDGET_NANOS;
+            case PRESSURE_MODERATE -> MODERATE_UPLOAD_TIME_BUDGET_NANOS;
+            default -> NORMAL_UPLOAD_TIME_BUDGET_NANOS;
+        };
+    }
 
-        if (calmFrames >= 6 && smoothedFrameMs <= CALM_FRAME_MS && lastFrameMs <= CALM_FRAME_MS + 3.0f) {
-            if (pendingUploads >= 64 && calmFrames >= 10 && lastFrameMs <= CALM_FRAME_MS) {
-                return TURBO_UPLOAD_TIME_BUDGET_NANOS;
-            }
-
-            return CALM_UPLOAD_TIME_BUDGET_NANOS;
-        }
-
-        return DEFAULT_UPLOAD_TIME_BUDGET_NANOS;
+    public static long uploadByteBudget() {
+        return switch (effectiveUploadPressure()) {
+            case PRESSURE_HIGH -> HIGH_UPLOAD_BYTE_BUDGET;
+            case PRESSURE_MODERATE -> MODERATE_UPLOAD_BYTE_BUDGET;
+            default -> NORMAL_UPLOAD_BYTE_BUDGET;
+        };
     }
 
     public static int chooseRebuildScheduleBudget(int pendingRebuilds) {
@@ -114,40 +147,59 @@ public final class AdaptiveChunkUploadBudget {
             return 0;
         }
 
-        if (lastFrameMs >= EXTREME_FRAME_MS) {
-            consumeCooldownFrame();
-            return 1;
-        }
-
-        if (lastFrameMs >= SPIKE_FRAME_MS || smoothedFrameMs >= SPIKE_FRAME_MS || spikeCooldownFrames > 0) {
-            consumeCooldownFrame();
-            return Math.max(1, Math.min(4, pendingRebuilds));
-        }
-
-        if (calmFrames >= 10 && smoothedFrameMs <= CALM_FRAME_MS && lastFrameMs <= CALM_FRAME_MS) {
-            if (pendingRebuilds >= 64) {
-                return 28;
-            }
-
-            if (pendingRebuilds >= 32) {
-                return 20;
-            }
-        }
-
-        return 12;
+        int budget = switch (rebuildPressure) {
+            case PRESSURE_HIGH -> HIGH_REBUILD_SCHEDULES;
+            case PRESSURE_MODERATE -> MODERATE_REBUILD_SCHEDULES;
+            default -> NORMAL_REBUILD_SCHEDULES;
+        };
+        return Math.min(pendingRebuilds, budget);
     }
 
-    private static void consumeCooldownFrame() {
-        if (spikeCooldownFrames > 0) {
-            spikeCooldownFrames--;
+    public static long chooseRebuildScheduleTimeBudgetNanos(int pendingRebuilds) {
+        if (pendingRebuilds <= 0) {
+            return 0L;
         }
+
+        return switch (rebuildPressure) {
+            case PRESSURE_HIGH -> HIGH_REBUILD_TIME_BUDGET_NANOS;
+            case PRESSURE_MODERATE -> MODERATE_REBUILD_TIME_BUDGET_NANOS;
+            default -> NORMAL_REBUILD_TIME_BUDGET_NANOS;
+        };
     }
 
-    static void reset() {
-        smoothedFrameMs = CALM_FRAME_MS;
-        lastFrameMs = CALM_FRAME_MS;
-        spikeCooldownFrames = 0;
-        calmFrames = 0;
-        hasSamples = false;
+    public static String pressureSummary() {
+        return "U" + uploadPressure + " G" + gpuPressure + " R" + rebuildPressure;
+    }
+
+    public static void reset() {
+        frameUploadWorkNanos = 0L;
+        frameGpuBackpressureNanos = 0L;
+        frameRebuildPreparationNanos = 0L;
+        uploadPressure = PRESSURE_NONE;
+        gpuPressure = PRESSURE_NONE;
+        rebuildPressure = PRESSURE_NONE;
+        recentUploadActivityFrames = 0;
+    }
+
+    private static int effectiveUploadPressure() {
+        return Math.max(uploadPressure, gpuPressure);
+    }
+
+    private static int nextPressure(int currentPressure, long workNanos,
+                                    long softLimitNanos, long hardLimitNanos) {
+        if (workNanos >= hardLimitNanos) {
+            return PRESSURE_HIGH;
+        }
+        if (workNanos >= softLimitNanos) {
+            return Math.max(PRESSURE_MODERATE, currentPressure);
+        }
+        return Math.max(PRESSURE_NONE, currentPressure - 1);
+    }
+
+    private static long saturatingAdd(long left, long right) {
+        if (Long.MAX_VALUE - left < right) {
+            return Long.MAX_VALUE;
+        }
+        return left + right;
     }
 }

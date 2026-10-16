@@ -1,6 +1,5 @@
 package net.vulkanmod.vulkan.framebuffer;
 
-import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import it.unimi.dsi.fastutil.objects.Reference2LongArrayMap;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.Vulkan;
@@ -19,8 +18,7 @@ import static org.lwjgl.vulkan.VK10.*;
 public class Framebuffer {
     public static final int DEFAULT_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
 
-//    private long id;
-
+    public final String name;
     protected int format;
     protected int depthFormat;
     protected int width, height;
@@ -34,14 +32,17 @@ public class Framebuffer {
     private VulkanImage colorAttachment;
     protected VulkanImage depthAttachment;
 
-    private final ObjectArrayList<RenderPass> renderPasses = new ObjectArrayList<>();
+    private int level;
 
-    private final Reference2LongArrayMap<RenderPass> framebufferIds = new Reference2LongArrayMap<>();
+    private final Reference2LongArrayMap<RenderPass> renderpassToFramebufferMap = new Reference2LongArrayMap<>();
 
-    //SwapChain
-    protected Framebuffer() {}
+                
+    protected Framebuffer() {
+        this.name = null;
+    }
 
     public Framebuffer(Builder builder) {
+        this.name = builder.name;
         this.format = builder.format;
         this.depthFormat = builder.depthFormat;
         this.width = builder.width;
@@ -57,26 +58,29 @@ public class Framebuffer {
             this.colorAttachment = builder.colorAttachment;
             this.depthAttachment = builder.depthAttachment;
         }
-    }
 
-    public void addRenderPass(RenderPass renderPass) {
-        this.renderPasses.add(renderPass);
+        this.level = builder.level;
     }
 
     public void createImages() {
         if (this.hasColorAttachment) {
             this.colorAttachment = VulkanImage.builder(this.width, this.height)
-                    .setFormat(format)
-                    .setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)
-                    .setLinearFiltering(linearFiltering)
-                    .setClamp(true)
-                    .createVulkanImage();
+                                              .setName(this.name != null ? String.format("%s Color", this.name) : null)
+                                              .setFormat(format)
+                                              .setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+                                              .setLinearFiltering(linearFiltering)
+                                              .setClamp(true)
+                                              .createVulkanImage();
         }
 
         if (this.hasDepthAttachment) {
-            this.depthAttachment = VulkanImage.createDepthImage(depthFormat, this.width, this.height,
-                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                    depthLinearFiltering, true);
+            this.depthAttachment = VulkanImage.builder(width, height)
+                                              .setName(this.name != null ? String.format("%s Depth", this.name) : null)
+                                              .setFormat(depthFormat)
+                                              .setUsage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
+                                              .setLinearFiltering(depthLinearFiltering)
+                                              .setClamp(true)
+                                              .createVulkanImage();
 
             this.attachmentCount++;
         }
@@ -92,14 +96,13 @@ public class Framebuffer {
     }
 
     private long createFramebuffer(RenderPass renderPass) {
-
         try (MemoryStack stack = MemoryStack.stackPush()) {
 
             LongBuffer attachments;
             if (colorAttachment != null && depthAttachment != null) {
-                attachments = stack.longs(colorAttachment.getImageView(), depthAttachment.getImageView());
+                attachments = stack.longs(getColorAttachmentView(), getDepthImageView());
             } else if (colorAttachment != null) {
-                attachments = stack.longs(colorAttachment.getImageView());
+                attachments = stack.longs(getColorAttachmentView());
             } else {
                 throw new IllegalStateException();
             }
@@ -109,8 +112,8 @@ public class Framebuffer {
             VkFramebufferCreateInfo framebufferInfo = VkFramebufferCreateInfo.calloc(stack);
             framebufferInfo.sType$Default();
             framebufferInfo.renderPass(renderPass.getId());
-            framebufferInfo.width(this.width);
-            framebufferInfo.height(this.height);
+            framebufferInfo.width(getWidth());
+            framebufferInfo.height(getHeight());
             framebufferInfo.layers(1);
             framebufferInfo.pAttachments(attachments);
 
@@ -123,30 +126,27 @@ public class Framebuffer {
     }
 
     public void beginRenderPass(VkCommandBuffer commandBuffer, RenderPass renderPass, MemoryStack stack) {
+        renderPass.setFramebuffer(this);
+
         if (!DYNAMIC_RENDERING) {
             long framebufferId = this.getFramebufferId(renderPass);
             renderPass.beginRenderPass(commandBuffer, framebufferId, stack);
-        } else {
+        }
+        else {
             renderPass.beginDynamicRendering(commandBuffer, stack);
         }
-
-        Renderer.getInstance().setBoundRenderPass(renderPass);
-        Renderer.getInstance().setBoundFramebuffer(this);
-
-        Renderer.setViewport(0, 0, this.width, this.height);
-        Renderer.setScissor(0, 0, this.width, this.height);
     }
 
     protected long getFramebufferId(RenderPass renderPass) {
-        return this.framebufferIds.computeIfAbsent(renderPass, renderPass1 -> createFramebuffer(renderPass));
+        return this.renderpassToFramebufferMap.computeIfAbsent(renderPass, renderPass1 -> createFramebuffer(renderPass));
     }
 
     public VkViewport.Buffer viewport(MemoryStack stack) {
         VkViewport.Buffer viewport = VkViewport.malloc(1, stack);
         viewport.x(0.0f);
-        viewport.y(this.height);
-        viewport.width(this.width);
-        viewport.height(-this.height);
+        viewport.y(getHeight());
+        viewport.width(getWidth());
+        viewport.height(-getHeight());
         viewport.minDepth(0.0f);
         viewport.maxDepth(1.0f);
 
@@ -156,7 +156,7 @@ public class Framebuffer {
     public VkRect2D.Buffer scissor(MemoryStack stack) {
         VkRect2D.Buffer scissor = VkRect2D.malloc(1, stack);
         scissor.offset().set(0, 0);
-        scissor.extent().set(this.width, this.height);
+        scissor.extent().set(getWidth(), getHeight());
 
         return scissor;
     }
@@ -175,7 +175,7 @@ public class Framebuffer {
         }
 
         final VkDevice device = Vulkan.getVkDevice();
-        final var ids = framebufferIds.values().toLongArray();
+        final var ids = renderpassToFramebufferMap.values().toLongArray();
 
         MemoryManager.getInstance().addFrameOp(
                 () -> Arrays.stream(ids).forEach(id ->
@@ -183,11 +183,27 @@ public class Framebuffer {
         );
 
 
-        framebufferIds.clear();
+        renderpassToFramebufferMap.clear();
+    }
+
+    public void setLevel(int level) {
+        int maxLevel = this.colorAttachment.mipLevels - 1;
+        if (level < 0 || level > maxLevel) {
+            throw new IllegalStateException(
+                    "Requested mip level (%d) outside color attachment levels 0 through %d"
+                            .formatted(level, maxLevel));
+        }
+
+        if (this.level != level && !this.renderpassToFramebufferMap.isEmpty()) {
+                                                                                       
+                                                                                        
+            this.cleanUp(false);
+        }
+        this.level = level;
     }
 
     public long getDepthImageView() {
-        return depthAttachment.getImageView();
+        return depthAttachment.getLevelImageView(0);
     }
 
     public VulkanImage getDepthAttachment() {
@@ -198,12 +214,16 @@ public class Framebuffer {
         return colorAttachment;
     }
 
+    public long getColorAttachmentView() {
+        return colorAttachment.getLevelImageView(level);
+    }
+
     public int getWidth() {
-        return this.width;
+        return this.level == 0 ? this.width : Math.max(1, this.width >> this.level);
     }
 
     public int getHeight() {
-        return this.height;
+        return this.level == 0 ? this.height : Math.max(1, this.height >> this.level);
     }
 
     public int getFormat() {
@@ -223,6 +243,7 @@ public class Framebuffer {
     }
 
     public static class Builder {
+        final String name;
         final boolean createImages;
         final int width, height;
         int format, depthFormat;
@@ -230,19 +251,25 @@ public class Framebuffer {
         VulkanImage colorAttachment;
         VulkanImage depthAttachment;
 
-//        int colorAttachments;
         boolean hasColorAttachment;
         boolean hasDepthAttachment;
 
         boolean linearFiltering;
         boolean depthLinearFiltering;
 
+        int level = 0;
+
         public Builder(int width, int height, int colorAttachments, boolean hasDepthAttachment) {
+            this(null, width, height, colorAttachments, hasDepthAttachment);
+        }
+
+        public Builder(String name, int width, int height, int colorAttachments, boolean hasDepthAttachment) {
             Validate.isTrue(colorAttachments > 0 || hasDepthAttachment, "At least 1 attachment needed");
 
-            //TODO multi color attachments
+                                          
             Validate.isTrue(colorAttachments <= 1, "Not supported");
 
+            this.name = name;
             this.createImages = true;
             this.format = DEFAULT_FORMAT;
             this.depthFormat = Vulkan.getDefaultDepthFormat();
@@ -256,6 +283,7 @@ public class Framebuffer {
         }
 
         public Builder(VulkanImage colorAttachment, VulkanImage depthAttachment) {
+            this.name = null;
             this.createImages = false;
             this.colorAttachment = colorAttachment;
             this.depthAttachment = depthAttachment;
@@ -274,6 +302,12 @@ public class Framebuffer {
 
         public Framebuffer build() {
             return new Framebuffer(this);
+        }
+
+        public Builder setLevel(int level) {
+            this.level = level;
+
+            return this;
         }
 
         public Builder setFormat(int format) {

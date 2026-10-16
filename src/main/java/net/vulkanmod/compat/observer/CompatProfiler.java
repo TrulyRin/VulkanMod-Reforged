@@ -1,13 +1,10 @@
 package net.vulkanmod.compat.observer;
 
 import net.minecraft.client.Minecraft;
-import net.vulkanmod.compat.CompatDetector;
-import net.vulkanmod.compat.CompatMode;
+import com.mojang.blaze3d.systems.RenderSystem;
 import net.vulkanmod.compat.CompatPolicyManager;
-import net.vulkanmod.compat.path.RenderPath;
 import net.vulkanmod.compat.path.RenderPathOwnership;
-import net.vulkanmod.vulkan.shader.Pipeline;
-import net.vulkanmod.vulkan.shader.GraphicsPipeline;
+import net.vulkanmod.render.engine.VkGpuDevice;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -117,13 +114,7 @@ public class CompatProfiler {
     }
 
     public static int getUniqueShaderVariants() {
-        int count = 0;
-        for (Pipeline pipeline : Pipeline.PIPELINES) {
-            if (pipeline instanceof GraphicsPipeline gp) {
-                count += gp.getVariantCount();
-            }
-        }
-        return count;
+        return RenderSystem.tryGetDevice() instanceof VkGpuDevice device ? device.getCachedShaderSourceCount() : 0;
     }
 
     private static void completePhase() {
@@ -247,9 +238,9 @@ public class CompatProfiler {
             sb.append(String.format(" * Mod ID: %-18s | Active Mode: %s\n", mod, CompatPolicyManager.getCompatMode(mod)));
         }
         sb.append("\n--- Render Path Ownership Allocations ---\n");
-        for (RenderPath path : RenderPath.values()) {
+        for (RenderPathOwnership.PathState state : RenderPathOwnership.snapshot()) {
             sb.append(String.format(" * Path: %-15s | Owner: %-12s | Mode: %s\n",
-                    path, RenderPathOwnership.getPathOwner(path), RenderPathOwnership.getPathMode(path)));
+                    state.path(), state.owner(), state.mode()));
         }
         sb.append("\n------------------------------------------------------------\n");
         sb.append(String.format(" Performance Metric        | %-14s | %-14s | Delta \n", "Baseline (OFF)", "Observe/Compat"));
@@ -258,16 +249,16 @@ public class CompatProfiler {
                 baselineFPS, compatFPS, ((compatFPS - baselineFPS) / baselineFPS) * 100.0f));
         sb.append(String.format(" 1%% Low FPS                | %-14.2f | %-14.2f | %+.2f%%\n",
                 baseline1PercentLow, compatLow, ((compatLow - baseline1PercentLow) / baseline1PercentLow) * 100.0f));
-        sb.append(String.format(" CPU Render Thread (ms)    | %-14.4f | %-14.4f | %+.2f%%\n",
+        sb.append(String.format(" CPU Frame Work (ms)       | %-14.4f | %-14.4f | %+.2f%%\n",
                 baselineCpuRenderTime, compatCpuTime, ((compatCpuTime - baselineCpuRenderTime) / baselineCpuRenderTime) * 100.0f));
         sb.append("------------------------------------------------------------\n");
         sb.append(String.format(" GL Observer Intercepts    | %-14d | %-14d | %+d\n",
                 baselineObserverCalls, compatObserverCalls, compatObserverCalls - baselineObserverCalls));
         sb.append(String.format(" Texture Upload Bytes      | %-14d | %-14d | %+d\n",
                 baselineTexBytes, compatTexBytes, compatTexBytes - baselineTexBytes));
-        sb.append(String.format(" Buffer Upload Bytes       | %-14d | %-14d | %+d\n",
+        sb.append(String.format(" Staging Upload Bytes      | %-14d | %-14d | %+d\n",
                 baselineBufBytes, compatBufBytes, compatBufBytes - baselineBufBytes));
-        sb.append(String.format(" Vulkan Device Allocations | %-14d | %-14d | %+d\n",
+        sb.append(String.format(" VMA Allocations           | %-14d | %-14d | %+d\n",
                 baselineAllocations, compatAllocations, compatAllocations - baselineAllocations));
 
         sb.append("\n--- Shader Cache Diagnostics ---\n");
@@ -277,13 +268,13 @@ public class CompatProfiler {
 
         sb.append(String.format(" Shader Compile Count      | %-14d | %-14d | %+d\n",
                 baselineShaderCompileCount, shaderCompileCount, shaderCompileCount - baselineShaderCompileCount));
-        sb.append(String.format(" Shader Cache Hits         | %-14d | %-14d | %+d\n",
+        sb.append(String.format(" Shader Source Cache Hits  | %-14d | %-14d | %+d\n",
                 baselineShaderCacheHits, shaderCacheHits, shaderCacheHits - baselineShaderCacheHits));
-        sb.append(String.format(" Shader Cache Misses       | %-14d | %-14d | %+d\n",
+        sb.append(String.format(" Shader Source Cache Misses| %-14d | %-14d | %+d\n",
                 baselineShaderCacheMisses, shaderCacheMisses, shaderCacheMisses - baselineShaderCacheMisses));
-        sb.append(String.format(" Unique Shader Variants    | %-14d | %-14d | %+d\n",
+        sb.append(String.format(" Cached Shader Source Keys | %-14d | %-14d | %+d\n",
                 baselineUniqueVariants, currentVariants, currentVariants - baselineUniqueVariants));
-        sb.append(String.format(" SPIR-V Compile Time (ms)  | %-14.4f | %-14.4f | %+.2f%%\n",
+        sb.append(String.format(" SPIR-V CPU Compile (ms)   | %-14.4f | %-14.4f | %+.2f%%\n",
                 baselineSpirvMs, compatSpirvMs, baselineSpirvMs > 0 ? ((compatSpirvMs - baselineSpirvMs) / baselineSpirvMs) * 100.0f : 0.0f));
         sb.append("============================================================\n");
 

@@ -5,7 +5,7 @@ license="LGPL-3.0"
 [[mods]]
 modId="vulkanmod"
 version="${version}"
-displayName="Vulkan Reforged"
+displayName="VulkanMod Reforged"
 logoFile="assets/vulkanmod/Vlogo.png"
 authors="Rindw"
 credits="Rindw, and XCollateral (Original mod creator)"
@@ -14,17 +14,20 @@ Bring Vulkan to Minecraft!
 '''
 
 [[mixins]]
+config="vulkanmod.versioned.mixins.json"
+
+[[mixins]]
 config="vulkanmod.mixins.json"
 
 [[dependencies.vulkanmod]]
     modId="neoforge"
     type="required"
-    versionRange="[21,)"
+    versionRange="[21.11,21.12)"
     ordering="NONE"
     side="BOTH"
 [[dependencies.vulkanmod]]
     modId="minecraft"
     type="required"
-    versionRange="[1.21.1,1.22)"
+    versionRange="[1.21.11,1.21.12)"
     ordering="NONE"
     side="BOTH"

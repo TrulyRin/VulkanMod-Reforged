@@ -1,6 +1,6 @@
 package net.vulkanmod.vulkan.shader.descriptor;
 
-import net.vulkanmod.vulkan.memory.UniformBuffer;
+import net.vulkanmod.vulkan.memory.buffer.BufferSlice;
 import net.vulkanmod.vulkan.shader.layout.AlignedStruct;
 import net.vulkanmod.vulkan.shader.layout.Uniform;
 
@@ -9,15 +9,30 @@ import java.util.List;
 import static org.lwjgl.vulkan.VK10.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 
 public class UBO extends AlignedStruct implements Descriptor {
-    private final int binding;
-    private final int stages;
+    public final String name;
+    public final int binding;
+    public final int stages;
+    public final BufferSlice bufferSlice;
+    private boolean useGlobalBuffer;
+    private boolean update;
 
-    private UniformBuffer uniformBuffer;
-
-    public UBO(int binding, int stages, int size, List<Uniform.Info> infoList) {
+    public UBO(String name, int binding, int stages, int size, List<Uniform.Info> infoList) {
         super(infoList, size);
+        this.name = name;
         this.binding = binding;
         this.stages = stages;
+        this.update = true;
+
+        this.bufferSlice = new BufferSlice();
+    }
+
+    @Override
+    public String toString() {
+        return "UBO{" +
+               "name='" + name + '\'' +
+               ", binding=" + binding +
+               ", useGlobalBuffer=" + useGlobalBuffer +
+               '}';
     }
 
     public int getBinding() {
@@ -33,11 +48,23 @@ public class UBO extends AlignedStruct implements Descriptor {
         return stages;
     }
 
-    public UniformBuffer getUniformBuffer() {
-        return uniformBuffer;
+    public BufferSlice getBufferSlice() {
+        return bufferSlice;
     }
 
-    public void setUniformBuffer(UniformBuffer uniformBuffer) {
-        this.uniformBuffer = uniformBuffer;
+    public boolean useGlobalBuffer() {
+        return useGlobalBuffer;
+    }
+
+    public void setUseGlobalBuffer(boolean useGlobalBuffer) {
+        this.useGlobalBuffer = useGlobalBuffer;
+    }
+
+    public boolean shouldUpdate() {
+        return update;
+    }
+
+    public void setUpdate(boolean update) {
+        this.update = update;
     }
 }

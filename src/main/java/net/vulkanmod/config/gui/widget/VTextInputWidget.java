@@ -1,6 +1,12 @@
 package net.vulkanmod.config.gui.widget;
 
-import net.minecraft.Util;
+import net.minecraft.client.input.CharacterEvent;
+
+import net.minecraft.client.input.KeyEvent;
+
+import net.minecraft.client.input.MouseButtonEvent;
+
+import net.minecraft.util.Util;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.ComponentPath;
 import net.minecraft.client.gui.navigation.FocusNavigationEvent;
@@ -16,7 +22,7 @@ import java.util.function.Consumer;
 
 public class VTextInputWidget extends VAbstractWidget {
     public boolean selected = false;
-    Consumer<VTextInputWidget> onSearch; // when the search is "activated", like pressing enter
+    Consumer<VTextInputWidget> onSearch;                                                       
     private String text;
     private final Component placeholder;
 
@@ -25,7 +31,7 @@ public class VTextInputWidget extends VAbstractWidget {
     private long lastBlinkTime = 0;
     private boolean showCursor = true;
 
-    private static final int CURSOR_BLINK_INTERVAL = 500; // ms
+    private static final int CURSOR_BLINK_INTERVAL = 500;      
 
     public VTextInputWidget(int x, int y, int width, int height, Component placeholder, Consumer<VTextInputWidget> onSearch) {
         this.setPosition(x, y, width, height);
@@ -92,11 +98,12 @@ public class VTextInputWidget extends VAbstractWidget {
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    public boolean keyPressed(KeyEvent event) {
+        int keyCode = event.key(); int scanCode = event.scancode(); int modifiers = event.modifiers();
         if (!this.focused && !this.selected) return false;
 
-        boolean shift = Screen.hasShiftDown();
-        boolean ctrl = Screen.hasControlDown();
+        boolean shift = event.hasShiftDown();
+        boolean ctrl = event.hasControlDown();
 
         if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
             this.onSearch.accept(this);
@@ -206,7 +213,8 @@ public class VTextInputWidget extends VAbstractWidget {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        double mouseX = event.x(); double mouseY = event.y(); int button = event.button();
         if (!this.active || !this.visible) return false;
 
         boolean clicked = this.clicked(mouseX, mouseY);

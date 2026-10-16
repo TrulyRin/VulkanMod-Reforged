@@ -4,8 +4,8 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.vulkanmod.vulkan.Synchronization;
 import net.vulkanmod.vulkan.Vulkan;
 import net.vulkanmod.vulkan.device.DeviceManager;
-import net.vulkanmod.vulkan.memory.Buffer;
-import net.vulkanmod.vulkan.memory.StagingBuffer;
+import net.vulkanmod.vulkan.memory.buffer.Buffer;
+import net.vulkanmod.vulkan.memory.buffer.StagingBuffer;
 import net.vulkanmod.vulkan.queue.CommandPool;
 import net.vulkanmod.vulkan.queue.Queue;
 import net.vulkanmod.vulkan.queue.TransferQueue;
@@ -29,6 +29,10 @@ public class UploadManager {
     CommandPool.CommandBuffer commandBuffer;
 
     LongOpenHashSet dstBuffers = new LongOpenHashSet();
+
+    public boolean hasPendingUploads() {
+        return this.commandBuffer != null;
+    }
 
     public void submitUploads() {
         if (this.commandBuffer == null)
@@ -72,7 +76,7 @@ public class UploadManager {
     }
 
     public void copyBuffer(Buffer src, Buffer dst) {
-        copyBuffer(src, 0, dst, 0, src.getBufferSize());
+        copyBuffer(src, 0, dst, 0, (int) src.getBufferSize());
     }
 
     public void copyBuffer(Buffer src, int srcOffset, Buffer dst, int dstOffset, int size) {

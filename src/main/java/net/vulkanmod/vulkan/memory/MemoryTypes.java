@@ -2,7 +2,10 @@ package net.vulkanmod.vulkan.memory;
 
 import net.vulkanmod.vulkan.Vulkan;
 import net.vulkanmod.vulkan.device.DeviceManager;
+import net.vulkanmod.vulkan.memory.buffer.Buffer;
+import net.vulkanmod.vulkan.memory.buffer.StagingBuffer;
 import net.vulkanmod.vulkan.util.VUtil;
+import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.vulkan.VkMemoryHeap;
 import org.lwjgl.vulkan.VkMemoryType;
 
@@ -19,27 +22,26 @@ public class MemoryTypes {
         for (int i = 0; i < DeviceManager.memoryProperties.memoryTypeCount(); ++i) {
             VkMemoryType memoryType = DeviceManager.memoryProperties.memoryTypes(i);
             VkMemoryHeap heap = DeviceManager.memoryProperties.memoryHeaps(memoryType.heapIndex());
+            int propertyFlags = memoryType.propertyFlags();
 
-            //GPU only Memory
-            if (memoryType.propertyFlags() == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
+            if (propertyFlags == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
                 GPU_MEM = new DeviceLocalMemory(memoryType, heap);
-
             }
 
-            if (memoryType.propertyFlags() == (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT)) {
-                HOST_MEM = new HostLocalCachedMemory(memoryType, heap);
+            if (propertyFlags == (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+                HOST_MEM = new HostCoherentMemory(memoryType, heap);
             }
         }
 
         if (GPU_MEM != null && HOST_MEM != null)
             return;
 
-        // Could not find 1 or more MemoryTypes, need to use fallback
+                                                                     
         for (int i = 0; i < DeviceManager.memoryProperties.memoryTypeCount(); ++i) {
             VkMemoryType memoryType = DeviceManager.memoryProperties.memoryTypes(i);
             VkMemoryHeap heap = DeviceManager.memoryProperties.memoryHeaps(memoryType.heapIndex());
 
-            // GPU mappable memory
+                                  
             if ((memoryType.propertyFlags() & (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) == (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
                 GPU_MEM = new DeviceMappableMemory(memoryType, heap);
             }
@@ -52,7 +54,7 @@ public class MemoryTypes {
                 return;
         }
 
-        // Could not find device memory, fallback to host memory
+                                                                
         GPU_MEM = HOST_MEM;
     }
 
@@ -63,35 +65,35 @@ public class MemoryTypes {
         }
 
         @Override
-        void createBuffer(Buffer buffer, int size) {
+        public void createBuffer(Buffer buffer, long size) {
             MemoryManager.getInstance().createBuffer(buffer, size,
                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | buffer.usage,
                     VK_MEMORY_HEAP_DEVICE_LOCAL_BIT);
         }
 
         @Override
-        void copyToBuffer(Buffer buffer, long bufferSize, ByteBuffer byteBuffer) {
+        public void copyToBuffer(Buffer buffer, ByteBuffer src, long size, long srcOffset, long dstOffset) {
             StagingBuffer stagingBuffer = Vulkan.getStagingBuffer();
-            stagingBuffer.copyBuffer((int) bufferSize, byteBuffer);
+            stagingBuffer.copyBuffer((int) size, src);
 
-            DeviceManager.getTransferQueue().copyBufferCmd(stagingBuffer.id, stagingBuffer.offset, buffer.getId(), buffer.getUsedBytes(), bufferSize);
+            DeviceManager.getTransferQueue().copyBufferCmd(stagingBuffer.getId(), stagingBuffer.getOffset(), buffer.getId(), dstOffset, size);
         }
 
         @Override
-        void copyFromBuffer(Buffer buffer, long bufferSize, ByteBuffer byteBuffer) {
-            // TODO
+        public void copyFromBuffer(Buffer buffer, long bufferSize, ByteBuffer byteBuffer) {
+                   
         }
 
         public long copyBuffer(Buffer src, Buffer dst) {
-            if (dst.bufferSize < src.bufferSize) {
+            if (dst.getBufferSize() < src.getBufferSize()) {
                 throw new IllegalArgumentException("dst size is less than src size.");
             }
 
-            return DeviceManager.getTransferQueue().copyBufferCmd(src.getId(), 0, dst.getId(), 0, src.bufferSize);
+            return DeviceManager.getTransferQueue().copyBufferCmd(src.getId(), 0, dst.getId(), 0, src.getBufferSize());
         }
 
         @Override
-        boolean mappable() {
+        public boolean mappable() {
             return false;
         }
     }
@@ -103,45 +105,35 @@ public class MemoryTypes {
         }
 
         @Override
-        void copyToBuffer(Buffer buffer, long bufferSize, ByteBuffer byteBuffer) {
-            VUtil.memcpy(byteBuffer, buffer.data.getByteBuffer(0, (int) buffer.bufferSize), (int) bufferSize, buffer.getUsedBytes());
+        public void copyToBuffer(Buffer buffer, ByteBuffer src, long size, long srcOffset, long dstOffset) {
+            VUtil.memcpy(src, buffer, size, srcOffset, dstOffset);
         }
 
         @Override
-        void copyFromBuffer(Buffer buffer, long bufferSize, ByteBuffer byteBuffer) {
-            VUtil.memcpy(buffer.data.getByteBuffer(0, (int) buffer.bufferSize), byteBuffer, 0);
+        public void copyFromBuffer(Buffer buffer, long size, ByteBuffer byteBuffer) {
+            MemoryUtil.memCopy(buffer.getDataPtr(), MemoryUtil.memAddress(byteBuffer), size);
+            VUtil.memcpy(buffer, byteBuffer, size);
         }
 
         @Override
-        boolean mappable() {
+        public boolean mappable() {
             return true;
         }
     }
 
-    static class HostLocalCachedMemory extends MappableMemory {
+    static class HostCoherentMemory extends MappableMemory {
 
-        HostLocalCachedMemory(VkMemoryType vkMemoryType, VkMemoryHeap vkMemoryHeap) {
+        HostCoherentMemory(VkMemoryType vkMemoryType, VkMemoryHeap vkMemoryHeap) {
             super(Type.HOST_LOCAL, vkMemoryType, vkMemoryHeap);
         }
 
         @Override
-        void createBuffer(Buffer buffer, int size) {
-
+        public void createBuffer(Buffer buffer, long size) {
             MemoryManager.getInstance().createBuffer(buffer, size,
                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | buffer.usage,
-                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT);
+                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         }
 
-        void copyToBuffer(Buffer buffer, long dstOffset, long bufferSize, ByteBuffer byteBuffer) {
-            VUtil.memcpy(byteBuffer, buffer.data.getByteBuffer((int) 0, (int) buffer.bufferSize), (int) bufferSize, dstOffset);
-        }
-
-        void copyBuffer(Buffer src, Buffer dst) {
-            VUtil.memcpy(src.data.getByteBuffer(0, src.bufferSize),
-                    dst.data.getByteBuffer(0, dst.bufferSize), src.bufferSize, 0);
-
-//            copyBufferCmd(src.getId(), 0, dst.getId(), 0, src.bufferSize);
-        }
     }
 
     static class HostLocalFallbackMemory extends MappableMemory {
@@ -151,7 +143,7 @@ public class MemoryTypes {
         }
 
         @Override
-        void createBuffer(Buffer buffer, int size) {
+        public void createBuffer(Buffer buffer, long size) {
             MemoryManager.getInstance().createBuffer(buffer, size,
                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | buffer.usage,
                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -165,7 +157,7 @@ public class MemoryTypes {
         }
 
         @Override
-        void createBuffer(Buffer buffer, int size) {
+        public void createBuffer(Buffer buffer, long size) {
             MemoryManager.getInstance().createBuffer(buffer, size,
                     VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | buffer.usage,
                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);

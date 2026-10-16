@@ -10,15 +10,16 @@ public final class TerrainRenderState {
     }
 
     public static void prepareWorldTerrainState() {
-        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
-        RenderSystem.colorMask(true, true, true, true);
-        RenderSystem.enableDepthTest();
-        RenderSystem.depthMask(true);
-        RenderSystem.enableCull();
-        RenderSystem.disableBlend();
+        VRenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
+        VRenderSystem.colorMask(true, true, true, true);
+        VRenderSystem.enableDepthTest();
+        VRenderSystem.depthMask(true);
+        VRenderSystem.enableCull();
+        VRenderSystem.disableBlend();
         VRenderSystem.depthFunc(GL11.GL_LEQUAL);
         VRenderSystem.setPolygonModeGL(GL11.GL_FILL);
-        VRenderSystem.frontFace(GL11.GL_CCW);
+                                                                                             
+                                                                                   
         Renderer.resetScissor();
     }
 }

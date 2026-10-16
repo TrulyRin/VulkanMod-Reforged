@@ -2,10 +2,10 @@ package net.vulkanmod.render.chunk.build.task;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ItemBlockRenderTypes;
-import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.chunk.ChunkSectionLayer;
 import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
 import net.minecraft.client.renderer.chunk.VisGraph;
-import net.minecraft.client.resources.model.BakedModel;
+import net.minecraft.client.renderer.block.model.BlockStateModel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.block.RenderShape;
@@ -13,8 +13,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.phys.Vec3;
-import net.neoforged.neoforge.client.ChunkRenderTypeSet;
-import net.neoforged.neoforge.client.model.data.ModelData;
+import net.neoforged.neoforge.model.data.ModelData;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.render.chunk.RenderSection;
 import net.vulkanmod.render.chunk.WorldRenderer;
@@ -33,8 +32,9 @@ public class BuildTask extends ChunkTask {
     @Nullable
     protected RenderRegion region;
 
-    public BuildTask(RenderSection renderSection, RenderRegion renderRegion, boolean highPriority) {
-        super(renderSection);
+    public BuildTask(RenderSection renderSection, RenderRegion renderRegion, boolean highPriority,
+                     long buildRevision) {
+        super(renderSection, buildRevision);
         this.region = renderRegion;
         this.highPriority = highPriority;
     }
@@ -46,7 +46,7 @@ public class BuildTask extends ChunkTask {
     public Result runTask(BuilderResources builderResources) {
         long startTime = System.nanoTime();
 
-        if (this.cancelled.get()) {
+        if (this.cancelled.get() || this.section.getBuildRevision() != this.buildRevision) {
             this.clearPayload();
             return Result.CANCELLED;
         }
@@ -57,6 +57,9 @@ public class BuildTask extends ChunkTask {
             float y = (float) vec3.y;
             float z = (float) vec3.z;
             CompileResult compileResult = this.compile(x, y, z, builderResources);
+            if (compileResult == null) {
+                return Result.CANCELLED;
+            }
 
             CompiledSection compiledSection = new CompiledSection();
             compiledSection.blockEntities.addAll(compileResult.blockEntities);
@@ -64,12 +67,12 @@ public class BuildTask extends ChunkTask {
             compiledSection.isCompletelyEmpty = compileResult.renderedLayers.isEmpty();
             compileResult.compiledSection = compiledSection;
 
-            if (this.cancelled.get()) {
+            if (this.cancelled.get() || this.section.getBuildRevision() != this.buildRevision) {
                 compileResult.releaseBuffers();
                 return Result.CANCELLED;
             }
 
-            taskDispatcher.scheduleSectionUpdate(compileResult);
+            taskDispatcher.scheduleSectionUpdate(compileResult, this);
 
             float buildTime = (System.nanoTime() - startTime) * 0.000001f;
             if (BENCH) {
@@ -79,12 +82,13 @@ public class BuildTask extends ChunkTask {
             return Result.SUCCESSFUL;
         } finally {
             this.clearPayload();
-            builderResources.clearRegion();
+            builderResources.clear();
         }
     }
 
+    @Nullable
     private CompileResult compile(float camX, float camY, float camZ, BuilderResources builderResources) {
-        CompileResult compileResult = new CompileResult(this.section, true);
+        CompileResult compileResult = new CompileResult(this.section, true, this.buildRevision, -1L);
 
         BlockPos startBlockPos = new BlockPos(section.xOffset(), section.yOffset(), section.zOffset()).immutable();
         VisGraph visGraph = new VisGraph();
@@ -98,7 +102,7 @@ public class BuildTask extends ChunkTask {
         ThreadBuilderPack bufferBuilders = builderResources.builderPack;
         setupBufferBuilders(bufferBuilders);
 
-        this.region.loadBlockStates();
+        this.region.loadBlockStates(builderResources.blockStates);
         this.region.initTintCache(builderResources.tintCache);
 
         builderResources.update(this.region, this.section);
@@ -108,14 +112,18 @@ public class BuildTask extends ChunkTask {
         LiquidRenderer liquidRenderer = builderResources.liquidRenderer;
 
         BlockPos.MutableBlockPos blockPos = new BlockPos.MutableBlockPos();
+        RandomSource randomSource = builderResources.randomSource;
 
         for (int y = 0; y < 16; ++y) {
+            if (this.cancelled.get() || this.section.getBuildRevision() != this.buildRevision) {
+                return null;
+            }
             for (int z = 0; z < 16; ++z) {
                 for (int x = 0; x < 16; ++x) {
                     blockPos.set(section.xOffset() + x, section.yOffset() + y, section.zOffset() + z);
 
                     BlockState blockState = this.region.getBlockState(blockPos);
-                    if (blockState.isSolidRender(this.region, blockPos)) {
+                    if (blockState.isSolidRender()) {
                         visGraph.setOpaque(blockPos);
                     }
 
@@ -139,21 +147,19 @@ public class BuildTask extends ChunkTask {
                     }
 
                     if (blockState.getRenderShape() == RenderShape.MODEL) {
-                        BakedModel model = Minecraft.getInstance().getBlockRenderer().getBlockModel(blockState);
+                        BlockStateModel model = Minecraft.getInstance().getBlockRenderer().getBlockModel(blockState);
                         ModelData modelData = getModelData(blockPos, blockState, model);
-                        RandomSource randomSource = RandomSource.create();
                         randomSource.setSeed(blockState.getSeed(blockPos));
-                        ChunkRenderTypeSet renderTypes = model.getRenderTypes(blockState, randomSource, modelData);
+                                                                                                 
+                                                                                                   
+                        ChunkSectionLayer chunkRenderType = ItemBlockRenderTypes.getChunkRenderType(blockState);
+                        renderType = TerrainRenderType.get(chunkRenderType);
 
-                        for (RenderType chunkRenderType : renderTypes) {
-                            renderType = TerrainRenderType.get(chunkRenderType);
+                        bufferBuilder = getBufferBuilder(bufferBuilders, renderType);
+                        bufferBuilder.setBlockAttributes(blockState);
 
-                            bufferBuilder = getBufferBuilder(bufferBuilders, renderType);
-                            bufferBuilder.setBlockAttributes(blockState);
-
-                            pos.set(blockPos.getX() & 15, blockPos.getY() & 15, blockPos.getZ() & 15);
-                            blockRenderer.renderBlock(blockState, blockPos, pos, bufferBuilder, model, modelData, chunkRenderType);
-                        }
+                        pos.set(blockPos.getX() & 15, blockPos.getY() & 15, blockPos.getZ() & 15);
+                        blockRenderer.renderBlock(blockState, blockPos, pos, bufferBuilder, model, modelData, chunkRenderType);
                     }
                 }
             }
@@ -184,16 +190,13 @@ public class BuildTask extends ChunkTask {
         this.region = null;
     }
 
-    private ModelData getModelData(BlockPos blockPos, BlockState blockState, BakedModel model) {
-        ModelData modelData = ModelData.EMPTY;
-        if (blockState.hasBlockEntity() && this.region != null) {
-            BlockEntity blockEntity = this.region.getBlockEntity(blockPos);
-            if (blockEntity != null) {
-                modelData = blockEntity.getModelData();
-            }
-        }
+    @Override
+    public void recoverFromFailure() {
+        this.section.setDirtyAfterBuildFailure(this.buildRevision);
+    }
 
-        return model.getModelData(this.region, blockPos, blockState, modelData);
+    private ModelData getModelData(BlockPos blockPos, BlockState blockState, BlockStateModel model) {
+        return this.region == null ? ModelData.EMPTY : this.region.getModelData(blockPos);
     }
 
     private void setupBufferBuilders(ThreadBuilderPack builderPack) {
@@ -209,27 +212,31 @@ public class BuildTask extends ChunkTask {
     }
 
     private TerrainRenderType compactRenderTypes(TerrainRenderType renderType) {
-        if (Initializer.CONFIG.uniqueOpaqueLayer) {
-            renderType = switch (renderType) {
+        return compactRenderType(renderType, Initializer.CONFIG.uniqueOpaqueLayer);
+    }
+
+    public static TerrainRenderType compactRenderType(TerrainRenderType renderType, boolean uniqueOpaqueLayer) {
+        if (uniqueOpaqueLayer) {
+            return switch (renderType) {
                 case SOLID, CUTOUT, CUTOUT_MIPPED -> TerrainRenderType.CUTOUT_MIPPED;
-                case TRANSLUCENT, TRIPWIRE -> TerrainRenderType.TRANSLUCENT;
+                case TRANSLUCENT -> TerrainRenderType.TRANSLUCENT;
+                case TRIPWIRE -> TerrainRenderType.TRIPWIRE;
             };
         } else {
-            renderType = switch (renderType) {
+            return switch (renderType) {
                 case SOLID, CUTOUT_MIPPED -> TerrainRenderType.CUTOUT_MIPPED;
                 case CUTOUT -> TerrainRenderType.CUTOUT;
-                case TRANSLUCENT, TRIPWIRE -> TerrainRenderType.TRANSLUCENT;
+                case TRANSLUCENT -> TerrainRenderType.TRANSLUCENT;
+                case TRIPWIRE -> TerrainRenderType.TRIPWIRE;
             };
         }
-
-        return renderType;
     }
 
     private <E extends BlockEntity> void handleBlockEntity(CompileResult compileResult, E blockEntity) {
-        BlockEntityRenderer<E> blockEntityRenderer = Minecraft.getInstance().getBlockEntityRenderDispatcher().getRenderer(blockEntity);
+        BlockEntityRenderer<E, ?> blockEntityRenderer = Minecraft.getInstance().getBlockEntityRenderDispatcher().getRenderer(blockEntity);
         if (blockEntityRenderer != null) {
             compileResult.blockEntities.add(blockEntity);
-            if (blockEntityRenderer.shouldRenderOffScreen(blockEntity)) {
+            if (blockEntityRenderer.shouldRenderOffScreen()) {
                 compileResult.globalBlockEntities.add(blockEntity);
             }
         }

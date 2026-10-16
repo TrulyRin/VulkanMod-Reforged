@@ -22,7 +22,7 @@ public class VFrustum {
         double d4 = Math.ceil(this.camY / (double) offset) * (double) offset;
         double d5 = Math.ceil(this.camZ / (double) offset) * (double) offset;
 
-        while (this.intersectAab((float) (d0 - this.camX), (float) (d1 - this.camY), (float) (d2 - this.camZ), (float) (d3 - this.camX), (float) (d4 - this.camY), (float) (d5 - this.camZ)) >= 0) {
+        while (this.intersectAab((float) (d0 - this.camX), (float) (d1 - this.camY), (float) (d2 - this.camZ), (float) (d3 - this.camX), (float) (d4 - this.camY), (float) (d5 - this.camZ)) != FrustumIntersection.INSIDE) {
             this.camZ -= (this.viewVector.z() * 4.0F);
             this.camX -= (this.viewVector.x() * 4.0F);
             this.camY -= (this.viewVector.y() * 4.0F);

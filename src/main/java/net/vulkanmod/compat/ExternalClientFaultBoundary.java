@@ -8,11 +8,13 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 public final class ExternalClientFaultBoundary {
+    private static final int DIAGNOSTIC_KEY_LIMIT = 256;
     private static final String PREFIX_RESOURCE = "/assets/vulkanmod/compat/client_tick_exception_prefixes.txt";
     private static final Set<String> STACK_PREFIXES = loadStackPrefixes();
     private static final Set<String> REPORTED_FAILURES = ConcurrentHashMap.newKeySet();
@@ -41,7 +43,7 @@ public final class ExternalClientFaultBoundary {
             }
 
             String key = firstMatchingStackClass(exception);
-            if (!rateLimit || REPORTED_FAILURES.add(key)) {
+            if (!rateLimit || addReportedFailure(key)) {
                 reporter.accept(phase + ":" + key, exception);
             }
         }
@@ -96,5 +98,16 @@ public final class ExternalClientFaultBoundary {
     private static void logSuppressedFailure(String key, RuntimeException exception) {
         Initializer.LOGGER.warn("Suppressed external failure at {}. Gameplay may continue with that external feature disabled for this session.",
                 key, exception);
+    }
+
+    public static Set<String> reportedFailures() {
+        return Set.copyOf(new TreeSet<>(REPORTED_FAILURES));
+    }
+
+    private static boolean addReportedFailure(String key) {
+        if (key == null || REPORTED_FAILURES.contains(key) || REPORTED_FAILURES.size() >= DIAGNOSTIC_KEY_LIMIT) {
+            return false;
+        }
+        return REPORTED_FAILURES.add(key);
     }
 }

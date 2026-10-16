@@ -3,16 +3,16 @@ package net.vulkanmod.config.gui.widget;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.FormattedText;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.vulkanmod.config.gui.render.GuiRenderer;
 import net.vulkanmod.config.gui.util.VGuiConstants;
 import net.vulkanmod.vulkan.util.ColorUtil;
 
 public class ModIconWidget extends VAbstractWidget {
     final FormattedText name;
-    final ResourceLocation icon;
+    final Identifier icon;
 
-    public ModIconWidget(FormattedText name, ResourceLocation icon, int x0, int y0, int width, int height) {
+    public ModIconWidget(FormattedText name, Identifier icon, int x0, int y0, int width, int height) {
         this.name = name;
         this.icon = icon;
         this.x = x0;
@@ -31,11 +31,13 @@ public class ModIconWidget extends VAbstractWidget {
         int size = this.height - 4;
         int iconX = this.x + 4;
         int iconY = this.y + (height - size) / 2;
-        GuiRenderer.guiGraphics.blit(icon, iconX, iconY, 0f, 0f, size, size, size, size);
+                                                                                           
+        GuiRenderer.guiGraphics.blit(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
+                                     icon, iconX, iconY, 0.0f, 0.0f, size, size, size, size);
 
         size = this.height;
-        // Keep the mod name inside the sidebar column; long names scroll instead of
-        // overlapping the search field to the right.
+                                                                                    
+                                                     
         int textX = this.x + 6 + size;
         int availableWidth = this.x + this.width - textX - 4;
         GuiRenderer.drawScrollingString(Minecraft.getInstance().font, (Component) this.name,

@@ -27,7 +27,7 @@ public class SectionGrid {
         this.level = level;
         this.setViewDistance(viewDistance);
         this.createChunks();
-        this.chunkAreaManager = new ChunkAreaManager(this.gridWidth, this.gridHeight, this.level.getMinBuildHeight());
+        this.chunkAreaManager = new ChunkAreaManager(this.gridWidth, this.gridHeight, this.level.getMinY());
 
         this.prevSecX = Integer.MIN_VALUE;
         this.prevSecZ = Integer.MIN_VALUE;
@@ -68,10 +68,10 @@ public class SectionGrid {
         this.gridWidth = i;
     }
 
-    /**
-     * This method has been optimized with circular lists to remove costly modulo computations
-     * and to reduce section repositioning to only the necessary.
-     */
+       
+                                                                                              
+                                                                 
+       
     public void repositionCamera(double x, double z) {
         int secX = Mth.floor(x) >> 4;
         int secZ = Mth.floor(z) >> 4;
@@ -82,7 +82,7 @@ public class SectionGrid {
         int dz = Mth.clamp(secZ - this.prevSecZ, -this.gridWidth, this.gridWidth);
 
         int xAbsChunkIndex = secX - this.gridWidth / 2;
-        int xStart = Math.floorMod(xAbsChunkIndex, this.gridWidth); // needs positive modulo
+        int xStart = Math.floorMod(xAbsChunkIndex, this.gridWidth);                         
         int zAbsChunkIndex = secZ - this.gridWidth / 2;
         int zStart = Math.floorMod(zAbsChunkIndex, this.gridWidth);
 
@@ -103,7 +103,7 @@ public class SectionGrid {
         } else {
             xRangeStart = 0;
             xRangeEnd = -dx - 1;
-            xComplStart = xRangeEnd;
+            xComplStart = xRangeEnd + 1;
             xComplEnd = this.gridWidth - 1;
         }
 
@@ -135,7 +135,7 @@ public class SectionGrid {
 
                 for (int yRel = 0;
                      yRel < this.gridHeight; ++yRel) {
-                    int y1 = this.level.getMinBuildHeight() + (yRel << 4);
+                    int y1 = this.level.getMinY() + (yRel << 4);
                     RenderSection renderSection = this.sections[this.getChunkIndex(xRelativeIndex, yRel, zRelativeIndex)];
 
                     renderSection.setOrigin(x1, y1, z1);
@@ -164,7 +164,7 @@ public class SectionGrid {
 
                 for (int yRel = 0;
                      yRel < this.gridHeight; ++yRel) {
-                    int y1 = this.level.getMinBuildHeight() + (yRel << 4);
+                    int y1 = this.level.getMinY() + (yRel << 4);
                     RenderSection renderSection = this.sections[this.getChunkIndex(xRelativeIndex, yRel, zRelativeIndex)];
 
                     renderSection.setOrigin(x1, y1, z1);
@@ -215,7 +215,7 @@ public class SectionGrid {
     }
 
     private void unsetNeighbours(RenderSection section) {
-        //Reset only X-Z directions
+                                   
         section.adjDirs &= 0b11;
 
         for (int i = 2; i < 6; i++) {
@@ -260,7 +260,7 @@ public class SectionGrid {
 
     public void setDirty(int sectionX, int sectionY, int sectionZ, boolean playerChanged) {
         int i = Math.floorMod(sectionX, this.gridWidth);
-        int j = Math.floorMod(sectionY - this.level.getMinSection(), this.gridHeight);
+        int j = Math.floorMod(sectionY - this.level.getMinSectionY(), this.gridHeight);
         int k = Math.floorMod(sectionZ, this.gridWidth);
         RenderSection renderSection = this.sections[this.getChunkIndex(i, j, k)];
         renderSection.setDirty(playerChanged);
@@ -273,7 +273,7 @@ public class SectionGrid {
 
     public RenderSection getSectionAtBlockPos(int x, int y, int z) {
         int i = x >> 4;
-        int j = (y - this.level.getMinBuildHeight()) >> 4;
+        int j = (y - this.level.getMinY()) >> 4;
         int k = z >> 4;
 
         return this.getSectionAtSectionPos(i, j, k);

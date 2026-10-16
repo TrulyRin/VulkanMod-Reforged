@@ -5,15 +5,20 @@ import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import java.util.List;
 
 public class VideoModeSet {
+    public static VideoModeSet DUMMY;
+
     public final int width;
     public final int height;
     public final int bitDepth;
     List<Integer> refreshRates = new ObjectArrayList<>();
 
     public static VideoModeSet getDummy() {
-        var set = new VideoModeSet(-1, -1, -1);
-        set.addRefreshRate(-1);
-        return set;
+        if (DUMMY == null) {
+            var set = new VideoModeSet(-1, -1, -1);
+            set.addRefreshRate(-1);
+            DUMMY = set;
+        }
+        return DUMMY;
     }
 
     public VideoModeSet(int width, int height, int bitDepth) {
@@ -84,12 +89,12 @@ public class VideoModeSet {
         @Override
         public String toString() {
             return "VideoMode[" +
-                    "width=" + width + ", " +
-                    "height=" + height + ", " +
-                    "bitDepth=" + bitDepth + ", " +
-                    "refreshRate=" + refreshRate + ']';
+                   "width=" + width + ", " +
+                   "height=" + height + ", " +
+                   "bitDepth=" + bitDepth + ", " +
+                   "refreshRate=" + refreshRate + ']';
         }
 
-        }
+    }
 
 }

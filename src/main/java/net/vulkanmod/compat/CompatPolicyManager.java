@@ -2,7 +2,9 @@ package net.vulkanmod.compat;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 
 public class CompatPolicyManager {
@@ -19,7 +21,16 @@ public class CompatPolicyManager {
     }
 
     public static CompatMode getCompatMode(String modId) {
-        String normalizedId = modId.toLowerCase();
+        if (modId == null || modId.isBlank()) {
+            return CompatMode.OFF;
+        }
+
+        String normalizedId = modId.toLowerCase(Locale.ROOT);
+
+        CompatCategory category = getCompatCategory(normalizedId);
+        if (category == CompatCategory.RENDERER_GL) {
+            return CompatMode.INCOMPATIBLE;
+        }
 
         if (manualOverrides.containsKey(normalizedId)) {
             return manualOverrides.get(normalizedId);
@@ -27,11 +38,6 @@ public class CompatPolicyManager {
 
         if (!CompatDetector.isModLoaded(normalizedId)) {
             return CompatMode.OFF;
-        }
-
-        CompatCategory category = getCompatCategory(normalizedId);
-        if (category == CompatCategory.RENDERER_GL) {
-            return CompatMode.INCOMPATIBLE;
         }
 
         String activeVersion = CompatDetector.getModVersion(normalizedId);
@@ -61,6 +67,13 @@ public class CompatPolicyManager {
         }
 
         return CompatCategory.UNKNOWN;
+    }
+
+    public static Optional<String> getVerifiedVersionPrefix(String modId) {
+        if (modId == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(verifiedModVersions.get(modId.toLowerCase(java.util.Locale.ROOT)));
     }
 
     public static boolean isCoexistenceIncompatible() {

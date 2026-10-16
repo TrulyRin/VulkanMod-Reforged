@@ -1,5 +1,6 @@
 package net.vulkanmod.vulkan.memory;
 
+import net.vulkanmod.vulkan.memory.buffer.Buffer;
 import org.lwjgl.vulkan.VkMemoryHeap;
 import org.lwjgl.vulkan.VkMemoryType;
 
@@ -16,13 +17,13 @@ public abstract class MemoryType {
         this.vkMemoryHeap = vkMemoryHeap;
     }
 
-    abstract void createBuffer(Buffer buffer, int size);
+    public abstract void createBuffer(Buffer buffer, long size);
 
-    abstract void copyToBuffer(Buffer buffer, long bufferSize, ByteBuffer byteBuffer);
+    public abstract void copyToBuffer(Buffer buffer, ByteBuffer src, long size, long srcOffset, long dstOffset);
 
-    abstract void copyFromBuffer(Buffer buffer, long bufferSize, ByteBuffer byteBuffer);
+    public abstract void copyFromBuffer(Buffer buffer, long bufferSize, ByteBuffer byteBuffer);
 
-    abstract boolean mappable();
+    public abstract boolean mappable();
 
     public Type getType() {
        return this.type;

@@ -6,11 +6,11 @@ import net.minecraft.world.level.BlockAndTintGetter;
 
 import java.util.Arrays;
 
-/**
- * A light data cache which uses a flat-array to store the light data for the blocks in a given chunk and its direct
- * neighbors. This is considerably faster than using a hash table to lookup values for a given block position and
- * can be re-used to avoid allocations.
- */
+   
+                                                                                                                    
+                                                                                                                 
+                                       
+   
 public class ArrayLightDataCache extends LightDataAccess {
     private static final int NEIGHBOR_BLOCK_RADIUS = 2;
     private static final int BLOCK_LENGTH = 16 + (NEIGHBOR_BLOCK_RADIUS * 2);

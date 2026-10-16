@@ -14,7 +14,7 @@ public final class GlCapabilityState {
             case GL11.GL_STENCIL_TEST -> VRenderSystem.stencilTest;
             case GL11.GL_CULL_FACE -> VRenderSystem.cull;
             case GL11.GL_BLEND -> net.vulkanmod.vulkan.shader.PipelineState.blendInfo.enabled;
-            case GL11.GL_SCISSOR_TEST -> Renderer.isScissorEnabled();
+            case GL11.GL_SCISSOR_TEST -> false;
             default -> false;
         };
     }

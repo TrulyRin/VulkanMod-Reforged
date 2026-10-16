@@ -1,6 +1,6 @@
 package net.vulkanmod.config.gui;
 
-import net.minecraft.Util;
+import net.minecraft.util.Util;
 import net.minecraft.client.gui.ComponentPath;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.narration.NarratableEntry;
@@ -22,7 +22,7 @@ public abstract class GuiElement implements GuiEventListener, NarratableEntry {
     protected int hoverTime;
     protected long hoverStopTime;
 
-    @SuppressWarnings("unused") // this will surely be used some day
+    @SuppressWarnings("unused")                                     
     public void setPosition(int x, int y) {
         this.x = x;
         this.y = y;
@@ -35,7 +35,7 @@ public abstract class GuiElement implements GuiEventListener, NarratableEntry {
         this.height = height;
     }
 
-    @SuppressWarnings("unused") // this will surely be used someday
+    @SuppressWarnings("unused")                                    
     public void resize(int width, int height) {
         this.width = width;
         this.height = height;
@@ -58,7 +58,7 @@ public abstract class GuiElement implements GuiEventListener, NarratableEntry {
     }
 
     public void updateState(double mX, double mY) {
-        // Update hover
+                       
         if (isMouseOver(mX, mY)) {
             if (!this.hovered) {
                 this.hoverStartTime = Util.getMillis();

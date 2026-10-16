@@ -3,7 +3,7 @@ package net.vulkanmod.config.gui;
 import it.unimi.dsi.fastutil.objects.ObjectArraySet;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.config.option.Options;
 
@@ -17,7 +17,7 @@ public class ModSettingsRegistry {
 
     ModSettingsRegistry() {
         ModSettingsEntry vulkanModSettings = new ModSettingsEntry(Component.literal("VulkanMod Reforged").withStyle(ChatFormatting.DARK_RED),
-                                                                  () -> ResourceLocation.fromNamespaceAndPath("vulkanmod", "vlogo_transparent.png"),
+                                                                  () -> Identifier.fromNamespaceAndPath("vulkanmod", "vlogo_transparent.png"),
                                                                   Options::getOptionPages,
                                                                   () -> Initializer.CONFIG.write());
         this.addModEntry(vulkanModSettings);

@@ -1,7 +1,13 @@
 package net.vulkanmod.vulkan;
 
 import com.mojang.blaze3d.vertex.VertexFormat;
+import net.vulkanmod.render.engine.VkGpuBuffer;
 import net.vulkanmod.vulkan.memory.*;
+import net.vulkanmod.vulkan.memory.buffer.Buffer;
+import net.vulkanmod.vulkan.memory.buffer.IndexBuffer;
+import net.vulkanmod.vulkan.memory.buffer.UniformBuffer;
+import net.vulkanmod.vulkan.memory.buffer.VertexBuffer;
+import net.vulkanmod.vulkan.memory.buffer.index.AutoIndexBuffer;
 import net.vulkanmod.vulkan.util.VUtil;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.vulkan.VkCommandBuffer;
@@ -13,7 +19,8 @@ import java.util.Arrays;
 import static org.lwjgl.vulkan.VK10.*;
 
 public class Drawer {
-    private static final int INITIAL_VB_SIZE = 2000000;
+    private static final int INITIAL_VB_SIZE = 4000000;
+    private static final int INITIAL_IB_SIZE = 1000000;
     private static final int INITIAL_UB_SIZE = 200000;
 
     private static final LongBuffer buffers = MemoryUtil.memAllocLong(1);
@@ -23,19 +30,24 @@ public class Drawer {
 
     private int framesNum;
     private VertexBuffer[] vertexBuffers;
+    private IndexBuffer[] indexBuffers;
+
+    private final GpuBuffers gpuBuffers = new GpuBuffers();
+
     private final AutoIndexBuffer quadsIndexBuffer;
     private final AutoIndexBuffer quadsIntIndexBuffer;
     private final AutoIndexBuffer linesIndexBuffer;
     private final AutoIndexBuffer debugLineStripIndexBuffer;
     private final AutoIndexBuffer triangleFanIndexBuffer;
     private final AutoIndexBuffer triangleStripIndexBuffer;
+
     private UniformBuffer[] uniformBuffers;
 
     private int currentFrame;
 
     public Drawer() {
-
-        this.quadsIndexBuffer = new AutoIndexBuffer(AutoIndexBuffer.QUAD_U16_MAX_VERTEX_COUNT, AutoIndexBuffer.DrawType.QUADS);
+                        
+        this.quadsIndexBuffer = new AutoIndexBuffer(AutoIndexBuffer.U16_MAX_VERTEX_COUNT, AutoIndexBuffer.DrawType.QUADS);
         this.quadsIntIndexBuffer = new AutoIndexBuffer(100000, AutoIndexBuffer.DrawType.QUADS);
         this.linesIndexBuffer = new AutoIndexBuffer(10000, AutoIndexBuffer.DrawType.LINES);
         this.debugLineStripIndexBuffer = new AutoIndexBuffer(10000, AutoIndexBuffer.DrawType.DEBUG_LINE_STRIP);
@@ -52,85 +64,81 @@ public class Drawer {
 
         if (this.vertexBuffers != null) {
             Arrays.stream(this.vertexBuffers).iterator().forEachRemaining(
-                    Buffer::freeBuffer
+                    Buffer::scheduleFree
             );
         }
         this.vertexBuffers = new VertexBuffer[framesNum];
         Arrays.setAll(this.vertexBuffers, i -> new VertexBuffer(INITIAL_VB_SIZE, MemoryTypes.HOST_MEM));
 
+        if (this.indexBuffers != null) {
+            Arrays.stream(this.indexBuffers).iterator().forEachRemaining(
+                    Buffer::scheduleFree
+            );
+        }
+        this.indexBuffers = new IndexBuffer[framesNum];
+        Arrays.setAll(this.indexBuffers, i -> new IndexBuffer(INITIAL_IB_SIZE, MemoryTypes.HOST_MEM));
+
         if (this.uniformBuffers != null) {
             Arrays.stream(this.uniformBuffers).iterator().forEachRemaining(
-                    Buffer::freeBuffer
+                    Buffer::scheduleFree
             );
         }
         this.uniformBuffers = new UniformBuffer[framesNum];
         Arrays.setAll(this.uniformBuffers, i -> new UniformBuffer(INITIAL_UB_SIZE, MemoryTypes.HOST_MEM));
+
+        this.getGpuBuffers().createBuffers(this.vertexBuffers, this.indexBuffers);
     }
 
     public void resetBuffers(int currentFrame) {
         this.vertexBuffers[currentFrame].reset();
+        this.indexBuffers[currentFrame].reset();
         this.uniformBuffers[currentFrame].reset();
     }
 
-    public void draw(ByteBuffer buffer, VertexFormat.Mode mode, VertexFormat vertexFormat, int vertexCount) {
-        AutoIndexBuffer autoIndexBuffer;
-        int indexCount;
-
-        VertexBuffer vertexBuffer = this.vertexBuffers[this.currentFrame];
-        vertexBuffer.copyToVertexBuffer(vertexFormat.getVertexSize(), vertexCount, buffer);
-
-        switch (mode) {
-            case QUADS -> {
-                indexCount = vertexCount * 3 / 2;
-
-                autoIndexBuffer = indexCount > AutoIndexBuffer.U16_MAX_INDEX_COUNT
-                        ? this.quadsIntIndexBuffer : this.quadsIndexBuffer;
-            }
-            case LINES -> {
-                autoIndexBuffer = this.linesIndexBuffer;
-                indexCount = vertexCount * 3 / 2;
-            }
-            case TRIANGLE_FAN -> {
-                autoIndexBuffer = this.triangleFanIndexBuffer;
-                indexCount = (vertexCount - 2) * 3;
-            }
-            case TRIANGLE_STRIP -> {
-                autoIndexBuffer = this.triangleStripIndexBuffer;
-                indexCount = (vertexCount - 2) * 3;
-            }
-            case LINE_STRIP -> {
-                autoIndexBuffer = this.triangleStripIndexBuffer;
-                indexCount = (vertexCount - 2) * 3;
-            }
-            case DEBUG_LINE_STRIP -> {
-                autoIndexBuffer = this.debugLineStripIndexBuffer;
-                indexCount = (vertexCount - 1) * 2;
-            }
-            case TRIANGLES, DEBUG_LINES -> {
-                indexCount = 0;
-                autoIndexBuffer = null;
-            }
-            default -> throw new RuntimeException(String.format("unknown drawMode: %s", mode));
-        }
-
-        if (indexCount > 0) {
-            autoIndexBuffer.checkCapacity(vertexCount);
-
-            drawIndexed(vertexBuffer, autoIndexBuffer.getIndexBuffer(), indexCount);
-        } else {
-            draw(vertexBuffer, vertexCount);
-        }
-
+    public void draw(ByteBuffer vertexData, VertexFormat.Mode mode, VertexFormat vertexFormat, int vertexCount) {
+        draw(vertexData, null, mode, vertexFormat, vertexCount);
     }
 
-    public void drawIndexed(VertexBuffer vertexBuffer, IndexBuffer indexBuffer, int indexCount) {
+    public void draw(ByteBuffer vertexData, ByteBuffer indexData, VertexFormat.Mode mode, VertexFormat vertexFormat, int vertexCount) {
+        VertexBuffer vertexBuffer = this.vertexBuffers[this.currentFrame];
+        int size = vertexFormat.getVertexSize() * vertexCount;
+        vertexBuffer.copyBuffer(vertexData, size);
+
+        if (indexData != null) {
+            IndexBuffer indexBuffer = this.indexBuffers[this.currentFrame];
+            indexBuffer.copyBuffer(indexData, indexData.remaining());
+
+            int indexCount = vertexCount * 3 / 2;
+
+            drawIndexed(vertexBuffer, indexBuffer, indexCount);
+        }
+        else {
+            AutoIndexBuffer autoIndexBuffer = getAutoIndexBuffer(mode, vertexCount);
+
+            if (autoIndexBuffer != null) {
+                int indexCount = autoIndexBuffer.getIndexCount(vertexCount);
+                autoIndexBuffer.checkCapacity(vertexCount);
+
+                drawIndexed(vertexBuffer, autoIndexBuffer.getIndexBuffer(), indexCount);
+            }
+            else {
+                draw(vertexBuffer, vertexCount);
+            }
+        }
+    }
+
+    public void drawIndexed(Buffer vertexBuffer, IndexBuffer indexBuffer, int indexCount) {
+       drawIndexed(vertexBuffer, indexBuffer, indexCount, indexBuffer.indexType.value);
+    }
+
+    public void drawIndexed(Buffer vertexBuffer, Buffer indexBuffer, int indexCount, int indexType) {
         VkCommandBuffer commandBuffer = Renderer.getCommandBuffer();
 
         VUtil.UNSAFE.putLong(pBuffers, vertexBuffer.getId());
         VUtil.UNSAFE.putLong(pOffsets, vertexBuffer.getOffset());
         nvkCmdBindVertexBuffers(commandBuffer, 0, 1, pBuffers, pOffsets);
 
-        bindIndexBuffer(commandBuffer, indexBuffer);
+        bindIndexBuffer(commandBuffer, indexBuffer, indexType);
         vkCmdDrawIndexed(commandBuffer, indexCount, 1, 0, 0, 0);
     }
 
@@ -144,8 +152,8 @@ public class Drawer {
         vkCmdDraw(commandBuffer, vertexCount, 1, 0, 0);
     }
 
-    public void bindIndexBuffer(VkCommandBuffer commandBuffer, IndexBuffer indexBuffer) {
-        vkCmdBindIndexBuffer(commandBuffer, indexBuffer.getId(), indexBuffer.getOffset(), indexBuffer.indexType.type);
+    public void bindIndexBuffer(VkCommandBuffer commandBuffer, Buffer indexBuffer, int indexType) {
+        vkCmdBindIndexBuffer(commandBuffer, indexBuffer.getId(), indexBuffer.getOffset(), indexType);
     }
 
     public void cleanUpResources() {
@@ -154,17 +162,19 @@ public class Drawer {
             buffer = this.vertexBuffers[i];
             MemoryManager.freeBuffer(buffer.getId(), buffer.getAllocation());
 
-            buffer = this.uniformBuffers[i];
+            buffer = this.indexBuffers[i];
             MemoryManager.freeBuffer(buffer.getId(), buffer.getAllocation());
 
+            buffer = this.uniformBuffers[i];
+            MemoryManager.freeBuffer(buffer.getId(), buffer.getAllocation());
         }
 
         this.quadsIndexBuffer.freeBuffer();
         this.quadsIntIndexBuffer.freeBuffer();
         this.linesIndexBuffer.freeBuffer();
         this.triangleFanIndexBuffer.freeBuffer();
-        this.debugLineStripIndexBuffer.freeBuffer();
         this.triangleStripIndexBuffer.freeBuffer();
+        this.debugLineStripIndexBuffer.freeBuffer();
     }
 
     public AutoIndexBuffer getQuadsIndexBuffer() {
@@ -191,4 +201,51 @@ public class Drawer {
         return this.uniformBuffers[this.currentFrame];
     }
 
+    public AutoIndexBuffer getAutoIndexBuffer(VertexFormat.Mode mode, int vertexCount) {
+        return switch (mode) {
+            case QUADS -> {
+                int indexCount = vertexCount * 3 / 2;
+
+                yield indexCount > AutoIndexBuffer.U16_MAX_VERTEX_COUNT
+                        ? this.quadsIntIndexBuffer : this.quadsIndexBuffer;
+            }
+            case LINES -> this.linesIndexBuffer;
+            case TRIANGLE_FAN -> this.triangleFanIndexBuffer;
+            case TRIANGLE_STRIP -> this.triangleStripIndexBuffer;
+            case DEBUG_LINE_STRIP -> this.debugLineStripIndexBuffer;
+            case POINTS -> null;
+            case TRIANGLES, DEBUG_LINES -> null;
+		};
+    }
+
+    public GpuBuffers getGpuBuffers() {
+        return gpuBuffers;
+    }
+
+    public class GpuBuffers {
+        VkGpuBuffer[] vertexBuffers;
+        VkGpuBuffer[] indexBuffers;
+
+        public void createBuffers(VertexBuffer[] vertexBuffers, IndexBuffer[] indexBuffers) {
+            this.vertexBuffers = new VkGpuBuffer[vertexBuffers.length];
+
+            for (int i = 0; i < vertexBuffers.length; i++) {
+                this.vertexBuffers[i] = VkGpuBuffer.from(vertexBuffers[i]);
+            }
+
+            this.indexBuffers = new VkGpuBuffer[indexBuffers.length];
+
+            for (int i = 0; i < vertexBuffers.length; i++) {
+                this.indexBuffers[i] = VkGpuBuffer.from(indexBuffers[i]);
+            }
+        }
+
+        public VkGpuBuffer getVertexBuffer() {
+            return vertexBuffers[Drawer.this.currentFrame];
+        }
+
+        public VkGpuBuffer getIndexBuffer() {
+            return indexBuffers[Drawer.this.currentFrame];
+        }
+    }
 }

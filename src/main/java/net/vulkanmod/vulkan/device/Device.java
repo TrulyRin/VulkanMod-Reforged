@@ -1,5 +1,6 @@
 package net.vulkanmod.vulkan.device;
 
+import net.vulkanmod.Initializer;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
@@ -31,6 +32,9 @@ public class Device {
     public final VkPhysicalDeviceFeatures2 availableFeatures;
     public final VkPhysicalDeviceVulkan11Features availableFeatures11;
 
+                                                                        
+                                           
+
     private boolean drawIndirectSupported;
 
     public Device(VkPhysicalDevice device) {
@@ -43,7 +47,7 @@ public class Device {
         this.vendorIdString = decodeVendor(properties.vendorID());
         this.deviceName = properties.deviceNameString();
         this.driverVersion = decodeDvrVersion(properties.driverVersion(), properties.vendorID());
-        this.vkVersion = decDefVersion(getVkVer());
+        this.vkVersion = decDefVersion(properties.apiVersion());
 
         this.availableFeatures = VkPhysicalDeviceFeatures2.calloc();
         this.availableFeatures.sType$Default();
@@ -52,38 +56,65 @@ public class Device {
         this.availableFeatures11.sType$Default();
         this.availableFeatures.pNext(this.availableFeatures11);
 
+                    
+                                                                               
+                                                   
+                                                                             
+  
+                                                                                                
+
         vkGetPhysicalDeviceFeatures2(this.physicalDevice, this.availableFeatures);
 
         if (this.availableFeatures.features().multiDrawIndirect() && this.availableFeatures11.shaderDrawParameters())
             this.drawIndirectSupported = true;
 
+                                                                                                
+                                                                                   
+        Initializer.LOGGER.info("VulkanMod: {} exposes {} device extensions.",
+                this.deviceName, getAvailableExtensions(this.physicalDevice).size());
     }
 
     private static String decodeVendor(int i) {
         return switch (i) {
             case (0x10DE) -> "Nvidia";
-            case (0x1022) -> "AMD";
+            case (0x1022), (0x1002) -> "AMD";                                     
             case (0x8086) -> "Intel";
-            default -> "undef";
+            case (0x1010) -> "Imagination Technologies";
+            case (0x13B5) -> "ARM";
+            case (0x5143) -> "Qualcomm";
+            case (0x106B) -> "Apple";
+            case (0x14E4) -> "Broadcom";
+            case (0x1AE0) -> "Google";                                                         
+            case (0x10005) -> "Mesa";                                                                 
+            default -> "undef";                                                                     
         };
     }
+
+                                                                                       
 
     static String decDefVersion(int v) {
         return VK_VERSION_MAJOR(v) + "." + VK_VERSION_MINOR(v) + "." + VK_VERSION_PATCH(v);
     }
 
+                                                                                     
+                                                                                                        
+                                                                                                                                             
     private static String decodeDvrVersion(int v, int i) {
         return switch (i) {
-            case (0x10DE) -> decodeNvidia(v);
-            case (0x1022) -> decDefVersion(v);
-            case (0x8086) -> decIntelVersion(v);
-            default -> decDefVersion(v);
+            case (0x10DE) -> decodeNvidia(v);         
+            case (0x1022), (0x1002) -> decDefVersion(v);      
+            case (0x8086) -> decIntelVersion(v);        
+            default -> decDefVersion(v);                                               
         };
     }
 
+                                                                                               
+                                                         
+                                                       
     private static String decIntelVersion(int v) {
         return (glfwGetPlatform() == GLFW_PLATFORM_WIN32) ? (v >>> 14) + "." + (v & 0x3fff) : decDefVersion(v);
     }
+
 
     private static String decodeNvidia(int v) {
         return (v >>> 22 & 0x3FF) + "." + (v >>> 14 & 0xff) + "." + (v >>> 6 & 0xff) + "." + (v & 0xff);
@@ -102,25 +133,29 @@ public class Device {
     }
 
     public Set<String> getUnsupportedExtensions(Set<String> requiredExtensions) {
+        Set<String> unsupportedExtensions = new HashSet<>(requiredExtensions);
+        unsupportedExtensions.removeAll(getAvailableExtensions(physicalDevice));
+        return unsupportedExtensions;
+    }
+
+                                                                                                    
+                                                                                       
+                                      
+    static Set<String> getAvailableExtensions(VkPhysicalDevice physicalDevice) {
         try (MemoryStack stack = stackPush()) {
-
             IntBuffer extensionCount = stack.ints(0);
-
             vkEnumerateDeviceExtensionProperties(physicalDevice, (String) null, extensionCount, null);
 
-            VkExtensionProperties.Buffer availableExtensions = VkExtensionProperties.malloc(extensionCount.get(0),
-                    stack);
+            VkExtensionProperties.Buffer availableExtensions = VkExtensionProperties.malloc(extensionCount.get(0));
+            try {
+                vkEnumerateDeviceExtensionProperties(physicalDevice, (String) null, extensionCount, availableExtensions);
 
-            vkEnumerateDeviceExtensionProperties(physicalDevice, (String) null, extensionCount, availableExtensions);
-
-            Set<String> extensions = availableExtensions.stream()
-                    .map(VkExtensionProperties::extensionNameString)
-                    .collect(toSet());
-
-            Set<String> unsupportedExtensions = new HashSet<>(requiredExtensions);
-            unsupportedExtensions.removeAll(extensions);
-
-            return unsupportedExtensions;
+                return availableExtensions.stream()
+                        .map(VkExtensionProperties::extensionNameString)
+                        .collect(toSet());
+            } finally {
+                availableExtensions.free();
+            }
         }
     }
 
@@ -128,8 +163,10 @@ public class Device {
         return drawIndirectSupported;
     }
 
+                                                                                                  
+                                                                       
     public boolean isAMD() {
-        return vendorId == 0x1022;
+        return vendorId == 0x1022 || vendorId == 0x1002;
     }
 
     public boolean isNvidia() {
@@ -138,11 +175,5 @@ public class Device {
 
     public boolean isIntel() {
         return vendorId == 0x8086;
-    }
-
-    public void free() {
-        this.properties.free();
-        this.availableFeatures11.free();
-        this.availableFeatures.free();
     }
 }

@@ -1,5 +1,11 @@
 package net.vulkanmod.config.gui.widget;
 
+import net.minecraft.client.input.CharacterEvent;
+
+import net.minecraft.client.input.KeyEvent;
+
+import net.minecraft.client.input.MouseButtonEvent;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.narration.NarratableEntry;
@@ -87,7 +93,8 @@ public abstract class OptionWidget<O extends Option<?>> extends VAbstractWidget 
     protected abstract void onDrag(double mouseX, double mouseY, double deltaX, double deltaY);
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+    public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
+        double mouseX = event.x(); double mouseY = event.y(); int button = event.button();
         if (this.isValidClickButton(button)) {
             this.onDrag(mouseX, mouseY, deltaX, deltaY);
             return true;
@@ -96,7 +103,8 @@ public abstract class OptionWidget<O extends Option<?>> extends VAbstractWidget 
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        double mouseX = event.x(); double mouseY = event.y(); int button = event.button();
         if (!this.active || !this.visible) {
             return false;
         }
@@ -110,7 +118,8 @@ public abstract class OptionWidget<O extends Option<?>> extends VAbstractWidget 
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    public boolean mouseReleased(MouseButtonEvent event) {
+        double mouseX = event.x(); double mouseY = event.y(); int button = event.button();
         if (this.isValidClickButton(button)) {
             this.onRelease(mouseX, mouseY);
             return true;

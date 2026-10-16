@@ -55,19 +55,19 @@ public class CubeModel {
         };
 
         for (int i1 = 0; i1 < 8; i1++) {
-            //pre-divide all vertices once
+                                          
             this.vertices[i1].div(16.0f);
             this.transformed[i1] = new Vector3f(0.0f);
         }
 
-        ModelPart.Vertex vertex1 = new ModelPart.Vertex(transformed[0], 0.0F, 0.0F);
-        ModelPart.Vertex vertex2 = new ModelPart.Vertex(transformed[1], 0.0F, 8.0F);
-        ModelPart.Vertex vertex3 = new ModelPart.Vertex(transformed[2], 8.0F, 8.0F);
-        ModelPart.Vertex vertex4 = new ModelPart.Vertex(transformed[3], 8.0F, 0.0F);
-        ModelPart.Vertex vertex5 = new ModelPart.Vertex(transformed[4], 0.0F, 0.0F);
-        ModelPart.Vertex vertex6 = new ModelPart.Vertex(transformed[5], 0.0F, 8.0F);
-        ModelPart.Vertex vertex7 = new ModelPart.Vertex(transformed[6], 8.0F, 8.0F);
-        ModelPart.Vertex vertex8 = new ModelPart.Vertex(transformed[7], 8.0F, 0.0F);
+        ModelPart.Vertex vertex1 = new ModelPart.Vertex(transformed[0].x(), transformed[0].y(), transformed[0].z(), 0.0F, 0.0F);
+        ModelPart.Vertex vertex2 = new ModelPart.Vertex(transformed[1].x(), transformed[1].y(), transformed[1].z(), 0.0F, 8.0F);
+        ModelPart.Vertex vertex3 = new ModelPart.Vertex(transformed[2].x(), transformed[2].y(), transformed[2].z(), 8.0F, 8.0F);
+        ModelPart.Vertex vertex4 = new ModelPart.Vertex(transformed[3].x(), transformed[3].y(), transformed[3].z(), 8.0F, 0.0F);
+        ModelPart.Vertex vertex5 = new ModelPart.Vertex(transformed[4].x(), transformed[4].y(), transformed[4].z(), 0.0F, 0.0F);
+        ModelPart.Vertex vertex6 = new ModelPart.Vertex(transformed[5].x(), transformed[5].y(), transformed[5].z(), 0.0F, 8.0F);
+        ModelPart.Vertex vertex7 = new ModelPart.Vertex(transformed[6].x(), transformed[6].y(), transformed[6].z(), 8.0F, 8.0F);
+        ModelPart.Vertex vertex8 = new ModelPart.Vertex(transformed[7].x(), transformed[7].y(), transformed[7].z(), 8.0F, 0.0F);
 
         float w = (float)i;
         float x = (float)i + m;
@@ -105,7 +105,7 @@ public class CubeModel {
     }
 
     public void transformVertices(Matrix4f matrix) {
-        //Transform original vertices and store them
+                                                    
         for(int i = 0; i < 8; ++i) {
             this.vertices[i].mulPosition(matrix, this.transformed[i]);
         }

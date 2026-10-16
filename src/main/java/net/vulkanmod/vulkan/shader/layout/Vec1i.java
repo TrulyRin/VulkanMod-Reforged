@@ -8,18 +8,18 @@ import org.lwjgl.system.MemoryUtil;
 import java.util.function.Supplier;
 
 public class Vec1i extends Uniform {
-    private static final Supplier<Integer> ZERO_SUPPLIER = () -> 0;
-
     private Supplier<Integer> intSupplier;
 
     public Vec1i(Info info) {
         super(info);
     }
 
-    void setSupplier() {
-        this.intSupplier = Uniforms.vec1i_uniformMap.get(this.info.name);
-        if (this.intSupplier == null) {
-            this.intSupplier = ZERO_SUPPLIER;
+    protected void setupSupplier() {
+        if (this.info.intSupplier != null) {
+            this.intSupplier = this.info.intSupplier;
+        }
+        else if (this.info.bufferSupplier != null) {
+            this.setSupplier(this.info.bufferSupplier);
         }
     }
 
@@ -28,12 +28,11 @@ public class Vec1i extends Uniform {
         this.intSupplier = () -> supplier.get().getInt(0);
     }
 
-    @Override
-    public boolean hasSupplier() {
-        return this.intSupplier != null;
-    }
-
     void update(long ptr) {
+        if (this.intSupplier == null) {
+            return;
+        }
+
         int i = this.intSupplier.get();
         MemoryUtil.memPutInt(ptr + this.offset, i);
     }

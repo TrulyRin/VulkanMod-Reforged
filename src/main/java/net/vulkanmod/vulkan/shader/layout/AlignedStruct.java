@@ -11,20 +11,23 @@ public abstract class AlignedStruct {
     protected int size;
 
     protected AlignedStruct(List<Uniform.Info> infoList, int size) {
+        if (size <= 0) {
+            throw new IllegalArgumentException("Struct size cannot be <= 0");
+        }
+
         this.size = size;
 
-        if(infoList == null)
+        if (infoList == null)
             return;
 
-        for(Uniform.Info info : infoList) {
-
+        for (Uniform.Info info : infoList) {
             Uniform uniform = Uniform.createField(info);
             this.uniforms.add(uniform);
         }
     }
 
     public void update(long ptr) {
-        for(Uniform uniform : this.uniforms) {
+        for (Uniform uniform : this.uniforms) {
             uniform.update(ptr);
         }
     }
@@ -37,35 +40,51 @@ public abstract class AlignedStruct {
         return size;
     }
 
-    public static class Builder {
+    public static Builder builder() {
+        return new Builder();
+    }
 
-        final List<Uniform.Info> uniformsInfo = new ArrayList<>();
+    public static class Builder {
+        final List<Uniform.Info> uniforms = new ArrayList<>();
         protected int currentOffset = 0;
 
-        public void addUniformInfo(String type, String name, int count) {
+        public Builder addUniform(String type, String name, int count) {
             Uniform.Info info = Uniform.createUniformInfo(type, name, count);
+            this.addUniform(info);
 
-            this.currentOffset = info.computeAlignmentOffset(this.currentOffset);
-            this.currentOffset += info.size;
-            this.uniformsInfo.add(info);
+            return this;
         }
 
-        public void addUniformInfo(String type, String name) {
+        public Builder addUniform(String type, String name) {
             Uniform.Info info = Uniform.createUniformInfo(type, name);
+            addUniform(info);
 
-            this.currentOffset = info.computeAlignmentOffset(this.currentOffset);
-            this.currentOffset += info.size;
-            this.uniformsInfo.add(info);
+            return this;
+        }
+
+        public Builder addUniform(Uniform.Info uniformInfo) {
+            this.currentOffset = uniformInfo.computeAlignmentOffset(this.currentOffset);
+            this.currentOffset += uniformInfo.size;
+            this.uniforms.add(uniformInfo);
+
+            return this;
         }
 
         public UBO buildUBO(int binding, int stages) {
-            //offset is expressed in floats/ints
-            return new UBO(binding, stages, this.currentOffset * 4, this.uniformsInfo);
+            return this.buildUBO("UBO: %d".formatted(binding), binding, stages);
         }
 
-        public PushConstants buildPushConstant() {
-            if(this.uniformsInfo.isEmpty()) return null;
-            return new PushConstants(this.uniformsInfo, this.currentOffset * 4);
+        public UBO buildUBO(String name, int binding, int stages) {
+                                                
+            return new UBO(name, binding, stages, this.currentOffset * 4, this.uniforms);
+        }
+
+        public PushConstants buildPushConstant(int stages) {
+            if (this.uniforms.isEmpty()) {
+                return null;
+            }
+
+            return new PushConstants(stages, this.uniforms, this.currentOffset * 4);
         }
 
     }

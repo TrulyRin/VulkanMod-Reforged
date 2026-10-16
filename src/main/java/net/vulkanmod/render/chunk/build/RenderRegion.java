@@ -16,6 +16,9 @@ import net.minecraft.world.level.chunk.PalettedContainer;
 import net.minecraft.world.level.levelgen.DebugLevelSource;
 import net.minecraft.world.level.lighting.LevelLightEngine;
 import net.minecraft.world.level.material.FluidState;
+import it.unimi.dsi.fastutil.longs.Long2ObjectFunction;
+import net.neoforged.neoforge.model.data.ModelData;
+import net.neoforged.neoforge.model.data.ModelDataManager;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -26,6 +29,7 @@ import java.util.function.Function;
 public class RenderRegion implements BlockAndTintGetter {
     public static final int WIDTH = 3;
     public static final int SIZE = WIDTH * WIDTH * WIDTH;
+    static final int LIGHT_LAYER_COUNT = 2;
 
     public static final int BOUNDARY_BLOCK_WIDTH = 2;
     public static final int REGION_BLOCK_WIDTH = 16 + BOUNDARY_BLOCK_WIDTH * 2;
@@ -40,16 +44,17 @@ public class RenderRegion implements BlockAndTintGetter {
     private final int blendRadius;
 
     private final PalettedContainer<BlockState>[] blockDataContainers;
-    private final BlockState[] blockData;
-    private final DataLayer[][] lightData;
+    private BlockState[] blockData;
+    private final DataLayer[] lightData;
 
     private TintCache tintCache;
 
     private final Map<BlockPos, BlockEntity> blockEntityMap;
+    private final Long2ObjectFunction<ModelData> modelDataSnapshot;
 
     private final Function<BlockPos, BlockState> blockStateGetter;
 
-    RenderRegion(Level level, int x, int y, int z, PalettedContainer<BlockState>[] blockData, DataLayer[][] lightData, Map<BlockPos, BlockEntity> blockEntityMap) {
+    RenderRegion(Level level, int x, int y, int z, PalettedContainer<BlockState>[] blockData, DataLayer[] lightData, Map<BlockPos, BlockEntity> blockEntityMap) {
         this.level = level;
 
         this.minSecX = x - 1;
@@ -65,15 +70,22 @@ public class RenderRegion implements BlockAndTintGetter {
         this.blockDataContainers = blockData;
         this.lightData = lightData;
         this.blockEntityMap = blockEntityMap;
-
-        this.blockData = new BlockState[BLOCK_COUNT];
+                                                                                                  
+                                                                                                   
+        ModelDataManager modelDataManager = level.getModelDataManager();
+        this.modelDataSnapshot = modelDataManager == null ? ModelDataManager.EMPTY_SNAPSHOT
+                : modelDataManager.snapshotSectionRegion(x - 1, y - 1, z - 1, x + 1, y + 1, z + 1);
 
         this.blockStateGetter = level.isDebug() ? this::debugBlockState : this::defaultBlockState;
 
         this.blendRadius = Minecraft.getInstance().options.biomeBlendRadius().get();
     }
 
-    public void loadBlockStates() {
+    public void loadBlockStates(BlockState[] reusableBlockData) {
+        if (reusableBlockData.length < BLOCK_COUNT) {
+            throw new IllegalArgumentException("Reusable block-state storage is too small");
+        }
+        this.blockData = reusableBlockData;
         Arrays.fill(blockData, Blocks.AIR.defaultBlockState());
 
         for(int x = 0; x <= 2; ++x) {
@@ -153,7 +165,7 @@ public class RenderRegion implements BlockAndTintGetter {
         int secY = SectionPos.blockToSectionCoord(blockPos.getY()) - this.minSecY;
         int secZ = SectionPos.blockToSectionCoord(blockPos.getZ()) - this.minSecZ;
 
-        DataLayer dataLayer = this.lightData[getSectionIdx(secX, secY, secZ)][lightLayer.ordinal()];
+        DataLayer dataLayer = this.lightData[lightDataIndex(getSectionIdx(secX, secY, secZ), lightLayer)];
         return dataLayer == null ? 0 : dataLayer.get(blockPos.getX() & 15, blockPos.getY() & 15, blockPos.getZ() & 15);
     }
 
@@ -166,9 +178,9 @@ public class RenderRegion implements BlockAndTintGetter {
         int secY = SectionPos.blockToSectionCoord(blockPos.getY()) - this.minSecY;
         int secZ = SectionPos.blockToSectionCoord(blockPos.getZ()) - this.minSecZ;
 
-        DataLayer[] dataLayers = this.lightData[getSectionIdx(secX, secY, secZ)];
-        DataLayer skyLightLayer = dataLayers[LightLayer.SKY.ordinal()];
-        DataLayer blockLightLayer = dataLayers[LightLayer.BLOCK.ordinal()];
+        int lightDataBase = getSectionIdx(secX, secY, secZ) * LIGHT_LAYER_COUNT;
+        DataLayer skyLightLayer = this.lightData[lightDataBase + LightLayer.SKY.ordinal()];
+        DataLayer blockLightLayer = this.lightData[lightDataBase + LightLayer.BLOCK.ordinal()];
 
         int relX = blockPos.getX() & 15;
         int relY = blockPos.getY() & 15;
@@ -184,12 +196,18 @@ public class RenderRegion implements BlockAndTintGetter {
         return this.blockEntityMap.get(blockPos);
     }
 
+    @Override
+    public ModelData getModelData(BlockPos position) {
+        return this.modelDataSnapshot.get(position.asLong());
+    }
+
     public int getBlockTint(BlockPos blockPos, ColorResolver colorResolver) {
         return tintCache.getColor(blockPos, colorResolver);
     }
 
-    public int getMinBuildHeight() {
-        return this.level.getMinBuildHeight();
+                                                                               
+    public int getMinY() {
+        return this.level.getMinY();
     }
 
     public int getHeight() {
@@ -255,8 +273,12 @@ public class RenderRegion implements BlockAndTintGetter {
         int secZ = (z >> 4) - this.minSecZ;
 
         int secIdx = WIDTH * ((WIDTH * secY) + secZ) + secX;
-        DataLayer dataLayer = this.lightData[secIdx][lightLayer.ordinal()];
+        DataLayer dataLayer = this.lightData[lightDataIndex(secIdx, lightLayer)];
         return dataLayer == null ? 0 : dataLayer.get(x & 15, y & 15, z & 15);
+    }
+
+    private static int lightDataIndex(int sectionIndex, LightLayer lightLayer) {
+        return sectionIndex * LIGHT_LAYER_COUNT + lightLayer.ordinal();
     }
 
     public BlockState debugBlockState(BlockPos blockPos) {

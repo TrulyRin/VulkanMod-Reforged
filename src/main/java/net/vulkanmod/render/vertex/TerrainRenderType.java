@@ -1,7 +1,6 @@
 package net.vulkanmod.render.vertex;
 
-import net.minecraft.client.renderer.RenderType;
-import net.vulkanmod.interfaces.ExtendedRenderType;
+import net.minecraft.client.renderer.chunk.ChunkSectionLayer;
 import net.vulkanmod.vulkan.VRenderSystem;
 
 import java.util.EnumSet;
@@ -37,8 +36,18 @@ public enum TerrainRenderType {
         VRenderSystem.alphaCutout = this.alphaCutout;
     }
 
-    public static TerrainRenderType get(RenderType renderType) {
-        return ((ExtendedRenderType)renderType).getTerrainRenderType();
+       
+                                                                                                 
+                                                                                             
+                                                                            
+       
+    public static TerrainRenderType get(ChunkSectionLayer renderType) {
+        return switch (renderType) {
+            case SOLID -> TerrainRenderType.SOLID;
+            case CUTOUT -> TerrainRenderType.CUTOUT;
+            case TRANSLUCENT -> TerrainRenderType.TRANSLUCENT;
+            case TRIPWIRE -> TerrainRenderType.TRIPWIRE;
+        };
     }
 
     public static TerrainRenderType get(String name) {
@@ -52,13 +61,13 @@ public enum TerrainRenderType {
         };
     }
 
-    public static RenderType getRenderType(TerrainRenderType renderType) {
+    public static ChunkSectionLayer getRenderType(TerrainRenderType renderType) {
         return switch (renderType) {
-            case SOLID -> RenderType.solid();
-            case CUTOUT -> RenderType.cutout();
-            case CUTOUT_MIPPED -> RenderType.cutoutMipped();
-            case TRANSLUCENT -> RenderType.translucent();
-            case TRIPWIRE -> RenderType.tripwire();
+            case SOLID -> ChunkSectionLayer.SOLID;
+            case CUTOUT -> ChunkSectionLayer.CUTOUT;
+            case CUTOUT_MIPPED -> ChunkSectionLayer.CUTOUT;
+            case TRANSLUCENT -> ChunkSectionLayer.TRANSLUCENT;
+            case TRIPWIRE -> ChunkSectionLayer.TRIPWIRE;
         };
     }
 }

@@ -4,103 +4,62 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleEngine;
-import net.minecraft.client.particle.ParticleRenderType;
 import net.minecraft.world.phys.Vec3;
 import net.vulkanmod.Initializer;
-import org.spongepowered.asm.mixin.Final;
+import net.vulkanmod.render.culling.ParticleAdmissionTracker;
+import net.vulkanmod.render.culling.ParticleCullingPolicy;
+import org.joml.Vector3fc;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import java.util.Map;
 import java.util.Queue;
 
+                                                                                          
 @Mixin(ParticleEngine.class)
-public class ParticleEngineMixin {
-
-    @Shadow @Final private Map<ParticleRenderType, Queue<Particle>> particles;
+public abstract class ParticleEngineMixin {
+    @Unique private final ParticleAdmissionTracker<Particle> vulkanmod$admissions = new ParticleAdmissionTracker<>();
 
     @Inject(method = "add", at = @At("HEAD"), cancellable = true)
-    private void onAdd(Particle particle, CallbackInfo ci) {
-        if (this.shouldCullAndPrioritize(particle)) {
+    private void vulkanmod$filterParticle(Particle particle, CallbackInfo ci) {
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.level == null || Initializer.CONFIG == null) {
+            return;
+        }
+        int count = this.vulkanmod$admissions.countAlive(particle.getClass(), minecraft.level.getGameTime(), Particle::isAlive);
+        int mode = Initializer.CONFIG.particleCulling;
+        if (mode <= 0) {
+            return;
+        }
+        Camera camera = minecraft.gameRenderer.getMainCamera();
+        if (!camera.isInitialized()) {
+            return;
+        }
+        Vec3 position = camera.position();
+        Vector3fc look = camera.forwardVector();
+        ParticleAccessor coordinates = (ParticleAccessor) particle;
+        if (ParticleCullingPolicy.shouldCull(mode, coordinates.getX() - position.x,
+                coordinates.getY() - position.y, coordinates.getZ() - position.z,
+                look.x(), look.y(), look.z(), count)) {
             ci.cancel();
         }
     }
 
-    private boolean shouldCullAndPrioritize(Particle particle) {
-        int cullingMode = Initializer.CONFIG.particleCulling;
-        if (cullingMode == 0) {
-            return false;
+    @Redirect(method = "add", at = @At(value = "INVOKE", target = "Ljava/util/Queue;add(Ljava/lang/Object;)Z"))
+    private boolean vulkanmod$trackAcceptedParticle(Queue<Particle> queue, Object value) {
+        Particle particle = (Particle) value;
+        boolean accepted = queue.add(particle);
+        if (accepted) {
+            this.vulkanmod$admissions.accepted(particle);
         }
+        return accepted;
+    }
 
-        Minecraft mc = Minecraft.getInstance();
-        Camera camera = mc.gameRenderer.getMainCamera();
-        Vec3 cameraPos = camera.getPosition();
-
-        double dx = ((ParticleAccessor) particle).getX() - cameraPos.x;
-        double dy = ((ParticleAccessor) particle).getY() - cameraPos.y;
-        double dz = ((ParticleAccessor) particle).getZ() - cameraPos.z;
-        double distSq = dx * dx + dy * dy + dz * dz;
-
-        double maxDistSq;
-        double protectedDistSq;
-        double minDot;
-        int maxCount;
-
-        if (cullingMode == 1) {
-            maxDistSq = 48.0 * 48.0;
-            protectedDistSq = 10.0 * 10.0;
-            minDot = 0.5;
-            maxCount = 128;
-        } else if (cullingMode == 2) {
-            maxDistSq = 32.0 * 32.0;
-            protectedDistSq = 8.0 * 8.0;
-            minDot = 0.707;
-            maxCount = 64;
-        } else {
-            maxDistSq = 16.0 * 16.0;
-            protectedDistSq = 5.0 * 5.0;
-            minDot = 0.866;
-            maxCount = 24;
-        }
-
-        if (distSq <= protectedDistSq) {
-            return false;
-        }
-
-        if (distSq > maxDistSq) {
-            return true;
-        }
-
-        org.joml.Vector3f lookVec = camera.getLookVector();
-        double dist = Math.sqrt(distSq);
-        if (dist > 0.01) {
-            double dot = (dx * lookVec.x + dy * lookVec.y + dz * lookVec.z) / dist;
-            if (dot < minDot) {
-                return true;
-            }
-        }
-
-        ParticleRenderType renderType = particle.getRenderType();
-        Queue<Particle> queue = this.particles.get(renderType);
-        if (queue == null) {
-            return false;
-        }
-
-        Class<?> particleClass = particle.getClass();
-        int sameTypeCount = 0;
-        for (Particle p : queue) {
-            if (p.getClass() == particleClass) {
-                sameTypeCount++;
-            }
-        }
-
-        if (sameTypeCount >= maxCount) {
-            return true;
-        }
-
-        return false;
+    @Inject(method = "clearParticles", at = @At("RETURN"))
+    private void vulkanmod$clearAdmissions(CallbackInfo ci) {
+        this.vulkanmod$admissions.clear();
     }
 }

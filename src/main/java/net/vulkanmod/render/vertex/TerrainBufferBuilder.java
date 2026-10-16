@@ -3,7 +3,6 @@ package net.vulkanmod.render.vertex;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.world.level.block.state.BlockState;
 import net.vulkanmod.Initializer;
-import net.vulkanmod.render.PipelineManager;
 import net.vulkanmod.render.util.SortUtil;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -39,8 +38,8 @@ public class TerrainBufferBuilder {
         this.bufferPtr = ALLOCATOR.malloc(size);
         this.capacity = size;
 
-        this.format = PipelineManager.TERRAIN_VERTEX_FORMAT;
-        this.vertexBuilder = PipelineManager.TERRAIN_VERTEX_FORMAT == CustomVertexFormat.COMPRESSED_TERRAIN
+        this.format = CustomVertexFormat.TERRAIN_VERTEX_FORMAT;
+        this.vertexBuilder = CustomVertexFormat.TERRAIN_VERTEX_FORMAT == CustomVertexFormat.COMPRESSED_TERRAIN
                 ? new VertexBuilder.CompressedVertexBuilder() : new VertexBuilder.DefaultVertexBuilder();
     }
 
@@ -174,6 +173,7 @@ public class TerrainBufferBuilder {
         }
 
         this.discard();
+        this.reset();
     }
 
     public void close() {

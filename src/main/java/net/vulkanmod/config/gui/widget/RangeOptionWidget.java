@@ -1,5 +1,11 @@
 package net.vulkanmod.config.gui.widget;
 
+import net.minecraft.client.input.CharacterEvent;
+
+import net.minecraft.client.input.KeyEvent;
+
+import net.minecraft.client.input.MouseButtonEvent;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.sounds.SoundManager;
@@ -59,7 +65,8 @@ public class RangeOptionWidget extends OptionWidget<RangeOption> {
     }
 
     @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+    public boolean keyPressed(KeyEvent event) {
+        int keyCode = event.key(); int scanCode = event.scancode(); int modifiers = event.modifiers();
         boolean isLeft = keyCode == GLFW.GLFW_KEY_LEFT;
         boolean isRight = keyCode == GLFW.GLFW_KEY_RIGHT;
 

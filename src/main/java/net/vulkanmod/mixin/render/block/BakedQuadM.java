@@ -1,91 +1,97 @@
 package net.vulkanmod.mixin.render.block;
 
+import net.minecraft.client.model.geom.builders.UVPair;
 import net.minecraft.client.renderer.block.model.BakedQuad;
-import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.core.Direction;
-import net.vulkanmod.render.model.quad.QuadView;
+import net.neoforged.neoforge.client.model.quad.BakedColors;
 import net.vulkanmod.render.model.quad.ModelQuadFlags;
-import org.spongepowered.asm.mixin.Final;
+import net.vulkanmod.render.model.quad.QuadView;
+import org.joml.Vector3fc;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
-import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.Unique;
 
-import org.spongepowered.asm.mixin.injection.ModifyVariable;
-import net.vulkanmod.render.model.quad.BakedQuadDeduplicator;
-
-import static net.vulkanmod.render.model.quad.ModelQuad.VERTEX_SIZE;
-
+   
+                                                                                             
+              
+  
+                                                                                                  
+                                                                                                  
+                                                                                                  
+                                              
+  
+                                                                                                   
+                                                                                                  
+   
 @Mixin(BakedQuad.class)
-public class BakedQuadM implements QuadView {
+public abstract class BakedQuadM implements QuadView {
 
-    @Shadow @Final protected int[] vertices;
-    @Shadow @Final protected Direction direction;
-    @Shadow @Final protected int tintIndex;
-    private int flags;
+    @Shadow public abstract Vector3fc position(int index);
 
-    @ModifyVariable(method = "<init>", at = @At("HEAD"), argsOnly = true, ordinal = 0)
-    private static int[] modifyVertices(int[] vertices) {
-        return BakedQuadDeduplicator.deduplicateVertices(vertices);
-    }
+    @Shadow public abstract long packedUV(int index);
 
-    @Inject(method = "<init>", at = @At("RETURN"))
-    private void onInit(int[] vertices, int tintIndex, Direction direction, TextureAtlasSprite textureAtlasSprite, boolean shade, CallbackInfo ci) {
-        this.flags = ModelQuadFlags.getQuadFlags(this.vertices, direction);
-    }
+    @Shadow public abstract int tintIndex();
+
+    @Shadow public abstract Direction direction();
+
+    @Shadow public abstract BakedColors bakedColors();
+
+    @Unique private int vulkanmod$flags = -1;
 
     @Override
     public int getFlags() {
+        int flags = this.vulkanmod$flags;
+
+        if (flags == -1) {
+            flags = ModelQuadFlags.getQuadFlags(this, this.direction());
+            this.vulkanmod$flags = flags;
+        }
+
         return flags;
     }
 
     @Override
     public float getX(int idx) {
-        return Float.intBitsToFloat(this.vertices[vertexOffset(idx) + 0]);
+        return this.position(idx).x();
     }
 
     @Override
     public float getY(int idx) {
-        return Float.intBitsToFloat(this.vertices[vertexOffset(idx) + 1]);
+        return this.position(idx).y();
     }
 
     @Override
     public float getZ(int idx) {
-        return Float.intBitsToFloat(this.vertices[vertexOffset(idx) + 2]);
+        return this.position(idx).z();
     }
 
     @Override
     public int getColor(int idx) {
-        return this.vertices[vertexOffset(idx) + 3];
+        return this.bakedColors().color(idx);
     }
 
     @Override
     public float getU(int idx) {
-        return Float.intBitsToFloat(this.vertices[vertexOffset(idx) + 4]);
+        return UVPair.unpackU(this.packedUV(idx));
     }
 
     @Override
     public float getV(int idx) {
-        return Float.intBitsToFloat(this.vertices[vertexOffset(idx) + 5]);
+        return UVPair.unpackV(this.packedUV(idx));
     }
 
     @Override
     public int getColorIndex() {
-        return this.tintIndex;
+        return this.tintIndex();
     }
 
     @Override
     public Direction getFacingDirection() {
-        return this.direction;
+        return this.direction();
     }
 
     @Override
     public boolean isTinted() {
-        return this.tintIndex != -1;
-    }
-
-    private static int vertexOffset(int vertexIndex) {
-        return vertexIndex * VERTEX_SIZE;
+        return this.tintIndex() != -1;
     }
 }

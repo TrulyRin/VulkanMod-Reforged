@@ -38,11 +38,11 @@ public class ChunkAreaManager {
         int relativeHeight = height - (minHeight >> 4);
         this.ySize = (relativeHeight & 0x5) == 0 ? (relativeHeight >> AREA_SH_Y) : (relativeHeight >> AREA_SH_Y) + 1;
 
-        //check if width is even
+                                
         if ((t & 1) == 0)
             t++;
         this.xzSize = t;
-        //TODO make even size work
+                                  
 
         this.size = xzSize * ySize * xzSize;
         this.chunkAreasArr = new ChunkArea[size];
@@ -69,7 +69,7 @@ public class ChunkAreaManager {
         int deltaZ = Mth.clamp(zS - this.prevZ, -this.xzSize, this.xzSize);
 
         int xAbsChunkIndex = xS - this.xzSize / 2;
-        int xStart = Math.floorMod(xAbsChunkIndex, this.xzSize); // needs positive modulo
+        int xStart = Math.floorMod(xAbsChunkIndex, this.xzSize);                         
         int zAbsChunkIndex = zS - this.xzSize / 2;
         int zStart = Math.floorMod(zAbsChunkIndex, this.xzSize);
 

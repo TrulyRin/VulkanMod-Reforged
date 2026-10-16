@@ -1,5 +1,11 @@
 package net.vulkanmod.config.gui.widget;
 
+import net.minecraft.client.input.CharacterEvent;
+
+import net.minecraft.client.input.KeyEvent;
+
+import net.minecraft.client.input.MouseButtonEvent;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.client.sounds.SoundManager;
@@ -77,7 +83,8 @@ public abstract class VAbstractWidget extends GuiElement {
     }
 
     @Override
-    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        double mouseX = event.x(); double mouseY = event.y(); int button = event.button();
         if (this.active && this.visible) {
             if (this.isValidClickButton(button)) {
                 boolean clicked = this.clicked(mouseX, mouseY);
@@ -102,7 +109,8 @@ public abstract class VAbstractWidget extends GuiElement {
     }
 
     @Override
-    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+    public boolean mouseReleased(MouseButtonEvent event) {
+        double mouseX = event.x(); double mouseY = event.y(); int button = event.button();
         if (this.isValidClickButton(button)) {
             this.onRelease(mouseX, mouseY);
             return true;
@@ -116,7 +124,8 @@ public abstract class VAbstractWidget extends GuiElement {
     }
 
     @Override
-    public boolean mouseDragged(double mouseX, double mouseY, int button, double d, double e) {
+    public boolean mouseDragged(MouseButtonEvent event, double d, double e) {
+        double mouseX = event.x(); double mouseY = event.y(); int button = event.button();
         if (this.isValidClickButton(button)) {
             this.onDrag(mouseX, mouseY, d, e);
             return true;

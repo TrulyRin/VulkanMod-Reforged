@@ -5,27 +5,31 @@ import net.minecraft.core.Direction;
 import static net.vulkanmod.render.model.quad.ModelQuad.VERTEX_SIZE;
 
 public class ModelQuadFlags {
-    /**
-     * Indicates that the quad does not fully cover the given face for the model.
-     */
+       
+                                                                                 
+       
     public static final int IS_PARTIAL = 0b001;
 
-    /**
-     * Indicates that the quad is parallel to its light face.
-     */
+       
+                                                             
+       
     public static final int IS_PARALLEL = 0b010;
 
-    /**
-     * Indicates that the quad is aligned to the block grid.
-     * This flag is only set if {@link #IS_PARALLEL} is set.
-     */
+       
+                                                            
+                                                            
+       
     public static final int IS_ALIGNED = 0b100;
 
     public static boolean contains(int flags, int mask) {
         return (flags & mask) != 0;
     }
 
-    public static int getQuadFlags(int[] vertices, Direction face) {
+       
+                                                                                            
+                                                                                          
+       
+    public static int getQuadFlags(QuadView quad, Direction face) {
         float minX = 32.0F;
         float minY = 32.0F;
         float minZ = 32.0F;
@@ -35,9 +39,9 @@ public class ModelQuadFlags {
         float maxZ = -32.0F;
 
         for (int i = 0; i < 4; ++i) {
-            float x = Float.intBitsToFloat(vertices[i * VERTEX_SIZE]);
-            float y = Float.intBitsToFloat(vertices[i * VERTEX_SIZE + 1]);
-            float z = Float.intBitsToFloat(vertices[i * VERTEX_SIZE + 2]);
+            float x = quad.getX(i);
+            float y = quad.getY(i);
+            float z = quad.getZ(i);
 
             minX = Math.min(minX, x);
             minY = Math.min(minY, y);

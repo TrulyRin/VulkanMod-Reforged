@@ -1,5 +1,6 @@
 package net.vulkanmod.vulkan.shader;
 
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormatElement;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
@@ -8,7 +9,7 @@ import net.vulkanmod.interfaces.VertexFormatMixed;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.Vulkan;
 import net.vulkanmod.vulkan.device.DeviceManager;
-import net.vulkanmod.vulkan.texture.VulkanImage;
+import net.vulkanmod.vulkan.framebuffer.Framebuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
 import org.lwjgl.vulkan.*;
@@ -16,9 +17,7 @@ import org.lwjgl.vulkan.*;
 import java.nio.ByteBuffer;
 import java.nio.LongBuffer;
 import java.util.List;
-import java.util.function.ToLongFunction;
 
-import static org.lwjgl.system.MemoryStack.stackGet;
 import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.vulkan.VK10.*;
 
@@ -32,10 +31,10 @@ public class GraphicsPipeline extends Pipeline {
     private long fragShaderModule = 0;
 
     GraphicsPipeline(Builder builder) {
-        super(builder.shaderPath);
+        super(builder.name);
         this.buffers = builder.UBOs;
-        this.manualUBO = builder.manualUBO;
         this.imageDescriptors = builder.imageDescriptors;
+        this.texelBufferDescriptors = builder.texelBufferDescriptors;
         this.pushConstants = builder.pushConstants;
         this.vertexFormat = builder.vertexFormat;
 
@@ -43,30 +42,20 @@ public class GraphicsPipeline extends Pipeline {
 
         createDescriptorSetLayout();
         createPipelineLayout();
-        createShaderModules(builder.vertShaderSPIRV, builder.fragShaderSPIRV);
+
+        createShaderModules(builder);
 
         if (builder.renderPass != null)
             graphicsPipelines.computeIfAbsent(PipelineState.DEFAULT,
-                    (ToLongFunction<PipelineState>) this::createGraphicsPipeline);
+                    this::createGraphicsPipeline);
 
         createDescriptorSets(Renderer.getFramesNum());
 
         PIPELINES.add(this);
     }
 
-    public int getVariantCount() {
-        return graphicsPipelines.size();
-    }
-
     public long getHandle(PipelineState state) {
-        if (net.vulkanmod.compat.observer.CompatProfiler.ENABLED) {
-            if (graphicsPipelines.containsKey(state)) {
-                net.vulkanmod.compat.observer.CompatProfiler.shaderCacheHits++;
-            } else {
-                net.vulkanmod.compat.observer.CompatProfiler.shaderCacheMisses++;
-            }
-        }
-        return graphicsPipelines.computeIfAbsent(state, (ToLongFunction<PipelineState>) this::createGraphicsPipeline);
+        return graphicsPipelines.computeIfAbsent(state, this::createGraphicsPipeline);
     }
 
     private long createGraphicsPipeline(PipelineState state) {
@@ -89,10 +78,17 @@ public class GraphicsPipeline extends Pipeline {
             fragShaderStageInfo.module(fragShaderModule);
             fragShaderStageInfo.pName(entryPoint);
 
+                                     
+
             VkPipelineVertexInputStateCreateInfo vertexInputInfo = VkPipelineVertexInputStateCreateInfo.calloc(stack);
             vertexInputInfo.sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO);
-            vertexInputInfo.pVertexBindingDescriptions(vertexInputDescription.bindingDescriptions);
-            vertexInputInfo.pVertexAttributeDescriptions(vertexInputDescription.attributeDescriptions);
+
+            if (vertexInputDescription != null) {
+                vertexInputInfo.pVertexBindingDescriptions(vertexInputDescription.bindingDescriptions);
+                vertexInputInfo.pVertexAttributeDescriptions(vertexInputDescription.attributeDescriptions);
+            }
+
+                                       
 
             final int topology = PipelineState.AssemblyRasterState.decodeTopology(state.assemblyRasterState);
 
@@ -101,15 +97,18 @@ public class GraphicsPipeline extends Pipeline {
             inputAssembly.topology(topology);
             inputAssembly.primitiveRestartEnable(false);
 
+                                      
+
             VkPipelineViewportStateCreateInfo viewportState = VkPipelineViewportStateCreateInfo.calloc(stack);
             viewportState.sType(VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO);
 
             viewportState.viewportCount(1);
             viewportState.scissorCount(1);
 
+                                            
+
             final int polygonMode = PipelineState.AssemblyRasterState.decodePolygonMode(state.assemblyRasterState);
             final int cullMode = PipelineState.AssemblyRasterState.decodeCullMode(state.assemblyRasterState);
-            final int frontFace = PipelineState.AssemblyRasterState.decodeFrontFace(state.assemblyRasterState);
 
             VkPipelineRasterizationStateCreateInfo rasterizer = VkPipelineRasterizationStateCreateInfo.calloc(stack);
             rasterizer.sType(VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO);
@@ -118,13 +117,17 @@ public class GraphicsPipeline extends Pipeline {
             rasterizer.polygonMode(polygonMode);
             rasterizer.lineWidth(1.0f);
             rasterizer.cullMode(cullMode);
-            rasterizer.frontFace(frontFace);
+            rasterizer.frontFace(VK_FRONT_FACE_COUNTER_CLOCKWISE);
             rasterizer.depthBiasEnable(true);
+
+                                      
 
             VkPipelineMultisampleStateCreateInfo multisampling = VkPipelineMultisampleStateCreateInfo.calloc(stack);
             multisampling.sType(VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO);
             multisampling.sampleShadingEnable(false);
             multisampling.rasterizationSamples(VK_SAMPLE_COUNT_1_BIT);
+
+                                   
 
             VkPipelineDepthStencilStateCreateInfo depthStencil = VkPipelineDepthStencilStateCreateInfo.calloc(stack);
             depthStencil.sType(VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO);
@@ -132,22 +135,11 @@ public class GraphicsPipeline extends Pipeline {
             depthStencil.depthWriteEnable(PipelineState.DepthState.depthMask(state.depthState_i));
             depthStencil.depthCompareOp(PipelineState.DepthState.decodeDepthFun(state.depthState_i));
             depthStencil.depthBoundsTestEnable(false);
-            depthStencil.minDepthBounds(0.0f);
-            depthStencil.maxDepthBounds(1.0f);
-            boolean stencilEnabled = PipelineState.StencilState.stencilTest(state.stencilState_i)
-                    && VulkanImage.hasStencilComponent(state.renderPass.getFramebuffer().getDepthFormat());
-            depthStencil.stencilTestEnable(stencilEnabled);
-            if (stencilEnabled) {
-                depthStencil.front()
-                        .failOp(PipelineState.StencilState.decodeFailOp(state.stencilState_i))
-                        .passOp(PipelineState.StencilState.decodePassOp(state.stencilState_i))
-                        .depthFailOp(PipelineState.StencilState.decodeDepthFailOp(state.stencilState_i))
-                        .compareOp(PipelineState.StencilState.decodeCompareOp(state.stencilState_i))
-                        .compareMask(0)
-                        .writeMask(0)
-                        .reference(0);
-                depthStencil.back(depthStencil.front());
-            }
+            depthStencil.minDepthBounds(0.0f);            
+            depthStencil.maxDepthBounds(1.0f);            
+            depthStencil.stencilTestEnable(false);
+
+                                       
 
             VkPipelineColorBlendAttachmentState.Buffer colorBlendAttachment = VkPipelineColorBlendAttachmentState.calloc(1, stack);
             colorBlendAttachment.colorWriteMask(state.colorMask_i);
@@ -156,10 +148,10 @@ public class GraphicsPipeline extends Pipeline {
                 colorBlendAttachment.blendEnable(true);
                 colorBlendAttachment.srcColorBlendFactor(PipelineState.BlendState.getSrcRgbFactor(state.blendState_i));
                 colorBlendAttachment.dstColorBlendFactor(PipelineState.BlendState.getDstRgbFactor(state.blendState_i));
-                colorBlendAttachment.colorBlendOp(PipelineState.BlendState.getColorBlendOp(state.blendState_i));
+                colorBlendAttachment.colorBlendOp(PipelineState.BlendState.blendOp(state.blendState_i));
                 colorBlendAttachment.srcAlphaBlendFactor(PipelineState.BlendState.getSrcAlphaFactor(state.blendState_i));
                 colorBlendAttachment.dstAlphaBlendFactor(PipelineState.BlendState.getDstAlphaFactor(state.blendState_i));
-                colorBlendAttachment.alphaBlendOp(PipelineState.BlendState.getAlphaBlendOp(state.blendState_i));
+                colorBlendAttachment.alphaBlendOp(PipelineState.BlendState.blendOp(state.blendState_i));
             }
             else {
                 colorBlendAttachment.blendEnable(false);
@@ -170,26 +162,21 @@ public class GraphicsPipeline extends Pipeline {
             colorBlending.logicOpEnable(PipelineState.LogicOpState.enable(state.logicOp_i));
             colorBlending.logicOp(PipelineState.LogicOpState.decodeFun(state.logicOp_i));
             colorBlending.pAttachments(colorBlendAttachment);
+            colorBlending.blendConstants(stack.floats(0.0f, 0.0f, 0.0f, 0.0f));
+
+                                       
 
             VkPipelineDynamicStateCreateInfo dynamicStates = VkPipelineDynamicStateCreateInfo.calloc(stack);
             dynamicStates.sType(VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO);
 
             if (topology == VK_PRIMITIVE_TOPOLOGY_LINE_LIST || polygonMode == VK_POLYGON_MODE_LINE) {
-                if (stencilEnabled)
-                    dynamicStates.pDynamicStates(stack.ints(VK_DYNAMIC_STATE_DEPTH_BIAS, VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
-                            VK_DYNAMIC_STATE_LINE_WIDTH, VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK, VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-                            VK_DYNAMIC_STATE_STENCIL_REFERENCE, VK_DYNAMIC_STATE_BLEND_CONSTANTS));
-                else
-                    dynamicStates.pDynamicStates(stack.ints(VK_DYNAMIC_STATE_DEPTH_BIAS, VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
-                            VK_DYNAMIC_STATE_LINE_WIDTH, VK_DYNAMIC_STATE_BLEND_CONSTANTS));
-            } else {
-                if (stencilEnabled)
-                    dynamicStates.pDynamicStates(stack.ints(VK_DYNAMIC_STATE_DEPTH_BIAS, VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
-                            VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK, VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-                            VK_DYNAMIC_STATE_STENCIL_REFERENCE, VK_DYNAMIC_STATE_BLEND_CONSTANTS));
-                else
-                    dynamicStates.pDynamicStates(stack.ints(VK_DYNAMIC_STATE_DEPTH_BIAS, VK_DYNAMIC_STATE_VIEWPORT,
-                            VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_BLEND_CONSTANTS));
+                dynamicStates.pDynamicStates(
+                        stack.ints(VK_DYNAMIC_STATE_DEPTH_BIAS, VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR,
+                                   VK_DYNAMIC_STATE_LINE_WIDTH));
+            }
+            else {
+                dynamicStates.pDynamicStates(
+                        stack.ints(VK_DYNAMIC_STATE_DEPTH_BIAS, VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR));
             }
 
             VkGraphicsPipelineCreateInfo.Buffer pipelineInfo = VkGraphicsPipelineCreateInfo.calloc(1, stack);
@@ -212,29 +199,47 @@ public class GraphicsPipeline extends Pipeline {
                 pipelineInfo.subpass(0);
             }
             else {
-
+                               
                 VkPipelineRenderingCreateInfoKHR renderingInfo = VkPipelineRenderingCreateInfoKHR.calloc(stack);
                 renderingInfo.sType(KHRDynamicRendering.VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR);
-                renderingInfo.pColorAttachmentFormats(stack.ints(state.renderPass.getFramebuffer().getFormat()));
-                renderingInfo.depthAttachmentFormat(state.renderPass.getFramebuffer().getDepthFormat());
-                renderingInfo.stencilAttachmentFormat(VulkanImage.hasStencilComponent(state.renderPass.getFramebuffer().getDepthFormat())
-                        ? state.renderPass.getFramebuffer().getDepthFormat() : VK_FORMAT_UNDEFINED);
+
+                Framebuffer framebuffer;
+                if (state.renderPass != null) {
+                    framebuffer = state.renderPass.getFramebuffer();
+                } else {
+                    framebuffer = Renderer.getInstance().getMainPass().getMainFramebuffer();
+                }
+
+                renderingInfo.pColorAttachmentFormats(stack.ints(framebuffer.getFormat()));
+                renderingInfo.depthAttachmentFormat(framebuffer.getDepthFormat());
                 pipelineInfo.pNext(renderingInfo);
             }
 
             LongBuffer pGraphicsPipeline = stack.mallocLong(1);
 
-            if (vkCreateGraphicsPipelines(DeviceManager.vkDevice, PIPELINE_CACHE, pipelineInfo, null, pGraphicsPipeline) != VK_SUCCESS) {
-                throw new RuntimeException("Failed to create graphics pipeline");
-            }
+            Vulkan.checkResult(vkCreateGraphicsPipelines(DeviceManager.vkDevice, PIPELINE_CACHE, pipelineInfo, null, pGraphicsPipeline),
+                               "Failed to create graphics pipeline " + this.name);
 
             return pGraphicsPipeline.get(0);
         }
     }
 
-    private void createShaderModules(SPIRVUtils.SPIRV vertSpirv, SPIRVUtils.SPIRV fragSpirv) {
-        this.vertShaderModule = createShaderModule(vertSpirv.bytecode());
-        this.fragShaderModule = createShaderModule(fragSpirv.bytecode());
+    private void createShaderModules(Builder builder) {
+        String vsh = builder.shadersSrc.get(SPIRVUtils.ShaderKind.VERTEX_SHADER);
+        SPIRVUtils.SPIRV vertShaderSPIRV = SPIRVUtils.compileShader(String.format("%s.vsh", name), vsh, SPIRVUtils.ShaderKind.VERTEX_SHADER);
+        SPIRVUtils.SPIRV fragShaderSPIRV = null;
+        try {
+            String fsh = builder.shadersSrc.get(SPIRVUtils.ShaderKind.FRAGMENT_SHADER);
+            fragShaderSPIRV = SPIRVUtils.compileShader(String.format("%s.fsh", name), fsh, SPIRVUtils.ShaderKind.FRAGMENT_SHADER);
+
+            this.vertShaderModule = createShaderModule(vertShaderSPIRV.bytecode());
+            this.fragShaderModule = createShaderModule(fragShaderSPIRV.bytecode());
+        } finally {
+                                                                                           
+                                                                                     
+            vertShaderSPIRV.free();
+            if (fragShaderSPIRV != null) fragShaderSPIRV.free();
+        }
     }
 
     public void cleanUp() {
@@ -262,13 +267,21 @@ public class GraphicsPipeline extends Pipeline {
         final VkVertexInputBindingDescription.Buffer bindingDescriptions;
 
         VertexInputDescription(VertexFormat vertexFormat) {
-            this.bindingDescriptions = getBindingDescription(vertexFormat);
-            this.attributeDescriptions = getAttributeDescriptions(vertexFormat);
+            if (vertexFormat != DefaultVertexFormat.EMPTY) {
+                this.bindingDescriptions = getBindingDescription(vertexFormat);
+                this.attributeDescriptions = getAttributeDescriptions(vertexFormat);
+            }
+            else {
+                this.bindingDescriptions = null;
+                this.attributeDescriptions = null;
+            }
         }
 
         void cleanUp() {
-            MemoryUtil.memFree(this.bindingDescriptions);
-            MemoryUtil.memFree(this.attributeDescriptions);
+            if (this.bindingDescriptions != null) {
+                MemoryUtil.memFree(this.bindingDescriptions);
+                MemoryUtil.memFree(this.attributeDescriptions);
+            }
         }
     }
 
@@ -316,28 +329,31 @@ public class GraphicsPipeline extends Pipeline {
 
                             offset += 8;
                         }
-                        case USHORT -> {
-                            posDescription.format(VK_FORMAT_R16G16B16A16_UINT);
-                            posDescription.offset(offset);
-
-                            offset += 8;
-                        }
                         case BYTE -> {
                             posDescription.format(VK_FORMAT_R8G8B8A8_SINT);
                             posDescription.offset(offset);
 
                             offset += 4;
                         }
-                        default -> throw new RuntimeException(String.format("Unknown type %s for POSITION", type));
                     }
 
                 }
 
                 case COLOR -> {
-                    posDescription.format(VK_FORMAT_R8G8B8A8_UNORM);
-                    posDescription.offset(offset);
+                    switch (type) {
+                        case UBYTE -> {
+                            posDescription.format(VK_FORMAT_R8G8B8A8_UNORM);
+                            posDescription.offset(offset);
 
-                    offset += 4;
+                            offset += 4;
+                        }
+                        case UINT -> {
+                            posDescription.format(VK_FORMAT_R32_UINT);
+                            posDescription.offset(offset);
+
+                            offset += 4;
+                        }
+                    }
                 }
 
                 case UV -> {
@@ -360,7 +376,12 @@ public class GraphicsPipeline extends Pipeline {
 
                             offset += 4;
                         }
-                        default -> throw new RuntimeException(String.format("Unknown type %s for UV", type));
+                        case UINT -> {
+                            posDescription.format(VK_FORMAT_R32_UINT);
+                            posDescription.offset(offset);
+
+                            offset += 4;
+                        }
                     }
                 }
 
@@ -384,15 +405,22 @@ public class GraphicsPipeline extends Pipeline {
 
                         offset += 4;
                     }
+                    else if (type == VertexFormatElement.Type.FLOAT && elementCount == 1) {
+                        posDescription.format(VK_FORMAT_R32_SFLOAT);
+                        posDescription.offset(offset);
+
+                        offset += 4;
+                    }
                     else {
-                        throw new RuntimeException(String.format("Unknown format: %s", usage));
+                        throw new RuntimeException(String.format("Unknown type: %s", type));
                     }
                 }
 
                 default -> throw new RuntimeException(String.format("Unknown format: %s", usage));
             }
 
-            posDescription.offset(((VertexFormatMixed) (vertexFormat)).getOffset(i));
+            int elementOffset = vertexFormat.getOffset(formatElement);
+            posDescription.offset(elementOffset >= 0 ? elementOffset : ((VertexFormatMixed) vertexFormat).getOffset(i));
         }
 
         return attributeDescriptions.rewind();

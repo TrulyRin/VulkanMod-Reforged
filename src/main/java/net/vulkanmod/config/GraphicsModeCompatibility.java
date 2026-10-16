@@ -1,24 +1,28 @@
 package net.vulkanmod.config;
 
-import net.minecraft.client.GraphicsStatus;
+import net.minecraft.client.GraphicsPreset;
 
 public final class GraphicsModeCompatibility {
     private GraphicsModeCompatibility() {
     }
 
-    public static GraphicsStatus coerce(GraphicsStatus requested) {
-        if (requested == GraphicsStatus.FABULOUS) {
-            return GraphicsStatus.FANCY;
+    public static GraphicsPreset coerce(GraphicsPreset requested) {
+        if (requested == GraphicsPreset.FABULOUS) {
+            return GraphicsPreset.FANCY;
         }
 
-        if (requested == GraphicsStatus.FANCY) {
-            return GraphicsStatus.FANCY;
+        if (requested == GraphicsPreset.CUSTOM) {
+            return GraphicsPreset.CUSTOM;
         }
 
-        return GraphicsStatus.FAST;
+        if (requested == GraphicsPreset.FANCY) {
+            return GraphicsPreset.FANCY;
+        }
+
+        return GraphicsPreset.FAST;
     }
 
-    public static GraphicsStatus[] supportedModes() {
-        return new GraphicsStatus[]{GraphicsStatus.FAST, GraphicsStatus.FANCY};
+    public static GraphicsPreset[] supportedModes() {
+        return new GraphicsPreset[]{GraphicsPreset.FAST, GraphicsPreset.FANCY, GraphicsPreset.CUSTOM};
     }
 }

@@ -98,7 +98,7 @@ public class QuadSorter {
         long ptr = bufferBuilder.getPtr();
 
         final int size = indexType.bytes;
-        final int stride = 4; // 4 vertices in a quad
+        final int stride = 4;                        
         for (int i = 0; i < sortingPoints.length; ++i) {
             final int quadIndex = sortingPoints[i];
             final int baseVertex = quadIndex * stride;

@@ -69,6 +69,19 @@ public class CyclingOption<E> extends Option<E> {
         this.index = findNewValueIndex();
     }
 
+    @Override
+    public boolean acceptsDraftValue(Object candidate) {
+        if (!super.acceptsDraftValue(candidate)) {
+            return false;
+        }
+        for (E value : this.values) {
+            if (java.util.Objects.equals(value, candidate)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private int findNewValueIndex() {
         for (int i = 0; i < this.values.length; i++) {
             if (this.values[i].equals(this.newValue))

@@ -5,6 +5,12 @@ import com.mojang.blaze3d.vertex.VertexFormatElement;
 
 public class CustomVertexFormat {
 
+       
+                                                                                                  
+                                                                           
+       
+    public static VertexFormat TERRAIN_VERTEX_FORMAT;
+
     public static final VertexFormatElement ELEMENT_POSITION = new VertexFormatElement(0, 0,VertexFormatElement.Type.SHORT, VertexFormatElement.Usage.POSITION, 4);
     public static final VertexFormatElement ELEMENT_COLOR = new VertexFormatElement(1, 0, VertexFormatElement.Type.UBYTE, VertexFormatElement.Usage.COLOR, 4);
     public static final VertexFormatElement ELEMENT_UV0 = new VertexFormatElement(2, 0, VertexFormatElement.Type.USHORT, VertexFormatElement.Usage.UV, 2);

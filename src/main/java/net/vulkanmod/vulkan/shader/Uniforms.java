@@ -1,8 +1,8 @@
 package net.vulkanmod.vulkan.shader;
 
-import com.mojang.blaze3d.systems.RenderSystem;
 import it.unimi.dsi.fastutil.objects.Object2ReferenceOpenHashMap;
-import net.vulkanmod.compat.external.ExternalRenderPathSupport;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.TextureFilteringMethod;
 import net.vulkanmod.compat.external.ExternalTerrainRenderBridge;
 import net.vulkanmod.vulkan.VRenderSystem;
 import net.vulkanmod.vulkan.util.MappedBuffer;
@@ -22,36 +22,59 @@ public class Uniforms {
 
     public static void setupDefaultUniforms() {
 
+              
         mat4f_uniformMap.put("ModelViewMat", VRenderSystem::getModelViewMatrix);
         mat4f_uniformMap.put("ProjMat", VRenderSystem::getProjectionMatrix);
         mat4f_uniformMap.put("MVP", VRenderSystem::getMVP);
         mat4f_uniformMap.put("TextureMat", VRenderSystem::getTextureMatrix);
-        if (ExternalRenderPathSupport.isExternalLodBridgeEnabled()) {
-            mat4f_uniformMap.put("ExternalLodCombinedMatrix", ExternalTerrainRenderBridge::getCombinedMatrix);
-        }
+        mat4f_uniformMap.put("ExternalLodCombinedMatrix", ExternalTerrainRenderBridge::getCombinedMatrix);
 
+               
         vec1i_uniformMap.put("EndPortalLayers", () -> 15);
-        vec1i_uniformMap.put("FogShape", () -> RenderSystem.getShaderFogShape().getIndex());
+        vec1i_uniformMap.put("UseRgss", () -> Minecraft.getInstance().options.textureFiltering().get() == TextureFilteringMethod.RGSS ? 1 : 0);
+        vec1i_uniformMap.put("CurrentTime", VRenderSystem::getCurrentTime);
 
-        vec1f_uniformMap.put("FogStart", RenderSystem::getShaderFogStart);
-        vec1f_uniformMap.put("FogEnd", RenderSystem::getShaderFogEnd);
-        vec1f_uniformMap.put("LineWidth", RenderSystem::getShaderLineWidth);
-        vec1f_uniformMap.put("GameTime", RenderSystem::getShaderGameTime);
-        vec1f_uniformMap.put("GlintAlpha", RenderSystem::getShaderGlintAlpha);
+              
+        vec1f_uniformMap.put("FogStart", () -> Math.min(VRenderSystem.getFogData().environmentalStart,
+                VRenderSystem.getFogData().renderDistanceStart));
+        vec1f_uniformMap.put("FogEnd", () -> Math.min(VRenderSystem.getFogData().environmentalEnd,
+                VRenderSystem.getFogData().renderDistanceEnd));
+        vec1f_uniformMap.put("FogEnvironmentalStart", () -> VRenderSystem.getFogData().environmentalStart);
+        vec1f_uniformMap.put("FogEnvironmentalEnd", () -> VRenderSystem.getFogData().environmentalEnd);
+        vec1f_uniformMap.put("FogRenderDistanceStart", () -> VRenderSystem.getFogData().renderDistanceStart);
+        vec1f_uniformMap.put("FogRenderDistanceEnd", () -> VRenderSystem.getFogData().renderDistanceEnd);
+        vec1f_uniformMap.put("FogSkyEnd", () -> VRenderSystem.getFogData().skyEnd);
+        vec1f_uniformMap.put("FogCloudsEnd", () -> VRenderSystem.getFogData().cloudEnd);
+                                                                              
         vec1f_uniformMap.put("AlphaCutout", () -> VRenderSystem.alphaCutout);
 
+              
         vec2f_uniformMap.put("ScreenSize", VRenderSystem::getScreenSize);
+        vec2f_uniformMap.put("TextureSize", VRenderSystem::getTextureSize);
+        vec2f_uniformMap.put("TexelSize", VRenderSystem::getTexelSize);
 
+              
         vec3f_uniformMap.put("Light0_Direction", () -> VRenderSystem.lightDirection0);
         vec3f_uniformMap.put("Light1_Direction", () -> VRenderSystem.lightDirection1);
-        vec3f_uniformMap.put("ChunkOffset", () -> VRenderSystem.ChunkOffset);
+        vec3f_uniformMap.put("ModelOffset", () -> VRenderSystem.modelOffset);
+        vec3f_uniformMap.put("ChunkOffset", () -> VRenderSystem.modelOffset);
 
+              
         vec4f_uniformMap.put("ColorModulator", VRenderSystem::getShaderColor);
         vec4f_uniformMap.put("FogColor", VRenderSystem::getShaderFogColor);
-        if (ExternalRenderPathSupport.isExternalLodBridgeEnabled()) {
-            vec4f_uniformMap.put("ExternalLodModelOffsetAndYOffset", ExternalTerrainRenderBridge::getModelOffsetAndYOffset);
-            vec4f_uniformMap.put("ExternalLodRenderParams", ExternalTerrainRenderBridge::getRenderParams);
-        }
+        vec4f_uniformMap.put("ExternalLodModelOffsetAndYOffset", ExternalTerrainRenderBridge::getModelOffsetAndYOffset);
+        vec4f_uniformMap.put("ExternalLodRenderParams", ExternalTerrainRenderBridge::getRenderParams);
 
+    }
+
+    public static Supplier<MappedBuffer> getUniformSupplier(String type, String name) {
+        return switch (type) {
+            case "mat4" -> Uniforms.mat4f_uniformMap.get(name);
+            case "vec4" -> Uniforms.vec4f_uniformMap.get(name);
+            case "vec3" -> Uniforms.vec3f_uniformMap.get(name);
+            case "vec2", "ivec2" -> Uniforms.vec2f_uniformMap.get(name);
+
+            default -> null;
+        };
     }
 }

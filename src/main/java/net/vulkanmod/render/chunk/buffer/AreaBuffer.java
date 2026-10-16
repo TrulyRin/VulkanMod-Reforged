@@ -4,11 +4,12 @@ import it.unimi.dsi.fastutil.ints.Int2ReferenceOpenHashMap;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.render.chunk.util.Util;
 import net.vulkanmod.vulkan.memory.*;
+import net.vulkanmod.vulkan.memory.buffer.*;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
 
-public class AreaBuffer {
+public class AreaBuffer implements net.vulkanmod.vulkan.memory.SegmentOwner {
     private static final boolean DEBUG = false;
     private static final Logger LOGGER = Initializer.LOGGER;
 
@@ -51,11 +52,6 @@ public class AreaBuffer {
 
     public Segment upload(ByteBuffer byteBuffer, int oldOffset, DrawBuffers.DrawParameters drawParameters) {
 
-        if (oldOffset != -1) {
-
-            MemoryManager.getInstance().addToFreeSegment(this, oldOffset);
-        }
-
         int size = byteBuffer.remaining();
 
         if (DEBUG && size % elementSize != 0)
@@ -82,12 +78,36 @@ public class AreaBuffer {
 
         segment.drawParameters = drawParameters;
 
-        Buffer dst = this.buffer;
-        UploadManager.INSTANCE.recordUpload(dst, segment.offset, size, byteBuffer);
+        try {
+            Buffer dst = this.buffer;
+            UploadManager.INSTANCE.recordUpload(dst, segment.offset, size, byteBuffer);
+            this.used += size;
+        } catch (Throwable throwable) {
+            this.rollbackReservation(segment);
+            throw throwable;
+        }
 
-        this.used += size;
+        if (oldOffset != -1) {
+            MemoryManager.getInstance().addToFreeSegment(this, oldOffset);
+        }
 
         return segment;
+    }
+
+    private void rollbackReservation(Segment segment) {
+        this.usedSegments.remove(segment.offset);
+        segment.drawParameters = null;
+        segment.free = true;
+
+        Segment next = segment.next;
+        if (next != null && next.isFree()) {
+            mergeSegments(segment, next);
+        }
+
+        Segment prev = segment.prev;
+        if (prev != null && prev.isFree()) {
+            mergeSegments(prev, segment);
+        }
     }
 
     public Segment findSegment(int size) {
@@ -117,7 +137,7 @@ public class AreaBuffer {
         if (this.usage == Usage.INDEX.usage) {
             minIncrement = Math.min(this.size, 2097152);
         } else {
-            minIncrement = Math.min(this.size >> 2, 4194304);
+            minIncrement = Math.min(this.size >> 1, 8388608);
         }
         minIncrement = Math.max(minIncrement, 65536);
         minIncrement = Util.align(minIncrement, this.elementSize);
@@ -132,9 +152,13 @@ public class AreaBuffer {
         this.size = newSize;
         Buffer dst = this.allocateBuffer();
 
-        UploadManager.INSTANCE.copyBuffer(this.buffer, dst);
+        int occupiedHighWaterBytes = last.isFree() ? last.offset : oldSize;
+        if (occupiedHighWaterBytes > 0) {
+            UploadManager.INSTANCE.copyBuffer(this.buffer, 0, dst, 0, occupiedHighWaterBytes);
+        }
+        net.vulkanmod.render.optimization.ChunkFrameDiagnostics.recordRealloc(occupiedHighWaterBytes);
 
-        this.buffer.freeBuffer();
+        this.buffer.scheduleFree();
         this.buffer = dst;
 
         if (last.isFree()) {
@@ -242,6 +266,14 @@ public class AreaBuffer {
         }
     }
 
+    public void rebindSegment(int elementOffset, DrawBuffers.DrawParameters drawParameters) {
+        Segment segment = this.usedSegments.get(elementOffset * this.elementSize);
+        if (segment == null || segment.isFree()) {
+            throw new IllegalStateException("Cannot bind missing area-buffer segment");
+        }
+        segment.drawParameters = drawParameters;
+    }
+
     private void mergeSegments(Segment segment, Segment next) {
         segment.size += next.size;
 
@@ -271,7 +303,7 @@ public class AreaBuffer {
     }
 
     public void freeBuffer() {
-        this.buffer.freeBuffer();
+        this.buffer.scheduleFree();
     }
 
     public int fragmentation() {

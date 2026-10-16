@@ -15,6 +15,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.Shapes;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import net.neoforged.neoforge.client.extensions.common.IClientFluidTypeExtensions;
+import net.neoforged.neoforge.client.textures.FluidSpriteCache;
 import net.vulkanmod.render.chunk.build.light.LightPipeline;
 import net.vulkanmod.render.chunk.build.light.data.QuadLightData;
 import net.vulkanmod.render.chunk.build.thread.BuilderResources;
@@ -28,6 +29,9 @@ import net.vulkanmod.vulkan.util.ColorUtil;
 import org.joml.Vector3f;
 
 public class LiquidRenderer {
+
+                                                                                             
+    private static final float UV_SHRINK_RATIO = 1.0F / 32.0F;
     private static final float MAX_FLUID_HEIGHT = 0.8888889F;
 
     private final BlockPos.MutableBlockPos mBlockPos = new BlockPos.MutableBlockPos();
@@ -49,10 +53,10 @@ public class LiquidRenderer {
     }
 
     private boolean isFaceOccludedByState(BlockGetter blockGetter, float h, Direction direction, BlockPos blockPos, BlockState blockState) {
-        mBlockPos.set(blockPos).offset(Direction.DOWN.getNormal());
+        mBlockPos.set(blockPos).offset(Direction.DOWN.getUnitVec3i());
 
         if (blockState.canOcclude()) {
-            VoxelShape occlusionShape = blockState.getOcclusionShape(blockGetter, mBlockPos);
+            VoxelShape occlusionShape = blockState.getOcclusionShape();
 
             if (occlusionShape == Shapes.block()) {
                 return direction != Direction.UP;
@@ -61,7 +65,7 @@ public class LiquidRenderer {
             }
 
             VoxelShape voxelShape = Shapes.box(0.0, 0.0, 0.0, 1.0, h, 1.0);
-            return Shapes.blockOccudes(voxelShape, occlusionShape, direction);
+            return Shapes.blockOccludes(voxelShape, occlusionShape, direction);
         } else {
             return false;
         }
@@ -90,11 +94,10 @@ public class LiquidRenderer {
         IClientFluidTypeExtensions extensions = IClientFluidTypeExtensions.of(fluidState);
         int color = extensions.getTintColor(fluidState, region, blockPos);
 
-        var atlas = Minecraft.getInstance().getTextureAtlas(InventoryMenu.BLOCK_ATLAS);
-        sprites[0] = atlas.apply(extensions.getStillTexture(fluidState, region, blockPos));
-        sprites[1] = atlas.apply(extensions.getFlowingTexture(fluidState, region, blockPos));
-        var overlay = extensions.getOverlayTexture(fluidState, region, blockPos);
-        sprites[2] = overlay != null ? atlas.apply(overlay) : null;
+                                                                                         
+                                                                                   
+        TextureAtlasSprite[] fluidSprites = FluidSpriteCache.getFluidSprites(region, blockPos, fluidState);
+        System.arraycopy(fluidSprites, 0, this.sprites, 0, this.sprites.length);
 
         float r = ColorUtil.ARGB.unpackR(color);
         float g = ColorUtil.ARGB.unpackG(color);
@@ -139,14 +142,14 @@ public class LiquidRenderer {
             seHeight = 1.0F;
             swHeight = 1.0F;
         } else {
-            float s = this.getHeight(region, fluid, mBlockPos.set(blockPos).offset(Direction.NORTH.getNormal()), northState);
-            float t = this.getHeight(region, fluid, mBlockPos.set(blockPos).offset(Direction.SOUTH.getNormal()), southState);
-            float u = this.getHeight(region, fluid, mBlockPos.set(blockPos).offset(Direction.EAST.getNormal()), eastState);
-            float v = this.getHeight(region, fluid, mBlockPos.set(blockPos).offset(Direction.WEST.getNormal()), westState);
-            neHeight = this.calculateAverageHeight(region, fluid, height, s, u, mBlockPos.set(blockPos).offset(Direction.NORTH.getNormal()).offset(Direction.EAST.getNormal()));
-            nwHeight = this.calculateAverageHeight(region, fluid, height, s, v, mBlockPos.set(blockPos).offset(Direction.NORTH.getNormal()).offset(Direction.WEST.getNormal()));
-            seHeight = this.calculateAverageHeight(region, fluid, height, t, u, mBlockPos.set(blockPos).offset(Direction.SOUTH.getNormal()).offset(Direction.EAST.getNormal()));
-            swHeight = this.calculateAverageHeight(region, fluid, height, t, v, mBlockPos.set(blockPos).offset(Direction.SOUTH.getNormal()).offset(Direction.WEST.getNormal()));
+            float s = this.getHeight(region, fluid, mBlockPos.set(blockPos).offset(Direction.NORTH.getUnitVec3i()), northState);
+            float t = this.getHeight(region, fluid, mBlockPos.set(blockPos).offset(Direction.SOUTH.getUnitVec3i()), southState);
+            float u = this.getHeight(region, fluid, mBlockPos.set(blockPos).offset(Direction.EAST.getUnitVec3i()), eastState);
+            float v = this.getHeight(region, fluid, mBlockPos.set(blockPos).offset(Direction.WEST.getUnitVec3i()), westState);
+            neHeight = this.calculateAverageHeight(region, fluid, height, s, u, mBlockPos.set(blockPos).offset(Direction.NORTH.getUnitVec3i()).offset(Direction.EAST.getUnitVec3i()));
+            nwHeight = this.calculateAverageHeight(region, fluid, height, s, v, mBlockPos.set(blockPos).offset(Direction.NORTH.getUnitVec3i()).offset(Direction.WEST.getUnitVec3i()));
+            seHeight = this.calculateAverageHeight(region, fluid, height, t, u, mBlockPos.set(blockPos).offset(Direction.SOUTH.getUnitVec3i()).offset(Direction.EAST.getUnitVec3i()));
+            swHeight = this.calculateAverageHeight(region, fluid, height, t, v, mBlockPos.set(blockPos).offset(Direction.SOUTH.getUnitVec3i()).offset(Direction.WEST.getUnitVec3i()));
         }
 
         float x0 = (posX & 15);
@@ -195,7 +198,9 @@ public class LiquidRenderer {
 
             float uA = (u0 + u1 + u2 + u3) / 4.0F;
             float vA = (v0 + v1 + v2 + v3) / 4.0F;
-            float ai = sprites[0].uvShrinkRatio();
+                                                                                              
+                                                                                                
+            float ai = UV_SHRINK_RATIO;
             u0 = Mth.lerp(ai, u0, uA);
             u1 = Mth.lerp(ai, u1, uA);
             u2 = Mth.lerp(ai, u2, uA);
@@ -326,7 +331,7 @@ public class LiquidRenderer {
             boolean isOverlay = false;
 
             if (sprites[2] != null) {
-                if (!adjState.isSolidRender(region, blockPos)) {
+                if (!adjState.isSolidRender()) {
                     sprite = sprites[2];
                     isOverlay = true;
                 }
@@ -414,7 +419,7 @@ public class LiquidRenderer {
     private float getHeight(BlockAndTintGetter blockAndTintGetter, Fluid fluid, BlockPos blockPos, BlockState adjBlockState) {
         FluidState adjFluidState = adjBlockState.getFluidState();
         if (fluid.isSame(adjFluidState.getType())) {
-            BlockState blockState2 = blockAndTintGetter.getBlockState(upperBlockPos.set(blockPos).offset(Direction.UP.getNormal()));
+            BlockState blockState2 = blockAndTintGetter.getBlockState(upperBlockPos.set(blockPos).offset(Direction.UP.getUnitVec3i()));
             return fluid.isSame(blockState2.getFluidState().getType()) ? 1.0F : adjFluidState.getOwnHeight();
         } else {
             return !adjBlockState.isSolid() ? 0.0F : -1.0f;

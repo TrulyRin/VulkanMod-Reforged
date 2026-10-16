@@ -1,0 +1,12 @@
+VulkanMod Reforged
+
+A Vulkan renderer for Minecraft 1.21.11 on NeoForge.
+Experimental port. Compatibility and feature parity are incomplete.
+
+Downloads: https://github.com/TrulyRin/VulkanMod-Reforged/releases
+Build: ./gradlew assemble
+Java: 21
+
+An unofficial fork of https://github.com/xCollateral/VulkanMod
+Maintained by Rindw (TrulyRin). See NOTICE for attribution.
+Licensed under LGPL-3.0-only; see LICENSE and COPYING.

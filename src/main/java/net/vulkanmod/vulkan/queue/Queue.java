@@ -18,15 +18,20 @@ import static org.lwjgl.vulkan.KHRSurface.vkGetPhysicalDeviceSurfaceSupportKHR;
 import static org.lwjgl.vulkan.VK10.*;
 
 public abstract class Queue {
-    private static VkDevice DEVICE;
-
+    private static VkDevice device;
     private static QueueFamilyIndices queueFamilyIndices;
+
+    private final VkQueue vkQueue;
+
     protected CommandPool commandPool;
 
-    private final VkQueue queue;
-
     public synchronized CommandPool.CommandBuffer beginCommands() {
-        return this.commandPool.beginCommands();
+        try (MemoryStack stack = stackPush()) {
+            CommandPool.CommandBuffer commandBuffer = this.commandPool.getCommandBuffer(stack);
+            commandBuffer.begin(stack);
+
+            return commandBuffer;
+        }
     }
 
     Queue(MemoryStack stack, int familyIndex) {
@@ -36,18 +41,24 @@ public abstract class Queue {
     Queue(MemoryStack stack, int familyIndex, boolean initCommandPool) {
         PointerBuffer pQueue = stack.mallocPointer(1);
         vkGetDeviceQueue(DeviceManager.vkDevice, familyIndex, 0, pQueue);
-        this.queue = new VkQueue(pQueue.get(0), DeviceManager.vkDevice);
+        this.vkQueue = new VkQueue(pQueue.get(0), DeviceManager.vkDevice);
 
         if (initCommandPool)
             this.commandPool = new CommandPool(familyIndex);
     }
 
-    public synchronized long submitCommands(CommandPool.CommandBuffer commandBuffer) {
-        return this.commandPool.submitCommands(commandBuffer, queue);
+    public long submitCommands(CommandPool.CommandBuffer commandBuffer) {
+        return submitCommands(commandBuffer, false);
     }
 
-    public VkQueue queue() {
-        return this.queue;
+    public synchronized long submitCommands(CommandPool.CommandBuffer commandBuffer, boolean useSemaphore) {
+        try (MemoryStack stack = stackPush()) {
+            return commandBuffer.submitCommands(stack, vkQueue, useSemaphore);
+        }
+    }
+
+    public VkQueue vkQueue() {
+        return this.vkQueue;
     }
 
     public void cleanUp() {
@@ -56,7 +67,11 @@ public abstract class Queue {
     }
 
     public void waitIdle() {
-        vkQueueWaitIdle(queue);
+        vkQueueWaitIdle(vkQueue);
+    }
+
+    public CommandPool getCommandPool() {
+        return commandPool;
     }
 
     public enum Family {
@@ -66,17 +81,16 @@ public abstract class Queue {
     }
 
     public static QueueFamilyIndices getQueueFamilies() {
-        if (DEVICE == null)
-            DEVICE = Vulkan.getVkDevice();
+        if (device == null)
+            device = Vulkan.getVkDevice();
 
         if (queueFamilyIndices == null) {
-            queueFamilyIndices = findQueueFamilies(DEVICE.getPhysicalDevice());
+            queueFamilyIndices = findQueueFamilies(device.getPhysicalDevice());
         }
         return queueFamilyIndices;
     }
 
     public static QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
-
         QueueFamilyIndices indices = new QueueFamilyIndices();
 
         try (MemoryStack stack = stackPush()) {
@@ -85,7 +99,7 @@ public abstract class Queue {
 
             vkGetPhysicalDeviceQueueFamilyProperties(device, queueFamilyCount, null);
 
-            VkQueueFamilyProperties.Buffer queueFamilies = VkQueueFamilyProperties.mallocStack(queueFamilyCount.get(0), stack);
+            VkQueueFamilyProperties.Buffer queueFamilies = VkQueueFamilyProperties.malloc(queueFamilyCount.get(0), stack);
 
             vkGetPhysicalDeviceQueueFamilyProperties(device, queueFamilyCount, queueFamilies);
 
@@ -123,37 +137,40 @@ public abstract class Queue {
             }
 
             if (indices.presentFamily == -1) {
-                // Some drivers will not show present support even if some queue supports it
-                // Use compute queue as fallback
+                                                                                            
+                                                
 
                 indices.presentFamily = indices.computeFamily;
                 Initializer.LOGGER.warn("Using compute queue as present fallback");
             }
 
+                                                                                      
+                                                                          
             if (indices.transferFamily == -1) {
 
-                int fallback = -1;
+                int transferIndex = -1;
                 for (int i = 0; i < queueFamilies.capacity(); i++) {
                     int queueFlags = queueFamilies.get(i).queueFlags();
 
                     if ((queueFlags & VK_QUEUE_TRANSFER_BIT) != 0) {
-                        if (fallback == -1)
-                            fallback = i;
+                        if (transferIndex == -1)
+                            transferIndex = i;
 
                         if ((queueFlags & (VK_QUEUE_GRAPHICS_BIT)) == 0) {
                             indices.transferFamily = i;
 
                             if (i != indices.computeFamily)
                                 break;
-                            fallback = i;
+
+                            transferIndex = i;
                         }
                     }
-
-                    if (fallback == -1)
-                        throw new RuntimeException("Failed to find queue family with transfer support");
-
-                    indices.transferFamily = fallback;
                 }
+
+                if (transferIndex == -1)
+                    throw new RuntimeException("Failed to find queue family with transfer support");
+
+                indices.transferFamily = transferIndex;
             }
 
             if (indices.computeFamily == -1) {

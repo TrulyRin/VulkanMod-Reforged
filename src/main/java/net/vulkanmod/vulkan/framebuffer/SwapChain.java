@@ -2,12 +2,12 @@ package net.vulkanmod.vulkan.framebuffer;
 
 import it.unimi.dsi.fastutil.longs.Long2ReferenceOpenHashMap;
 import net.vulkanmod.Initializer;
-import net.vulkanmod.gl.GlTexture;
 import net.vulkanmod.render.util.MathUtil;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.Vulkan;
 import net.vulkanmod.vulkan.device.DeviceManager;
 import net.vulkanmod.vulkan.queue.Queue;
+import net.vulkanmod.vulkan.texture.SamplerManager;
 import net.vulkanmod.vulkan.texture.VulkanImage;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
@@ -29,20 +29,19 @@ import static org.lwjgl.vulkan.KHRSwapchain.*;
 import static org.lwjgl.vulkan.VK10.*;
 
 public class SwapChain extends Framebuffer {
-    private static final int DEFAULT_IMAGE_COUNT = 3;
-
+                                                                                                      
+                                                                                                                  
     private static final int defUncappedMode = checkPresentMode(VK_PRESENT_MODE_IMMEDIATE_KHR, VK_PRESENT_MODE_MAILBOX_KHR);
 
     private final Long2ReferenceOpenHashMap<long[]> FBO_map = new Long2ReferenceOpenHashMap<>();
 
     private long swapChainId = VK_NULL_HANDLE;
-    private List<VulkanImage> swapChainImages;
+    private List<VulkanImage> swapChainImages = List.of();
     private VkExtent2D extent2D;
     public boolean isBGRAformat;
     private boolean vsync = false;
-
-    private int[] glIds;
-    private int depthAttachmentGlId = -1;
+    private boolean hasImages = false;
+    private boolean acquired = false;
 
     public SwapChain() {
         this.attachmentCount = 2;
@@ -77,19 +76,20 @@ public class SwapChain extends Framebuffer {
             int presentMode = getPresentMode(surfaceProperties.presentModes);
             VkExtent2D extent = getExtent(surfaceProperties.capabilities);
 
-            if (extent.width() == 0 && extent.height() == 0) {
-                if (this.swapChainId != VK_NULL_HANDLE) {
-                    this.swapChainImages.forEach(image -> vkDestroyImageView(device, image.getImageView(), null));
-                    vkDestroySwapchainKHR(device, this.swapChainId, null);
-                    this.swapChainId = VK_NULL_HANDLE;
-                }
+            if (extent.width() <= 0 || extent.height() <= 0) {
+                destroySwapChainImages();
 
                 this.width = 0;
                 this.height = 0;
+                this.hasImages = false;
+                this.acquired = false;
                 return;
             }
 
-            int requestedImages = Math.max(DEFAULT_IMAGE_COUNT, surfaceProperties.capabilities.minImageCount());
+            int requestedImages = surfaceProperties.capabilities.minImageCount() + 1;
+            if (surfaceProperties.capabilities.maxImageCount() > 0 && requestedImages > surfaceProperties.capabilities.maxImageCount()) {
+                requestedImages = surfaceProperties.capabilities.maxImageCount();
+            }
 
             IntBuffer imageCount = stack.ints(requestedImages);
 
@@ -98,6 +98,7 @@ public class SwapChain extends Framebuffer {
             createInfo.sType(VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR);
             createInfo.surface(Vulkan.getSurface());
 
+                             
             this.format = surfaceFormat.format();
             this.extent2D = VkExtent2D.create().set(extent);
 
@@ -106,7 +107,18 @@ public class SwapChain extends Framebuffer {
             createInfo.imageColorSpace(surfaceFormat.colorSpace());
             createInfo.imageExtent(extent);
             createInfo.imageArrayLayers(1);
-            createInfo.imageUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+
+                                                                                            
+                                                                                         
+                                                                                
+            int imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+            if ((surfaceProperties.capabilities.supportedUsageFlags() & VK_IMAGE_USAGE_TRANSFER_DST_BIT) != 0) {
+                imageUsage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            }
+            else {
+                Initializer.LOGGER.error("Swapchain does not advertise TRANSFER_DST; the frame cannot be blitted to screen.");
+            }
+            createInfo.imageUsage(imageUsage);
 
             Queue.QueueFamilyIndices indices = Queue.getQueueFamilies();
 
@@ -122,17 +134,12 @@ public class SwapChain extends Framebuffer {
             createInfo.presentMode(presentMode);
             createInfo.clipped(true);
 
-            createInfo.oldSwapchain(this.swapChainId);
+            destroySwapChainImages();
 
             LongBuffer pSwapChain = stack.longs(VK_NULL_HANDLE);
 
             int result = vkCreateSwapchainKHR(device, createInfo, null, pSwapChain);
             Vulkan.checkResult(result, "Failed to create swap chain");
-
-            if (this.swapChainId != VK_NULL_HANDLE) {
-                this.swapChainImages.forEach(image -> vkDestroyImageView(device, image.getImageView(), null));
-                vkDestroySwapchainKHR(device, this.swapChainId, null);
-            }
 
             this.swapChainId = pSwapChain.get(0);
 
@@ -143,36 +150,23 @@ public class SwapChain extends Framebuffer {
             vkGetSwapchainImagesKHR(device, this.swapChainId, imageCount, pSwapchainImages);
 
             this.swapChainImages = new ArrayList<>(imageCount.get(0));
+            this.hasImages = true;
 
             this.width = extent2D.width();
             this.height = extent2D.height();
 
             for (int i = 0; i < pSwapchainImages.capacity(); i++) {
                 long imageId = pSwapchainImages.get(i);
-                long imageView = VulkanImage.createImageView(imageId, this.format, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+                long imageView = VulkanImage.createImageView(imageId, this.format, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1);
 
-                VulkanImage image = new VulkanImage(imageId, this.format, 1, this.width, this.height, 4, 0, imageView);
-                image.updateTextureSampler(true, true, false);
+                VulkanImage image = new VulkanImage("Swapchain", imageId, this.format, 1, this.width, this.height, 4, 0, imageView);
+                long samplerId = SamplerManager.getSampler(true, true, 0);
+                image.setSampler(samplerId);
                 this.swapChainImages.add(image);
             }
         }
 
-        createGlIds();
         createDepthResources();
-    }
-
-    private void createGlIds() {
-        this.glIds = new int[this.swapChainImages.size()];
-
-        for (int i = 0; i < this.swapChainImages.size(); i++) {
-            int id = GlTexture.genTextureId();
-            this.glIds[i] = id;
-            GlTexture.bindIdToImage(id, this.swapChainImages.get(i));
-        }
-    }
-
-    public int getColorAttachmentGlId() {
-        return this.glIds[Renderer.getCurrentImage()];
     }
 
     private long[] createFramebuffers(RenderPass renderPass) {
@@ -207,17 +201,8 @@ public class SwapChain extends Framebuffer {
 
     private void createDepthResources() {
         this.depthAttachment = VulkanImage.createDepthImage(depthFormat, this.width, this.height,
-                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                false, false);
-
-        if (this.depthAttachmentGlId == -1) {
-            this.depthAttachmentGlId = GlTexture.genTextureId();
-        }
-        GlTexture.bindIdToImage(this.depthAttachmentGlId, this.depthAttachment);
-    }
-
-    public int getDepthAttachmentGlId() {
-        return this.depthAttachmentGlId;
+                                                            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                                                            false, false);
     }
 
     @Override
@@ -234,45 +219,22 @@ public class SwapChain extends Framebuffer {
             this.FBO_map.clear();
         }
 
-        vkDestroySwapchainKHR(device, this.swapChainId, null);
-        this.swapChainImages.forEach(image -> vkDestroyImageView(device, image.getImageView(), null));
-
-        if (this.glIds != null) {
-            for (int id : this.glIds) {
-                GlTexture.setVulkanImage(id, null);
-            }
+        destroySwapChainImages();
+        if (this.depthAttachment != null) {
+            this.depthAttachment.free();
+            this.depthAttachment = null;
         }
+    }
 
-        if (this.depthAttachmentGlId != -1) {
-            GlTexture.setVulkanImage(this.depthAttachmentGlId, null);
-            this.depthAttachmentGlId = -1;
+    private void destroySwapChainImages() {
+        this.hasImages = false;
+        this.acquired = false;
+        this.swapChainImages.forEach(VulkanImage::releaseExternalImageViews);
+        this.swapChainImages = List.of();
+        if (this.swapChainId != VK_NULL_HANDLE) {
+            vkDestroySwapchainKHR(Vulkan.getVkDevice(), this.swapChainId, null);
+            this.swapChainId = VK_NULL_HANDLE;
         }
-
-        this.depthAttachment.free();
-    }
-
-    public long getId() {
-        return this.swapChainId;
-    }
-
-    public List<VulkanImage> getImages() {
-        return this.swapChainImages;
-    }
-
-    public long getImageId(int i) {
-        return this.swapChainImages.get(i).getId();
-    }
-
-    public VkExtent2D getExtent() {
-        return this.extent2D;
-    }
-
-    public VulkanImage getColorAttachment() {
-        return this.swapChainImages.get(Renderer.getCurrentImage());
-    }
-
-    public long getImageView(int i) {
-        return this.swapChainImages.get(i).getImageView();
     }
 
     private VkSurfaceFormatKHR getFormat(VkSurfaceFormatKHR.Buffer availableFormats) {
@@ -297,6 +259,7 @@ public class SwapChain extends Framebuffer {
     private int getPresentMode(IntBuffer availablePresentModes) {
         int requestedMode = vsync ? VK_PRESENT_MODE_FIFO_KHR : defUncappedMode;
 
+                                                              
         if (requestedMode == VK_PRESENT_MODE_FIFO_KHR)
             return VK_PRESENT_MODE_FIFO_KHR;
 
@@ -306,7 +269,7 @@ public class SwapChain extends Framebuffer {
             }
         }
 
-        Initializer.LOGGER.warn("Requested mode not supported: " + getDisplayModeString(requestedMode) + ": using VSync");
+        Initializer.LOGGER.warn("Requested mode not supported: " + getDisplayModeString(requestedMode) + ": using FIFO present mode");
         return VK_PRESENT_MODE_FIFO_KHR;
     }
 
@@ -325,12 +288,13 @@ public class SwapChain extends Framebuffer {
             return capabilities.currentExtent();
         }
 
+                   
         IntBuffer width = stackGet().ints(0);
         IntBuffer height = stackGet().ints(0);
 
         glfwGetFramebufferSize(window, width, height);
 
-        VkExtent2D actualExtent = VkExtent2D.mallocStack().set(width.get(0), height.get(0));
+        VkExtent2D actualExtent = VkExtent2D.malloc(stackGet()).set(width.get(0), height.get(0));
 
         VkExtent2D minExtent = capabilities.minImageExtent();
         VkExtent2D maxExtent = capabilities.maxImageExtent();
@@ -351,8 +315,47 @@ public class SwapChain extends Framebuffer {
                     }
                 }
             }
-            return VK_PRESENT_MODE_FIFO_KHR;
+            return VK_PRESENT_MODE_FIFO_KHR;                                                              
         }
+    }
+
+    public long getId() {
+        return this.swapChainId;
+    }
+
+    public List<VulkanImage> getImages() {
+        return this.swapChainImages;
+    }
+
+    public long getImageId(int i) {
+        return this.swapChainImages.get(i).getId();
+    }
+
+    public VkExtent2D getExtent() {
+        return this.extent2D;
+    }
+
+    public VulkanImage getColorAttachment() {
+        int image = Renderer.getCurrentImage();
+        if (!this.hasImages || !this.acquired || image < 0 || image >= this.swapChainImages.size()) return null;
+        return this.swapChainImages.get(image);
+    }
+
+    public long getColorAttachmentView() {
+        VulkanImage image = this.getColorAttachment();
+        return image == null ? VK_NULL_HANDLE : image.getImageView();
+    }
+
+    public boolean hasImages() {
+        return this.hasImages;
+    }
+
+    public boolean isAcquired() {
+        return this.acquired;
+    }
+
+    public void setAcquired(boolean acquired) {
+        this.acquired = acquired;
     }
 
     public boolean isVsync() {

@@ -4,8 +4,8 @@
     "srcrgb": "srcalpha",
     "dstrgb": "1-srcalpha"
   },
-  "vertex": "external_lod",
-  "fragment": "external_lod",
+  "vertex": "lod",
+  "fragment": "lod",
   "attributes": [
     "Position",
     "Color",

@@ -1,18 +1,19 @@
 package net.vulkanmod.render;
 
 import com.mojang.blaze3d.vertex.VertexFormat;
-import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.chunk.ChunkSectionLayer;
 import net.vulkanmod.compat.external.ExternalRenderPathSupport;
 import net.vulkanmod.render.chunk.build.thread.ThreadBuilderPack;
 import net.vulkanmod.render.vertex.CustomVertexFormat;
 import net.vulkanmod.render.vertex.TerrainRenderType;
 import net.vulkanmod.vulkan.shader.GraphicsPipeline;
 import net.vulkanmod.vulkan.shader.Pipeline;
+import net.vulkanmod.render.shader.ShaderLoadUtil;
+import net.vulkanmod.vulkan.shader.PipelineConfig;
 import net.vulkanmod.vulkan.shader.SPIRVUtils;
 
 import java.util.function.Function;
 
-import static net.vulkanmod.vulkan.shader.SPIRVUtils.compileShaderAbsoluteFile;
 
 public abstract class PipelineManager {
     private static final String shaderPath = "/assets/vulkanmod/shaders/";
@@ -20,6 +21,7 @@ public abstract class PipelineManager {
 
     public static void setTerrainVertexFormat(VertexFormat format) {
         TERRAIN_VERTEX_FORMAT = format;
+        net.vulkanmod.render.vertex.CustomVertexFormat.TERRAIN_VERTEX_FORMAT = format;
     }
 
     static GraphicsPipeline terrainShaderEarlyZ, terrainShader, fastBlitPipeline, renderScaleBlitPipeline, externalLodPipeline;
@@ -27,8 +29,14 @@ public abstract class PipelineManager {
     private static Function<TerrainRenderType, GraphicsPipeline> shaderGetter;
 
     public static void init() {
+        if (terrainShader != null) return;
         setTerrainVertexFormat(CustomVertexFormat.COMPRESSED_TERRAIN);
-        createBasicPipelines();
+        try {
+            createBasicPipelines();
+        } catch (RuntimeException | Error failure) {
+            destroyPipelines();
+            throw failure;
+        }
         setDefaultShader();
         ThreadBuilderPack.defaultTerrainBuilderConstructor();
     }
@@ -47,22 +55,25 @@ public abstract class PipelineManager {
         }
     }
 
-    private static GraphicsPipeline createPipeline(String baseName, String vertName, String fragName,VertexFormat vertexFormat) {
-        String pathB = String.format("basic/%s/%s", baseName, baseName);
-        String pathV = String.format("basic/%s/%s", baseName, vertName);
-        String pathF = String.format("basic/%s/%s", baseName, fragName);
+    private static GraphicsPipeline createPipeline(String baseName, String vertName, String fragName, VertexFormat vertexFormat) {
+                                                                                                
+                                                                                                 
+        String base = "%sbasic".formatted(ShaderLoadUtil.SHADERS_PATH);
+        String dir = "%s/%s".formatted(base, baseName);
 
-        Pipeline.Builder pipelineBuilder = new Pipeline.Builder(vertexFormat, pathB);
-        pipelineBuilder.parseBindingsJSON();
+        Pipeline.Builder pipelineBuilder = new Pipeline.Builder(vertexFormat, "basic/%s/%s".formatted(baseName, baseName));
+        pipelineBuilder.applyConfig(PipelineConfig.fromJson(baseName, ShaderLoadUtil.getJsonConfig(base, baseName)));
 
-        SPIRVUtils.SPIRV vertShaderSPIRV = compileShaderAbsoluteFile(String.format("%s%s.vsh", shaderPath, pathV), SPIRVUtils.ShaderKind.VERTEX_SHADER);
-        SPIRVUtils.SPIRV fragShaderSPIRV = compileShaderAbsoluteFile(String.format("%s%s.fsh", shaderPath, pathF), SPIRVUtils.ShaderKind.FRAGMENT_SHADER);
-        pipelineBuilder.setSPIRVs(vertShaderSPIRV, fragShaderSPIRV);
+        pipelineBuilder.setShaderSrc(SPIRVUtils.ShaderKind.VERTEX_SHADER,
+                                     ShaderLoadUtil.getShaderSource(dir, "%s.vsh".formatted(vertName)));
+        pipelineBuilder.setShaderSrc(SPIRVUtils.ShaderKind.FRAGMENT_SHADER,
+                                     ShaderLoadUtil.getShaderSource(dir, "%s.fsh".formatted(fragName)));
 
         return pipelineBuilder.createGraphicsPipeline();
     }
 
     public static GraphicsPipeline getTerrainShader(TerrainRenderType renderType) {
+        init();
         return shaderGetter.apply(renderType);
     }
 
@@ -70,27 +81,36 @@ public abstract class PipelineManager {
         shaderGetter = consumer;
     }
 
-    public static GraphicsPipeline getTerrainDirectShader(RenderType renderType) {
+    public static GraphicsPipeline getTerrainDirectShader(ChunkSectionLayer renderType) {
         return terrainShader;
     }
 
-    public static GraphicsPipeline getTerrainIndirectShader(RenderType renderType) {
+    public static GraphicsPipeline getTerrainIndirectShader(ChunkSectionLayer renderType) {
         return terrainShaderEarlyZ;
     }
 
-    public static GraphicsPipeline getFastBlitPipeline() { return fastBlitPipeline; }
+    public static GraphicsPipeline getFastBlitPipeline() { init(); return fastBlitPipeline; }
 
-    public static GraphicsPipeline getRenderScaleBlitPipeline() { return renderScaleBlitPipeline; }
+    public static GraphicsPipeline getRenderScaleBlitPipeline() { init(); return renderScaleBlitPipeline; }
 
-    public static GraphicsPipeline getExternalLodPipeline() { return externalLodPipeline; }
+    public static GraphicsPipeline getExternalLodPipeline() { init(); return externalLodPipeline; }
+
+    public static void reload() {
+        if (terrainShader == null) return;
+        destroyPipelines();
+        init();
+    }
 
     public static void destroyPipelines() {
-        terrainShaderEarlyZ.cleanUp();
-        terrainShader.cleanUp();
-        fastBlitPipeline.cleanUp();
-        renderScaleBlitPipeline.cleanUp();
-        if (externalLodPipeline != null) {
-            externalLodPipeline.cleanUp();
+        for (GraphicsPipeline pipeline : new GraphicsPipeline[]{terrainShaderEarlyZ, terrainShader,
+                fastBlitPipeline, renderScaleBlitPipeline, externalLodPipeline}) {
+            if (pipeline != null) pipeline.scheduleCleanUp();
         }
+        terrainShaderEarlyZ = null;
+        terrainShader = null;
+        fastBlitPipeline = null;
+        renderScaleBlitPipeline = null;
+        externalLodPipeline = null;
+        shaderGetter = null;
     }
 }
