@@ -19,11 +19,11 @@ import org.lwjgl.opengl.GL32;
 
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
-import java.util.function.Supplier;
 
 public final class ExternalTerrainRenderBridge {
     private static final int EXTERNAL_LOD_VERTEX_SIZE_BYTES = 16;
     private static final String DEBUG_DRAW_PROPERTY = "vulkanmod.compat.externalLod.debugDraw";
+    private static final boolean DEBUG_DRAW_ENABLED = Boolean.getBoolean(DEBUG_DRAW_PROPERTY);
     private static final long DIAGNOSTIC_INTERVAL_MS = 2_000L;
 
     private static final Int2ReferenceOpenHashMap<VertexUpload> VERTEX_UPLOADS = new Int2ReferenceOpenHashMap<>();
@@ -56,7 +56,9 @@ public final class ExternalTerrainRenderBridge {
         }
 
         if (mode != GL11.GL_TRIANGLES || count <= 0) {
-            record(DrawOutcome.UNSUPPORTED_MODE_OR_COUNT, () -> "mode=%d count=%d".formatted(mode, count));
+            if (DEBUG_DRAW_ENABLED) {
+                record(DrawOutcome.UNSUPPORTED_MODE_OR_COUNT, "mode=%d count=%d".formatted(mode, count));
+            }
             return;
         }
 
@@ -66,20 +68,26 @@ public final class ExternalTerrainRenderBridge {
                 return;
             }
         } catch (NullPointerException ignored) {
-            record(DrawOutcome.NOT_RECORDING, () -> "renderer missing");
+            if (DEBUG_DRAW_ENABLED) {
+                record(DrawOutcome.NOT_RECORDING, "renderer missing");
+            }
             return;
         }
 
         GlBuffer vertexGlBuffer = GlBuffer.getArrayBufferBound();
         GlBuffer indexGlBuffer = GlBuffer.getElementArrayBufferBound();
         if (vertexGlBuffer == null || indexGlBuffer == null || vertexGlBuffer.getSize() == 0 || indexGlBuffer.getSize() == 0) {
-            record(DrawOutcome.MISSING_BUFFERS, () -> "vertex=%s index=%s".formatted(bufferInfo(vertexGlBuffer), bufferInfo(indexGlBuffer)));
+            if (DEBUG_DRAW_ENABLED) {
+                record(DrawOutcome.MISSING_BUFFERS, "vertex=%s index=%s".formatted(bufferInfo(vertexGlBuffer), bufferInfo(indexGlBuffer)));
+            }
             return;
         }
 
         int vertexCount = vertexGlBuffer.getSize() / EXTERNAL_LOD_VERTEX_SIZE_BYTES;
         if (vertexCount <= 0) {
-            record(DrawOutcome.EMPTY_VERTEX_BUFFER, () -> "vertexBytes=%d".formatted(vertexGlBuffer.getSize()));
+            if (DEBUG_DRAW_ENABLED) {
+                record(DrawOutcome.EMPTY_VERTEX_BUFFER, "vertexBytes=%d".formatted(vertexGlBuffer.getSize()));
+            }
             return;
         }
 
@@ -89,17 +97,23 @@ public final class ExternalTerrainRenderBridge {
             default -> null;
         };
         if (indexType == null) {
-            record(DrawOutcome.UNSUPPORTED_INDEX_TYPE, () -> "type=%d".formatted(type));
+            if (DEBUG_DRAW_ENABLED) {
+                record(DrawOutcome.UNSUPPORTED_INDEX_TYPE, "type=%d".formatted(type));
+            }
             return;
         }
 
         int indexBytes = Math.min(count * indexType.size, Math.max(0, indexGlBuffer.getSize() - (int) indicesOffset));
         if (indexBytes <= 0) {
-            record(DrawOutcome.EMPTY_INDEX_RANGE, () -> "count=%d offset=%d indexBytes=%d".formatted(count, indicesOffset, indexGlBuffer.getSize()));
+            if (DEBUG_DRAW_ENABLED) {
+                record(DrawOutcome.EMPTY_INDEX_RANGE, "count=%d offset=%d indexBytes=%d".formatted(count, indicesOffset, indexGlBuffer.getSize()));
+            }
             return;
         }
         if (indexBytes % indexType.size != 0) {
-            record(DrawOutcome.MISALIGNED_INDEX_RANGE, () -> "bytes=%d indexSize=%d".formatted(indexBytes, indexType.size));
+            if (DEBUG_DRAW_ENABLED) {
+                record(DrawOutcome.MISALIGNED_INDEX_RANGE, "bytes=%d indexSize=%d".formatted(indexBytes, indexType.size));
+            }
             return;
         }
 
@@ -126,7 +140,9 @@ public final class ExternalTerrainRenderBridge {
             indexSlice.order(indexData.order());
             maxIndex = maxIndexWithinVertexBounds(indexSlice, indexType, vertexCount);
             if (maxIndex < 0) {
-                record(DrawOutcome.OUT_OF_BOUNDS_INDICES, () -> "vertices=%d indexBytes=%d".formatted(vertexCount, indexBytes));
+                if (DEBUG_DRAW_ENABLED) {
+                    record(DrawOutcome.OUT_OF_BOUNDS_INDICES, "vertices=%d indexBytes=%d".formatted(vertexCount, indexBytes));
+                }
                 return;
             }
         }
@@ -141,16 +157,18 @@ public final class ExternalTerrainRenderBridge {
         renderer.bindGraphicsPipeline(pipeline);
         renderer.uploadAndBindUBOs(pipeline);
         Renderer.getDrawer().drawIndexed(vertexBuffer, indexBuffer, indexBytes / indexType.size);
-        record(DrawOutcome.SUBMITTED, () -> "vertices=%d indices=%d type=%s offset=%d matrix=%s model=%s clip=%.2f dither=%s".formatted(
-                vertexCount,
-                indexBytes / indexType.size,
-                indexType,
-                indicesOffset,
-                GlProgram.getFloatUniform("uCombinedMatrix") != null,
-                GlProgram.getFloatUniform("uModelOffset") != null,
-                RENDER_PARAMS.buffer.getFloat(4),
-                getBooleanUniform("uDitherExternalLodRendering")
-        ));
+        if (DEBUG_DRAW_ENABLED) {
+            record(DrawOutcome.SUBMITTED, "vertices=%d indices=%d type=%s offset=%d matrix=%s model=%s clip=%.2f dither=%s".formatted(
+                    vertexCount,
+                    indexBytes / indexType.size,
+                    indexType,
+                    indicesOffset,
+                    GlProgram.getFloatUniform("uCombinedMatrix") != null,
+                    GlProgram.getFloatUniform("uModelOffset") != null,
+                    RENDER_PARAMS.buffer.getFloat(4),
+                    getBooleanUniform("uDitherExternalLodRendering")
+            ));
+        }
     }
 
     public static void drawArrays(int mode, int first, int count) {
@@ -296,20 +314,25 @@ public final class ExternalTerrainRenderBridge {
     }
 
     private static void record(DrawOutcome outcome) {
-        record(outcome, () -> "");
+        record(outcome, "");
     }
 
-    private static void record(DrawOutcome outcome, Supplier<String> detailSupplier) {
-        boolean debugEnabled = Boolean.parseBoolean(System.getProperty(DEBUG_DRAW_PROPERTY, "false"));
-        long now = debugEnabled ? System.currentTimeMillis() : 0L;
-        if (record(DIAGNOSTICS, outcome, detailSupplier, debugEnabled, now)) {
+    private static void record(DrawOutcome outcome, String detail) {
+        if (!DEBUG_DRAW_ENABLED) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (record(DIAGNOSTICS, outcome, detail, true, now)) {
             System.out.println("[VulkanMod][external_lod] bridge " + DIAGNOSTICS.summary());
         }
     }
 
-    static boolean record(DrawDiagnostics diagnostics, DrawOutcome outcome, Supplier<String> detailSupplier, boolean debugEnabled, long nowMs) {
-        boolean shouldLog = debugEnabled && diagnostics.shouldLog(nowMs, DIAGNOSTIC_INTERVAL_MS);
-        diagnostics.record(outcome, shouldLog && detailSupplier != null ? detailSupplier.get() : "");
+    static boolean record(DrawDiagnostics diagnostics, DrawOutcome outcome, String detail, boolean debugEnabled, long nowMs) {
+        if (!debugEnabled) {
+            return false;
+        }
+        boolean shouldLog = diagnostics.shouldLog(nowMs, DIAGNOSTIC_INTERVAL_MS);
+        diagnostics.record(outcome, shouldLog && detail != null ? detail : "");
         return shouldLog;
     }
 

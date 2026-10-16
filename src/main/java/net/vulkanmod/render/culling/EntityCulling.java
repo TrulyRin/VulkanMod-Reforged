@@ -1,9 +1,16 @@
 package net.vulkanmod.render.culling;
 
 import it.unimi.dsi.fastutil.longs.Long2ByteOpenHashMap;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.culling.Frustum;
 import net.minecraft.core.SectionPos;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.MobCategory;
+import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
+import net.minecraft.world.entity.boss.wither.WitherBoss;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.AABB;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.render.chunk.RenderSection;
@@ -15,6 +22,8 @@ public final class EntityCulling {
     private static final byte HIDDEN = 0;
     private static final byte VISIBLE = 1;
     private static final int MAX_SECTIONS_TO_TEST = 32;
+    private static final double MOB_CULL_DISTANCE = 96.0D;
+    private static final double MISC_CULL_DISTANCE = 128.0D;
 
     private static short cachedFrame = Short.MIN_VALUE;
     private static final Long2ByteOpenHashMap sectionVisibilityCache = new Long2ByteOpenHashMap();
@@ -24,6 +33,18 @@ public final class EntityCulling {
     }
 
     private EntityCulling() {
+    }
+
+    public static boolean isVisible(Entity entity, Frustum frustum, AABB aabb, double cameraX, double cameraY, double cameraZ) {
+        if (!Initializer.CONFIG.entityCulling) {
+            return frustum.isVisible(aabb);
+        }
+
+        if (!isWithinAggressiveDistance(entity, aabb, cameraX, cameraY, cameraZ)) {
+            return false;
+        }
+
+        return isVisible(frustum, aabb);
     }
 
     public static boolean isVisible(Frustum frustum, AABB aabb) {
@@ -69,6 +90,47 @@ public final class EntityCulling {
         }
 
         return false;
+    }
+
+    private static boolean isWithinAggressiveDistance(Entity entity, AABB aabb, double cameraX, double cameraY, double cameraZ) {
+        if (entity.noCulling) {
+            return true;
+        }
+
+        double dx = (aabb.minX + aabb.maxX) * 0.5D - cameraX;
+        double dy = (aabb.minY + aabb.maxY) * 0.5D - cameraY;
+        double dz = (aabb.minZ + aabb.maxZ) * 0.5D - cameraZ;
+        double distanceSquared = dx * dx + dy * dy + dz * dz;
+        if (isWithinAggressiveDistanceSquared(distanceSquared, false)) {
+            return true;
+        }
+
+        boolean miscellaneous = entity.getType().getCategory() == MobCategory.MISC;
+        if (miscellaneous && isWithinAggressiveDistanceSquared(distanceSquared, true)) {
+            return true;
+        }
+
+        if (isImportantEntity(entity)) {
+            return true;
+        }
+
+        Entity cameraEntity = Minecraft.getInstance().getCameraEntity();
+        return entity == cameraEntity || entity.hasIndirectPassenger(cameraEntity);
+    }
+
+    static boolean isWithinAggressiveDistanceSquared(double distanceSquared, boolean miscellaneous) {
+        double limit = miscellaneous ? MISC_CULL_DISTANCE : MOB_CULL_DISTANCE;
+        return distanceSquared <= limit * limit;
+    }
+
+    private static boolean isImportantEntity(Entity entity) {
+        return entity instanceof Player
+                || entity instanceof Projectile
+                || entity instanceof EnderDragon
+                || entity instanceof WitherBoss
+                || entity.isCurrentlyGlowing()
+                || entity.hasCustomName()
+                || entity.getBoundingBox().getSize() > 4.0D;
     }
 
     private static int sectionCoord(double coordinate) {

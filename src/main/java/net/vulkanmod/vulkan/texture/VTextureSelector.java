@@ -3,36 +3,118 @@ package net.vulkanmod.vulkan.texture;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.vulkanmod.Initializer;
+import net.vulkanmod.compat.gl.TextureUnitLimits;
 import net.vulkanmod.gl.GlTexture;
 import net.vulkanmod.vulkan.shader.Pipeline;
 import net.vulkanmod.vulkan.shader.SamplerTextureSlot;
 import net.vulkanmod.vulkan.shader.descriptor.ImageDescriptor;
 
 import java.nio.ByteBuffer;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 public abstract class VTextureSelector {
-    public static final int SIZE = 12;
+    public static final int SIZE = TextureUnitLimits.COMBINED;
 
     private static final VulkanImage[] boundTextures = new VulkanImage[SIZE];
+    private static final int[] textureOwners = new int[SIZE];
 
     private static final int[] levels = new int[SIZE];
 
-    private static final VulkanImage whiteTexture = VulkanImage.createWhiteTexture();
+    private static VulkanImage whiteTexture;
 
     private static int activeTexture = 0;
+    private static final Set<Integer> missingTextureWarnings = ConcurrentHashMap.newKeySet();
+
+                                                                                                  
+    public static BindingSnapshot captureBindings(long unitMask) {
+        long validMask=(1L<<SIZE)-1L;
+        if((unitMask&~validMask)!=0L) throw new IllegalArgumentException("Texture binding mask exceeds available units");
+        int count=Long.bitCount(unitMask);
+        VulkanImage[] images=new VulkanImage[count];
+        GlTexture[] glOwners=new GlTexture[count];
+        int[] owners=new int[count],imageLevels=new int[count];
+        long remaining=unitMask;
+        for(int index=0;remaining!=0L;index++) {
+            int unit=Long.numberOfTrailingZeros(remaining);
+            images[index]=boundTextures[unit]; owners[index]=textureOwners[unit]; imageLevels[index]=levels[unit];
+            if(owners[index]!=0) glOwners[index]=GlTexture.getTexture(owners[index]);
+            remaining&=remaining-1L;
+        }
+        return new BindingSnapshot(unitMask,images,owners,imageLevels,glOwners);
+    }
+
+    public static final class BindingSnapshot {
+        private final long unitMask;
+        private final VulkanImage[] images;
+        private final GlTexture[] glOwners;
+        private final int[] owners,imageLevels;
+        private boolean restored;
+
+        private BindingSnapshot(long unitMask,VulkanImage[] images,int[] owners,int[] imageLevels,GlTexture[] glOwners) {
+            this.unitMask=unitMask; this.images=images; this.owners=owners; this.imageLevels=imageLevels; this.glOwners=glOwners;
+        }
+
+                                                                                                     
+        public void restore() {
+            if(restored) return;
+            restored=true;
+            long remaining=unitMask;
+            for(int index=0;remaining!=0L;index++) {
+                int unit=Long.numberOfTrailingZeros(remaining);
+                if(owners[index]==0) {
+                    boundTextures[unit]=images[index]; textureOwners[unit]=0; levels[unit]=imageLevels[index];
+                } else {
+                    GlTexture owner=glOwners[index];
+                    boolean live=owner!=null && GlTexture.getTexture(owners[index])==owner;
+                    boundTextures[unit]=live?owner.getVulkanImage():null;
+                    textureOwners[unit]=live?owners[index]:0;
+                    levels[unit]=-1;
+                }
+                remaining&=remaining-1L;
+            }
+        }
+    }
 
     public static void bindTexture(VulkanImage texture) {
-        boundTextures[0] = texture;
+        bindTexture(0, texture);
     }
 
     public static void bindTexture(int i, VulkanImage texture) {
-        if(i < 0 || i >= SIZE) {
+        if (!TextureUnitLimits.isValid(i)) {
             Initializer.LOGGER.error(String.format("On Texture binding: index %d out of range [0, %d]", i, SIZE - 1));
             return;
         }
 
         boundTextures[i] = texture;
+        textureOwners[i] = 0;
         levels[i] = -1;
+    }
+
+                                                                                        
+    public static void bindGlTexture(int unit, int textureId, VulkanImage texture) {
+        if (!TextureUnitLimits.isValid(unit)) return;
+        boundTextures[unit] = texture;
+        textureOwners[unit] = textureId;
+        levels[unit] = -1;
+    }
+
+    public static void updateGlTexture(int textureId, VulkanImage texture) {
+        if (textureId <= 0) return;
+        for (int unit = 0; unit < SIZE; unit++) {
+            if (textureOwners[unit] == textureId) {
+                boundTextures[unit] = texture;
+                levels[unit] = -1;
+            }
+        }
+    }
+
+    public static void deleteGlTexture(int textureId) {
+        if (textureId <= 0) return;
+        for (int unit = 0; unit < SIZE; unit++) {
+            if (textureOwners[unit] == textureId) bindTexture(unit, null);
+        }
     }
 
     public static void bindImage(int i, VulkanImage texture, int level) {
@@ -42,6 +124,7 @@ public abstract class VTextureSelector {
         }
 
         boundTextures[i] = texture;
+        textureOwners[i] = 0;
         levels[i] = level;
     }
 
@@ -59,43 +142,77 @@ public abstract class VTextureSelector {
     }
 
     public static void bindShaderTextures(Pipeline pipeline) {
-        var imageDescriptors = pipeline.getImageDescriptors();
+        bindShaderTextures(pipeline.getImageDescriptors(), VTextureSelector::bindShaderTexture);
+    }
 
-        for (ImageDescriptor state : imageDescriptors) {
-            final int shaderTexture = RenderSystem.getShaderTexture(state.imageIdx);
+                                                                                       
+    public static void bindShaderTextures(Iterable<ImageDescriptor> descriptors, Consumer<ImageDescriptor> bind) {
+        for (ImageDescriptor descriptor : descriptors) {
+            if (descriptor.usesVanillaTextureBinding()) bind.accept(descriptor);
+        }
+    }
 
-            GlTexture texture = GlTexture.getTexture(shaderTexture);
+    private static void bindShaderTexture(ImageDescriptor state) {
+        int unit = state.getTextureUnit();
+        final int shaderTexture = RenderSystem.getShaderTexture(unit);
+        GlTexture texture = GlTexture.getTexture(shaderTexture);
 
-            if (texture != null && texture.getVulkanImage() != null) {
-                VTextureSelector.bindTexture(state.imageIdx, texture.getVulkanImage());
-            }
-            else {
-                VTextureSelector.bindTexture(state.imageIdx, whiteTexture);
+        if (texture != null && texture.getVulkanImage() != null) {
+            VTextureSelector.bindTexture(unit, texture.getVulkanImage());
+        }
+        else {
+            VulkanImage fallback = getMissingTextureFallback();
+            VTextureSelector.bindTexture(unit, fallback);
+            if (missingTextureWarnings.add(shaderTexture)) {
+                Initializer.LOGGER.warn("Missing Vulkan texture for shader texture {} on unit {} "
+                                + "(descriptor {}); using the missing-texture fallback",
+                        shaderTexture, unit, state.name);
             }
         }
     }
 
+    private static VulkanImage getMissingTextureFallback() {
+        try {
+            GlTexture missingTexture = GlTexture.getTexture(MissingTextureAtlasSprite.getTexture().getId());
+            if (missingTexture != null && missingTexture.getVulkanImage() != null) {
+                return missingTexture.getVulkanImage();
+            }
+        } catch (RuntimeException exception) {
+        }
+        return getWhiteTexture();
+    }
+
     public static VulkanImage getImage(int i) {
-        return boundTextures[i];
+        return TextureUnitLimits.isValid(i) ? boundTextures[i] : null;
     }
 
     public static void setLightTexture(VulkanImage texture) {
-        boundTextures[2] = texture;
+        bindTexture(2, texture);
     }
 
     public static void setOverlayTexture(VulkanImage texture) {
-        boundTextures[1] = texture;
+        bindTexture(1, texture);
     }
 
     public static void setActiveTexture(int activeTexture) {
-        if(activeTexture < 0 || activeTexture >= SIZE) {
+        if (!TextureUnitLimits.isValid(activeTexture)) {
             Initializer.LOGGER.error(String.format("On Texture binding: index %d out of range [0, %d]", activeTexture, SIZE - 1));
+            return;
         }
 
         VTextureSelector.activeTexture = activeTexture;
     }
 
-    public static VulkanImage getBoundTexture(int i) { return boundTextures[i]; }
+    public static VulkanImage getBoundTexture(int i) { return getImage(i); }
 
-    public static VulkanImage getWhiteTexture() { return whiteTexture; }
+    public static VulkanImage getWhiteTexture() {
+        if (whiteTexture == null) whiteTexture = VulkanImage.createWhiteTexture();
+        return whiteTexture;
+    }
+
+    public static void freeWhiteTexture() {
+        VulkanImage image = whiteTexture;
+        whiteTexture = null;
+        if (image != null) image.free();
+    }
 }

@@ -13,6 +13,10 @@ import net.minecraft.network.chat.CommonComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
 import net.vulkanmod.config.UpdateChecker;
+import net.vulkanmod.Initializer;
+import net.vulkanmod.config.RenderScale;
+import net.vulkanmod.config.gui.page.OptionPageContent;
+import net.vulkanmod.config.gui.page.SettingsPageContent;
 import net.vulkanmod.config.gui.render.GuiRenderer;
 import net.vulkanmod.config.gui.util.SearchHelper;
 import net.vulkanmod.config.gui.util.VGuiConstants;
@@ -32,9 +36,13 @@ public class VOptionScreen extends Screen {
     private final List<ModSettingsEntry> modSettingsEntries;
 
     private final List<OptionPage> optionPages;
+    private final List<SettingsPageContent> pageContents;
+    private List<OptionDraft> pendingDraftsToRestore = List.of();
+    private boolean applyingSettings;
     private OptionPage searchResultsPage;
 
     private int currentListIdx = 0;
+    private String selectedPageId;
     private boolean isSearchActive = false;
 
     private int tooltipX;
@@ -56,21 +64,25 @@ public class VOptionScreen extends Screen {
         this.parent = parent;
 
         this.optionPages = new ArrayList<>();
+        this.pageContents = new ArrayList<>();
         this.modSettingsEntries = new ArrayList<>(ModSettingsRegistry.INSTANCE.getModEntries());
     }
 
     @Override
     protected void init() {
+        if (this.isSearchActive) {
+            this.isSearchActive = false;
+            this.searchResultsPage = null;
+        }
         this.initOptionsPages();
 
-        if (this.optionPages.isEmpty()) {
+        if (this.pageContents.isEmpty()) {
             throw new IllegalStateException("Default Options weren't added!");
         }
 
         this.buildLayout();
 
-        this.applyButton.active = false;
-        this.undoButton.visible = false;
+        this.updateState();
     }
 
     private void buildLayout() {
@@ -104,12 +116,34 @@ public class VOptionScreen extends Screen {
     }
 
     private void initOptionsPages() {
+        List<OptionDraft> preservedDrafts = applyingSettings
+                ? List.of()
+                : capturePendingOptionDrafts();
         this.optionPages.clear();
+        this.pageContents.clear();
 
+        int groupIndex = 0;
         for (var modPageSet : this.modSettingsEntries) {
             modPageSet.initPages();
+            int pageIndex = 0;
+            for (OptionPage page : modPageSet.getPages()) {
+                this.optionPages.add(page);
+                this.pageContents.add(new OptionPageContent(
+                        "options:" + groupIndex + ":" + pageIndex, page));
+                pageIndex++;
+            }
+            groupIndex++;
+        }
 
-            this.optionPages.addAll(modPageSet.getPages());
+        this.pendingDraftsToRestore = preservedDrafts;
+
+        if (selectedPageId == null && !pageContents.isEmpty()) {
+            selectedPageId = pageContents.getFirst().id();
+        }
+        currentListIdx = indexOfPage(selectedPageId);
+        if (currentListIdx < 0) {
+            currentListIdx = 0;
+            selectedPageId = pageContents.getFirst().id();
         }
     }
 
@@ -137,8 +171,12 @@ public class VOptionScreen extends Screen {
     }
 
     private void buildLists(int left, int top, int listWidth, int listHeight, int itemHeight) {
-        for (OptionPage page : this.optionPages) {
-            page.createList(left, top, listWidth, listHeight, itemHeight);
+        for (SettingsPageContent page : this.pageContents) {
+            page.initialize(left, top, listWidth, listHeight, itemHeight);
+        }
+        restoreOptionDrafts(pendingDraftsToRestore);
+        pendingDraftsToRestore = List.of();
+        for (OptionPage page : optionPages) {
             page.updateOptionStates();
         }
     }
@@ -147,6 +185,7 @@ public class VOptionScreen extends Screen {
         if (query == null || query.trim().isEmpty()) {
             isSearchActive = false;
             this.currentListIdx = 0;
+            this.selectedPageId = this.pageContents.getFirst().id();
             buildPage();
             return;
         }
@@ -218,6 +257,7 @@ public class VOptionScreen extends Screen {
         boolean savedFocused = this.searchField != null && this.searchField.focused;
         boolean savedSelected = this.searchField != null && this.searchField.selected;
 
+        this.setFocused(null);
         this.clearWidgets();
 
         int x = MARGIN;
@@ -232,9 +272,11 @@ public class VOptionScreen extends Screen {
             y += 28;
 
             var pages = modEntry.getPages();
-            for (OptionPage page : pages) {
+            for (OptionPage ignored : pages) {
+                SettingsPageContent page = this.pageContents.get(j);
                 final int finalIdx = j;
-                VButtonWidget widget = new VButtonWidget(x, y, width, VGuiConstants.WIDGET_HEIGHT, Component.nullToEmpty(page.name), button -> this.setOptionList(finalIdx));
+                VButtonWidget widget = new VButtonWidget(x, y, width, VGuiConstants.WIDGET_HEIGHT,
+                        page.title(), button -> this.setOptionList(finalIdx));
                 widget.setTextLayout(false, 12);
                 this.buttons.add(widget);
                 this.pageButtons.add(widget);
@@ -247,8 +289,7 @@ public class VOptionScreen extends Screen {
 
         if (!isSearchActive) {
             this.pageButtons.get(this.currentListIdx).setSelected(true);
-            VOptionList currentList = this.optionPages.get(this.currentListIdx).getOptionList();
-            this.addWidget(currentList);
+            this.addWidget(this.pageContents.get(this.currentListIdx).listener());
         } else {
             if (searchResultsPage != null) {
                 VOptionList searchList = searchResultsPage.getOptionList();
@@ -264,6 +305,7 @@ public class VOptionScreen extends Screen {
             this.searchField.setFocused(true);
             this.searchField.setSelected(savedSelected);
         }
+        this.updateState();
     }
 
     @SuppressWarnings("DuplicatedCode")
@@ -321,9 +363,12 @@ public class VOptionScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        GuiEventListener focusedBeforeClick = this.getFocused();
         for (GuiEventListener element : this.children()) {
             if (element.mouseClicked(mouseX, mouseY, button)) {
-                this.setFocused(element);
+                if (this.getFocused() == focusedBeforeClick && this.children().contains(element)) {
+                    this.setFocused(element);
+                }
                 if (button == 0) {
                     this.setDragging(true);
                 }
@@ -370,15 +415,17 @@ public class VOptionScreen extends Screen {
         GuiRenderer.pose = guiGraphics.pose();
         RenderSystem.enableBlend();
 
-        VOptionList currentList;
+        VOptionList searchList = null;
+        SettingsPageContent currentContent = null;
         if (isSearchActive && searchResultsPage != null) {
-            currentList = searchResultsPage.getOptionList();
+            searchList = searchResultsPage.getOptionList();
+            searchList.updateState(mouseX, mouseY);
+            searchList.renderWidget(mouseX, mouseY);
         } else {
-            currentList = this.optionPages.get(this.currentListIdx).getOptionList();
+            currentContent = this.pageContents.get(this.currentListIdx);
+            currentContent.updateAvailability();
+            currentContent.render(guiGraphics, mouseX, mouseY, delta);
         }
-
-        currentList.updateState(mouseX, mouseY);
-        currentList.renderWidget(mouseX, mouseY);
 
         for (var widget : iconWidgets) {
             widget.render(mouseX, mouseY);
@@ -401,7 +448,11 @@ public class VOptionScreen extends Screen {
         }
 
         if (hoveredWidget == null) {
-            hoveredWidget = currentList.getHoveredWidget(mouseX, mouseY);
+            if (searchList != null) {
+                hoveredWidget = searchList.getHoveredWidget(mouseX, mouseY);
+            } else if (currentContent != null) {
+                hoveredWidget = currentContent.getHoveredWidget(mouseX, mouseY);
+            }
         }
 
         if (hoveredWidget != null) {
@@ -452,28 +503,25 @@ public class VOptionScreen extends Screen {
     }
 
     private void updateState() {
-        if (this.applyButton == null | this.undoButton == null) return;
-        boolean modified = false;
-        for (var page : this.optionPages) {
-            modified |= page.optionChanged();
-        }
-
-        if (modified) {
-            for (var page : this.optionPages) {
-                page.optionChanged();
-            }
-        }
+        if (this.applyButton == null || this.undoButton == null) return;
+        boolean modified = hasPendingSettings();
 
         this.applyButton.active = modified;
         this.undoButton.visible = modified;
     }
 
     private void setOptionList(int i) {
+        if (i < 0 || i >= this.pageContents.size()) {
+            return;
+        }
         this.currentListIdx = i;
+        this.selectedPageId = this.pageContents.get(i).id();
         this.isSearchActive = false;
 
         this.searchField.setInput("");
         this.searchField.setFocused(false);
+
+        this.pageContents.get(i).onSelected();
 
         this.buildPage();
 
@@ -487,22 +535,35 @@ public class VOptionScreen extends Screen {
         }
 
         buildPage();
+        updateState();
     }
 
     private void applyOptions() {
+        int previousGuiScale = this.minecraft.options.guiScale().get();
+        int previousRenderScale = RenderScale.clamp(Initializer.CONFIG.renderScale);
         List<OptionPage> pages = List.copyOf(this.optionPages);
-        for (var page : pages) {
-            page.applyOptionChanges();
-            page.updateOptionStates();
+        this.applyingSettings = true;
+        try {
+            for (var page : pages) {
+                page.applyOptionChanges();
+                page.updateOptionStates();
+            }
+
+            for (var modEntry : this.modSettingsEntries) {
+                modEntry.runOnApply();
+            }
+        } finally {
+            this.applyingSettings = false;
         }
 
-        for (var modEntry : this.modSettingsEntries) {
-            modEntry.runOnApply();
+        boolean displayResizeRequired = previousGuiScale != this.minecraft.options.guiScale().get()
+                || previousRenderScale != RenderScale.clamp(Initializer.CONFIG.renderScale);
+        if (displayResizeRequired) {
+            this.minecraft.resizeDisplay();
+            this.updateState();
+        } else {
+            this.rebuildPagesFromCurrentOptions();
         }
-
-        // Fork behavior: preset options can rewrite many settings at once, so
-        // rebuild the pages from the freshly-applied values to refresh all widgets.
-        this.rebuildPagesFromCurrentOptions();
     }
 
     private void rebuildPagesFromCurrentOptions() {
@@ -514,6 +575,101 @@ public class VOptionScreen extends Screen {
 
         this.applyButton.active = false;
         this.undoButton.visible = false;
+    }
+
+    private boolean hasPendingSettings() {
+        return pendingSettingsCount() > 0;
+    }
+
+    private int pendingSettingsCount() {
+        int changed = 0;
+        for (OptionPage page : this.optionPages) {
+            for (OptionBlock block : page.optionBlocks) {
+                for (Option<?> option : block.options()) {
+                    if (option.isChanged()) {
+                        changed++;
+                    }
+                }
+            }
+        }
+        return changed;
+    }
+
+    private List<OptionDraft> capturePendingOptionDrafts() {
+        List<OptionDraft> drafts = new ArrayList<>();
+        for (int pageIndex = 0; pageIndex < optionPages.size(); pageIndex++) {
+            OptionPage page = optionPages.get(pageIndex);
+            for (int blockIndex = 0; blockIndex < page.optionBlocks.length; blockIndex++) {
+                Option<?>[] options = page.optionBlocks[blockIndex].options();
+                for (int optionIndex = 0; optionIndex < options.length; optionIndex++) {
+                    Option<?> option = options[optionIndex];
+                    if (option.isChanged()) {
+                        drafts.add(new OptionDraft(
+                                pageIndex, page.name,
+                                blockIndex, page.optionBlocks[blockIndex].title(),
+                                optionIndex, option.draftIdentity(), option.getNewValue()));
+                    }
+                }
+            }
+        }
+        return List.copyOf(drafts);
+    }
+
+    private void restoreOptionDrafts(List<OptionDraft> drafts) {
+        for (OptionDraft draft : drafts) {
+            if (draft.pageIndex() < 0 || draft.pageIndex() >= optionPages.size()) {
+                continue;
+            }
+            OptionPage page = optionPages.get(draft.pageIndex());
+            if (!java.util.Objects.equals(draft.pageName(), page.name)) {
+                continue;
+            }
+            if (draft.blockIndex() < 0 || draft.blockIndex() >= page.optionBlocks.length) {
+                continue;
+            }
+            OptionBlock block = page.optionBlocks[draft.blockIndex()];
+            if (!java.util.Objects.equals(draft.blockTitle(), block.title())) {
+                continue;
+            }
+            Option<?>[] options = block.options();
+            if (draft.optionIndex() < 0 || draft.optionIndex() >= options.length) {
+                continue;
+            }
+            Option<?> option = options[draft.optionIndex()];
+            Object value = draft.value();
+            if (!draft.optionIdentity().equals(option.draftIdentity())
+                    || !option.acceptsDraftValue(value)) {
+                continue;
+            }
+            setOptionNewValue(option, value);
+        }
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private static void setOptionNewValue(Option option, Object value) {
+        option.setNewValue(value);
+    }
+
+    private record OptionDraft(
+            int pageIndex,
+            String pageName,
+            int blockIndex,
+            String blockTitle,
+            int optionIndex,
+            String optionIdentity,
+            Object value) {
+    }
+
+    private int indexOfPage(String pageId) {
+        if (pageId == null) {
+            return -1;
+        }
+        for (int i = 0; i < pageContents.size(); i++) {
+            if (pageId.equals(pageContents.get(i).id())) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     @Override

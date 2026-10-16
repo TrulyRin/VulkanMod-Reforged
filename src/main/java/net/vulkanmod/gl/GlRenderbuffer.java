@@ -6,6 +6,8 @@ import net.vulkanmod.vulkan.texture.SamplerManager;
 import net.vulkanmod.vulkan.texture.VTextureSelector;
 import net.vulkanmod.vulkan.texture.VulkanImage;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL14;
+import org.lwjgl.opengl.GL21;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.system.MemoryUtil;
 
@@ -54,6 +56,14 @@ public class GlRenderbuffer {
     }
 
     public static void renderbufferStorage(int target, int internalFormat, int width, int height) {
+        renderbufferStorage(target, 0, internalFormat, width, height);
+    }
+
+    public static void renderbufferStorageMultisample(int target, int samples, int internalFormat, int width, int height) {
+        renderbufferStorage(target, Math.max(samples, 0), internalFormat, width, height);
+    }
+
+    private static void renderbufferStorage(int target, int samples, int internalFormat, int width, int height) {
         if (width == 0 || height == 0)
             return;
 
@@ -63,6 +73,7 @@ public class GlRenderbuffer {
         }
 
         bound.internalFormat = internalFormat;
+        bound.samples = samples;
 
         bound.allocateIfNeeded(width, height, internalFormat);
     }
@@ -78,7 +89,81 @@ public class GlRenderbuffer {
     }
 
     public static void namedRenderbufferStorageMultisample(int renderbuffer, int samples, int internalFormat, int width, int height) {
-        namedRenderbufferStorage(renderbuffer, internalFormat, width, height);
+        int previous = boundId;
+        bindRenderbuffer(GL30.GL_RENDERBUFFER, renderbuffer);
+        try {
+            renderbufferStorageMultisample(GL30.GL_RENDERBUFFER, samples, internalFormat, width, height);
+        } finally {
+            bindRenderbuffer(GL30.GL_RENDERBUFFER, previous);
+        }
+    }
+
+    public static int getRenderbufferParameter(int target, int pname) {
+        if (target != GL30.GL_RENDERBUFFER) {
+            return 0;
+        }
+
+        return getRenderbufferParameter(bound, pname);
+    }
+
+    public static int getNamedRenderbufferParameter(int renderbuffer, int pname) {
+        return getRenderbufferParameter(map.get(renderbuffer), pname);
+    }
+
+    private static int getRenderbufferParameter(GlRenderbuffer renderbuffer, int pname) {
+        if (renderbuffer == null || renderbuffer.vulkanImage == null) {
+            return 0;
+        }
+
+        return switch (pname) {
+            case GL30.GL_RENDERBUFFER_WIDTH -> renderbuffer.vulkanImage.width;
+            case GL30.GL_RENDERBUFFER_HEIGHT -> renderbuffer.vulkanImage.height;
+            case GL30.GL_RENDERBUFFER_INTERNAL_FORMAT -> renderbuffer.internalFormat;
+            case GL30.GL_RENDERBUFFER_RED_SIZE -> colorBits(renderbuffer.internalFormat, 0);
+            case GL30.GL_RENDERBUFFER_GREEN_SIZE -> colorBits(renderbuffer.internalFormat, 1);
+            case GL30.GL_RENDERBUFFER_BLUE_SIZE -> colorBits(renderbuffer.internalFormat, 2);
+            case GL30.GL_RENDERBUFFER_ALPHA_SIZE -> colorBits(renderbuffer.internalFormat, 3);
+            case GL30.GL_RENDERBUFFER_DEPTH_SIZE -> depthBits(renderbuffer.internalFormat);
+            case GL30.GL_RENDERBUFFER_STENCIL_SIZE -> stencilBits(renderbuffer.internalFormat);
+            case GL30.GL_RENDERBUFFER_SAMPLES -> renderbuffer.samples;
+            default -> 0;
+        };
+    }
+
+    private static int colorBits(int internalFormat, int component) {
+        return switch (internalFormat) {
+            case GL11.GL_RGBA, GL30.GL_RGBA8, GL21.GL_SRGB8_ALPHA8, GL30.GL_BGRA -> 8;
+            case GL11.GL_RGB, GL30.GL_RGB8, GL21.GL_SRGB8 -> component < 3 ? 8 : 0;
+            case GL11.GL_RED, GL30.GL_R8 -> component == 0 ? 8 : 0;
+            case GL30.GL_RG, GL30.GL_RG8 -> component < 2 ? 8 : 0;
+            case GL30.GL_R16, GL30.GL_R16F -> component == 0 ? 16 : 0;
+            case GL30.GL_RG16, GL30.GL_RG16F -> component < 2 ? 16 : 0;
+            case GL30.GL_RGB16F -> component < 3 ? 16 : 0;
+            case GL30.GL_RGBA16F -> 16;
+            case GL30.GL_R32F -> component == 0 ? 32 : 0;
+            case GL30.GL_RG32F -> component < 2 ? 32 : 0;
+            case GL30.GL_RGBA32F -> 32;
+            case GL30.GL_R11F_G11F_B10F -> component == 0 || component == 1 ? 11 : component == 2 ? 10 : 0;
+            case GL11.GL_RGB10_A2 -> component < 3 ? 10 : 2;
+            default -> 0;
+        };
+    }
+
+    private static int depthBits(int internalFormat) {
+        return switch (internalFormat) {
+            case GL14.GL_DEPTH_COMPONENT16 -> 16;
+            case GL30.GL_DEPTH_COMPONENT24, GL30.GL_DEPTH24_STENCIL8 -> 24;
+            case GL11.GL_DEPTH_COMPONENT, GL14.GL_DEPTH_COMPONENT32, GL30.GL_DEPTH_COMPONENT32F,
+                    GL30.GL_DEPTH32F_STENCIL8 -> 32;
+            default -> 0;
+        };
+    }
+
+    private static int stencilBits(int internalFormat) {
+        return switch (internalFormat) {
+            case GL30.GL_STENCIL_INDEX8, GL30.GL_DEPTH24_STENCIL8, GL30.GL_DEPTH32F_STENCIL8 -> 8;
+            default -> 0;
+        };
     }
 
     public static void texParameteri(int target, int pName, int param) {
@@ -155,6 +240,7 @@ public class GlRenderbuffer {
     final int id;
     VulkanImage vulkanImage;
     int internalFormat;
+    int samples;
 
     boolean needsUpdate = false;
     int maxLevel = 0;
@@ -187,7 +273,7 @@ public class GlRenderbuffer {
         if (VulkanImage.isDepthFormat(vkFormat))
             this.vulkanImage = VulkanImage.createDepthImage(vkFormat,
                     width, height,
-                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                     false, true);
         else
             this.vulkanImage = new VulkanImage.Builder(width, height)

@@ -82,20 +82,20 @@ public class EXTFramebufferObjectM {
     @Overwrite(remap = false)
     public static void glGetRenderbufferParameterivEXT(@NativeType("GLenum") int target, @NativeType("GLenum") int pname, @NativeType("GLint *") IntBuffer params) {
         if (params != null && params.remaining() > 0) {
-            params.put(params.position(), 0);
+            params.put(params.position(), GlRenderbuffer.getRenderbufferParameter(target, pname));
         }
     }
 
     @Overwrite(remap = false)
     public static void glGetRenderbufferParameterivEXT(@NativeType("GLenum") int target, @NativeType("GLenum") int pname, @NativeType("GLint *") int[] params) {
         if (params != null && params.length > 0) {
-            params[0] = 0;
+            params[0] = GlRenderbuffer.getRenderbufferParameter(target, pname);
         }
     }
 
     @Overwrite(remap = false)
     public static int glGetRenderbufferParameteriEXT(@NativeType("GLenum") int target, @NativeType("GLenum") int pname) {
-        return 0;
+        return GlRenderbuffer.getRenderbufferParameter(target, pname);
     }
 
     @Overwrite(remap = false)
@@ -203,6 +203,11 @@ public class EXTFramebufferObjectM {
     @Overwrite(remap = false)
     public static int glGetFramebufferAttachmentParameteriEXT(@NativeType("GLenum") int target, @NativeType("GLenum") int attachment, @NativeType("GLenum") int pname) {
         return GlFramebuffer.getFramebufferAttachmentParameteri(target, attachment, pname);
+    }
+
+    @Overwrite(remap = false)
+    public static void glBlitFramebufferEXT(@NativeType("GLint") int srcX0, @NativeType("GLint") int srcY0, @NativeType("GLint") int srcX1, @NativeType("GLint") int srcY1, @NativeType("GLint") int dstX0, @NativeType("GLint") int dstY0, @NativeType("GLint") int dstX1, @NativeType("GLint") int dstY1, @NativeType("GLbitfield") int mask, @NativeType("GLenum") int filter) {
+        GlFramebuffer.blitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
     }
 
     @Overwrite(remap = false)

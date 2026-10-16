@@ -15,6 +15,7 @@ import net.vulkanmod.config.video.VideoModeManager;
 import net.vulkanmod.compat.CompatBootstrap;
 import net.vulkanmod.compat.CompatReport;
 import net.vulkanmod.compat.RuntimeOptions;
+import net.vulkanmod.compat.sable.flywheel.VulkanFlywheelBootstrap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -30,9 +31,9 @@ public class Initializer {
 	static {
 
 		try {
-			Platform.init();
-			VideoModeManager.init();
 			Path configPath = Path.of("config", "vulkanmod_settings.json");
+			Platform.init(Config.readWaylandPreference(configPath));
+			VideoModeManager.init();
 			CONFIG = loadConfig(configPath);
 		} catch (Exception e) {
 			CONFIG = new Config();
@@ -49,12 +50,15 @@ public class Initializer {
 
 	private void onInitializeClient(FMLClientSetupEvent event) {
 		LOGGER.info("== VulkanMod ==");
+		VulkanFlywheelBootstrap.registerIfPresent();
 		UpdateChecker.checkForUpdates();
-		CompatBootstrap.init();
-		if (RuntimeOptions.diagnosticsEnabled()) {
-			CompatReport.logReport();
-		}
-		CompatReport.logRuntimeHints();
+		event.enqueueWork(() -> {
+			CompatBootstrap.init();
+			if (RuntimeOptions.diagnosticsEnabled()) {
+				CompatReport.logReport();
+			}
+			CompatReport.logRuntimeHints();
+		});
 	}
 
 	private static Config loadConfig(Path path) {

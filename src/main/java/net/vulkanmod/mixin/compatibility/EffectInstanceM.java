@@ -104,6 +104,7 @@ public class EffectInstanceM {
             String fshSrc = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
 
             GlslConverter converter = new GlslConverter();
+            converter.reserveUniformNames(this.uniformMap.keySet());
 
             converter.process(vshSrc, fshSrc);
             UBO ubo = converter.getUBO();

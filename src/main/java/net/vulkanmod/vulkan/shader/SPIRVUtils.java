@@ -12,7 +12,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 import java.util.StringTokenizer;
+import java.util.function.LongConsumer;
 import java.util.regex.Pattern;
 
 import static org.lwjgl.system.MemoryUtil.NULL;
@@ -36,6 +38,7 @@ public class SPIRVUtils {
 
     private static ObjectArrayList<String> includePaths;
     private static final Pattern RESERVED_SAMPLER_IDENTIFIER = Pattern.compile("\\bsampler\\b");
+    private static final Pattern INCLUDE_VERSION_DIRECTIVE = Pattern.compile("(?m)^[\\t ]*#[\\t ]*version\\b[^\\r\\n]*");
 
     private static float time = 0.0f;
 
@@ -86,6 +89,22 @@ public class SPIRVUtils {
         return null;
     }
 
+                                                                                                                     
+    public static String preprocessShader(String filename, String source, ShaderKind shaderKind) {
+        long result = shaderc_compile_into_preprocessed_text(compiler, source, shaderKind.kind, filename, "main", options);
+        if (result == NULL) throw new RuntimeException("Failed to preprocess shader " + filename);
+        try (var resultOwner = new SPIRV.ResultOwner(result,
+                org.lwjgl.util.shaderc.Shaderc::shaderc_result_release)) {
+            if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
+                throw new RuntimeException("Failed to preprocess shader " + filename + ":\n"
+                        + shaderc_result_get_error_message(result));
+            }
+                                                                            
+            String text = StandardCharsets.UTF_8.decode(Objects.requireNonNull(shaderc_result_get_bytes(result))).toString();
+            return text.endsWith("\0") ? text.substring(0, text.length() - 1) : text;
+        }
+    }
+
     public static SPIRV compileShader(String filename, String source, ShaderKind shaderKind) {
         long startTime = System.nanoTime();
 
@@ -96,16 +115,21 @@ public class SPIRVUtils {
             throw new RuntimeException("Failed to compile shader " + filename + " into SPIR-V");
         }
 
-        if(shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
-            throw new RuntimeException("Failed to compile shader " + filename + " into SPIR-V:\n" + shaderc_result_get_error_message(result));
+        try (var resultOwner = new SPIRV.ResultOwner(result,
+                org.lwjgl.util.shaderc.Shaderc::shaderc_result_release)) {
+            if(shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
+                                                                                   
+                String message = shaderc_result_get_error_message(result);
+                throw new RuntimeException("Failed to compile shader " + filename + " into SPIR-V:\n" + message);
+            }
+
+            long elapsed = System.nanoTime() - startTime;
+            time += elapsed / 1000000.0f;
+
+            recordCompileForProfiler(elapsed);
+
+            return resultOwner.transfer(shaderc_result_get_bytes(result));
         }
-
-        long elapsed = System.nanoTime() - startTime;
-        time += elapsed / 1000000.0f;
-
-        recordCompileForProfiler(elapsed);
-
-        return new SPIRV(result, shaderc_result_get_bytes(result));
     }
 
     private static void recordCompileForProfiler(long elapsed) {
@@ -120,15 +144,21 @@ public class SPIRVUtils {
     }
 
     private static SPIRV readFromStream(InputStream inputStream) {
+        ByteBuffer buffer = null;
         try {
             byte[] bytes = inputStream.readAllBytes();
-            ByteBuffer buffer = MemoryUtil.memAlloc(bytes.length);
+            buffer = MemoryUtil.memAlloc(bytes.length);
             buffer.put(bytes);
             buffer.position(0);
 
-            return new SPIRV(MemoryUtil.memAddress(buffer), buffer);
+            ByteBuffer owned = buffer;
+            SPIRV spirv = SPIRV.ownedBuffer(buffer, () -> memFree(owned));
+            buffer = null;
+            return spirv;
         } catch (Exception e) {
             e.printStackTrace();
+        } finally {
+            if (buffer != null) memFree(buffer);
         }
         throw new RuntimeException("unable to read inputStream");
     }
@@ -184,7 +214,50 @@ public class SPIRVUtils {
 
     private static byte[] readIncludeBytes(InputStream inputStream) throws IOException {
         String source = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-        return rewriteLegacyReservedIdentifiers(expandMojImports(source, 0)).getBytes(StandardCharsets.UTF_8);
+        return rewriteLegacyReservedIdentifiers(withoutIncludeVersions(expandMojImports(source, 0)))
+                .getBytes(StandardCharsets.UTF_8);
+    }
+
+                                                                                                         
+    private static String withoutIncludeVersions(String source) {
+        char[] code = source.toCharArray();
+        boolean blockComment = false, lineComment = false;
+        char quote = 0;
+        for (int i = 0; i < source.length(); i++) {
+            char c = source.charAt(i);
+            char next = i + 1 < source.length() ? source.charAt(i + 1) : 0;
+            if (c == '\n' || c == '\r') {
+                int previous = i - 1;
+                if (c == '\n' && previous >= 0 && source.charAt(previous) == '\r') previous--;
+                lineComment = lineComment && previous >= 0 && source.charAt(previous) == '\\';
+                continue;
+            }
+            if (lineComment) { code[i] = ' '; continue; }
+            if (blockComment) {
+                code[i] = ' ';
+                if (c == '*' && next == '/') { blockComment = false; code[++i] = ' '; }
+                continue;
+            }
+            if (quote != 0) {
+                code[i] = ' ';
+                if (c == '\\' && next != 0 && next != '\n' && next != '\r') code[++i] = ' ';
+                else if (c == quote) quote = 0;
+                continue;
+            }
+            if (c == '/' && (next == '*' || next == '/')) {
+                blockComment = next == '*'; lineComment = next == '/';
+                code[i] = ' '; code[++i] = ' '; continue;
+            }
+            if (c == '"' || c == '\'') { quote = c; code[i] = ' '; }
+        }
+        StringBuilder result = new StringBuilder(source);
+        var directives = INCLUDE_VERSION_DIRECTIVE.matcher(new String(code));
+        while (directives.find()) {
+            for (int i = directives.start(); i < directives.end(); i++) {
+                if (code[i] != ' ' && code[i] != '\t') result.setCharAt(i, ' ');
+            }
+        }
+        return result.toString();
     }
 
     static String rewriteLegacyReservedIdentifiers(String source) {
@@ -254,6 +327,8 @@ public class SPIRVUtils {
 
     public enum ShaderKind {
         VERTEX_SHADER(shaderc_glsl_vertex_shader),
+        TESSELLATION_CONTROL_SHADER(shaderc_glsl_tess_control_shader),
+        TESSELLATION_EVALUATION_SHADER(shaderc_glsl_tess_evaluation_shader),
         GEOMETRY_SHADER(shaderc_glsl_geometry_shader),
         FRAGMENT_SHADER(shaderc_glsl_fragment_shader),
         COMPUTE_SHADER(shaderc_glsl_compute_shader);
@@ -323,22 +398,80 @@ public class SPIRVUtils {
 
     public static final class SPIRV implements NativeResource {
 
+        private static final Runnable BORROWED_RELEASE = () -> {};
         private final long handle;
         private ByteBuffer bytecode;
+        private Runnable release;
+        private boolean freed;
 
+                                                                                           
         public SPIRV(long handle, ByteBuffer bytecode) {
-            this.handle = handle;
-            this.bytecode = bytecode;
+            this(handle, bytecode, BORROWED_RELEASE);
         }
 
-        public ByteBuffer bytecode() {
+        private SPIRV(long handle, ByteBuffer bytecode, Runnable release) {
+            this.handle = handle;
+            this.bytecode = bytecode;
+            this.release = release;
+        }
+
+                                                                                  
+        public static SPIRV borrowed(ByteBuffer bytecode) {
+            return new SPIRV(0, Objects.requireNonNull(bytecode, "bytecode"));
+        }
+
+                                                                                    
+        public static SPIRV compilerResult(long handle, ByteBuffer bytecode, LongConsumer releaseResult) {
+            Objects.requireNonNull(bytecode, "bytecode");
+            Objects.requireNonNull(releaseResult, "releaseResult");
+            return new SPIRV(handle, bytecode, () -> releaseResult.accept(handle));
+        }
+
+                                                                                               
+        public static SPIRV ownedBuffer(ByteBuffer bytecode, Runnable releaseBuffer) {
+            return new SPIRV(0, Objects.requireNonNull(bytecode, "bytecode"),
+                    Objects.requireNonNull(releaseBuffer, "releaseBuffer"));
+        }
+
+                                                                                      
+        static final class ResultOwner implements AutoCloseable {
+            private final long handle;
+            private final LongConsumer releaseResult;
+            private boolean transferred;
+            private boolean closed;
+
+            ResultOwner(long handle, LongConsumer releaseResult) {
+                this.handle = handle;
+                this.releaseResult = Objects.requireNonNull(releaseResult, "releaseResult");
+            }
+
+            synchronized SPIRV transfer(ByteBuffer bytecode) {
+                if (closed || transferred) throw new IllegalStateException("Compiler result ownership is already consumed");
+                SPIRV spirv = compilerResult(handle, bytecode, releaseResult);
+                transferred = true;
+                return spirv;
+            }
+
+            @Override
+            public synchronized void close() {
+                if (closed) return;
+                closed = true;
+                if (!transferred) releaseResult.accept(handle);
+            }
+        }
+
+        public synchronized ByteBuffer bytecode() {
             return bytecode;
         }
 
         @Override
-        public void free() {
-
+        public synchronized void free() {
+            if (freed) return;
+            freed = true;
             bytecode = null;
+            Runnable releaser = release;
+            release = null;
+            releaser.run();
         }
     }
 }

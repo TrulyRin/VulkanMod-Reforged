@@ -4,7 +4,6 @@ import net.minecraft.client.Minecraft;
 import net.vulkanmod.compat.CompatDetector;
 import net.vulkanmod.compat.CompatMode;
 import net.vulkanmod.compat.CompatPolicyManager;
-import net.vulkanmod.compat.path.RenderPath;
 import net.vulkanmod.compat.path.RenderPathOwnership;
 import net.vulkanmod.vulkan.shader.Pipeline;
 import net.vulkanmod.vulkan.shader.GraphicsPipeline;
@@ -247,9 +246,9 @@ public class CompatProfiler {
             sb.append(String.format(" * Mod ID: %-18s | Active Mode: %s\n", mod, CompatPolicyManager.getCompatMode(mod)));
         }
         sb.append("\n--- Render Path Ownership Allocations ---\n");
-        for (RenderPath path : RenderPath.values()) {
+        for (RenderPathOwnership.PathState state : RenderPathOwnership.snapshot()) {
             sb.append(String.format(" * Path: %-15s | Owner: %-12s | Mode: %s\n",
-                    path, RenderPathOwnership.getPathOwner(path), RenderPathOwnership.getPathMode(path)));
+                    state.path(), state.owner(), state.mode()));
         }
         sb.append("\n------------------------------------------------------------\n");
         sb.append(String.format(" Performance Metric        | %-14s | %-14s | Delta \n", "Baseline (OFF)", "Observe/Compat"));

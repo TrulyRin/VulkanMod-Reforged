@@ -13,6 +13,7 @@ import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
 import org.lwjgl.opengl.GL32;
+import org.lwjgl.opengl.GL40C;
 
 import static org.lwjgl.vulkan.VK10.VK_BLEND_FACTOR_DST_ALPHA;
 import static org.lwjgl.vulkan.VK10.VK_BLEND_FACTOR_DST_COLOR;
@@ -40,12 +41,17 @@ public final class GlIntegerState {
     }
 
     public static int getInteger(int pname) {
-        if (pname == GL30.GL_FRAMEBUFFER_BINDING || pname == GL30.GL_DRAW_FRAMEBUFFER_BINDING
-                || pname == GL30.GL_READ_FRAMEBUFFER_BINDING) {
+        if (pname == GL30.GL_READ_FRAMEBUFFER_BINDING) {
+            return GlFramebuffer.getBoundReadId();
+        }
+
+        if (pname == GL30.GL_FRAMEBUFFER_BINDING || pname == GL30.GL_DRAW_FRAMEBUFFER_BINDING) {
             return GlFramebuffer.getBoundId();
         }
 
         return switch (pname) {
+            case GL40C.GL_PATCH_VERTICES -> GlPatchState.getPatchVertices();
+            case GL40C.GL_MAX_PATCH_VERTICES -> GlPatchState.getMaxPatchVertices();
             case GL20.GL_CURRENT_PROGRAM -> GlProgram.currentProgramId();
             case GL30.GL_VERTEX_ARRAY_BINDING -> GlVertexArray.boundId();
             case GL15_BINDING_ARRAY, GL15_BINDING_ELEMENT_ARRAY, GL32.GL_PIXEL_PACK_BUFFER_BINDING,
@@ -86,7 +92,7 @@ public final class GlIntegerState {
 
             case GL32.GL_MAX_COLOR_ATTACHMENTS, GL32.GL_MAX_DRAW_BUFFERS, GL32.GL_MAX_CLIP_DISTANCES -> 8;
             case GL32.GL_MAX_SAMPLES -> 4;
-            case GL32.GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS -> 48;
+            case GL32.GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS -> TextureUnitLimits.COMBINED;
             case GL32.GL_MAX_TEXTURE_IMAGE_UNITS, GL32.GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS,
                     GL32.GL_MAX_VERTEX_ATTRIBS, GL_MAX_VERTEX_ATTRIB_BINDINGS -> 16;
             case GL32.GL_MAX_VERTEX_UNIFORM_COMPONENTS, GL32.GL_MAX_FRAGMENT_UNIFORM_COMPONENTS,

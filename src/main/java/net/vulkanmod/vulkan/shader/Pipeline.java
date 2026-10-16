@@ -20,6 +20,7 @@ import net.vulkanmod.vulkan.shader.layout.AlignedStruct;
 import net.vulkanmod.vulkan.shader.layout.PushConstants;
 import net.vulkanmod.vulkan.texture.VTextureSelector;
 import net.vulkanmod.vulkan.texture.VulkanImage;
+import net.vulkanmod.gl.GlSampler;
 import org.apache.commons.lang3.Validate;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
@@ -118,10 +119,20 @@ public abstract class Pipeline {
     }
 
     public static void recreateDescriptorSets(int frames) {
-        PIPELINES.forEach(pipeline -> {
-            pipeline.destroyDescriptorSets();
-            pipeline.createDescriptorSets(frames);
-        });
+        List<Pipeline> pipelines = new ArrayList<>(PIPELINES);
+        DescriptorSets[][] previous = new DescriptorSets[pipelines.size()][];
+                                                                              
+                                                                          
+        DescriptorSets[][] replacements = DescriptorResources.createFrames(pipelines.size(), DescriptorSets[][]::new,
+                index -> pipelines.get(index).buildDescriptorSets(frames),
+                sets -> DescriptorResources.closeFrames(sets, DescriptorSets::cleanUp));
+        for (int i = 0; i < pipelines.size(); i++) {
+            Pipeline pipeline = pipelines.get(i);
+            previous[i] = pipeline.descriptorSets;
+            pipeline.descriptorSets = replacements[i];
+        }
+        DescriptorResources.closeFrames(previous,
+                sets -> DescriptorResources.closeFrames(sets, DescriptorSets::cleanUp));
     }
 
     public final String name;
@@ -208,10 +219,15 @@ public abstract class Pipeline {
     }
 
     protected void createDescriptorSets(int frames) {
-        descriptorSets = new DescriptorSets[frames];
-        for (int i = 0; i < frames; ++i) {
-            descriptorSets[i] = new DescriptorSets(this);
-        }
+        DescriptorSets[] replacement = buildDescriptorSets(frames);
+        DescriptorSets[] previous = descriptorSets;
+        descriptorSets = replacement;
+        DescriptorResources.closeFrames(previous, DescriptorSets::cleanUp);
+    }
+
+    private DescriptorSets[] buildDescriptorSets(int frames) {
+        return DescriptorResources.createFrames(frames, DescriptorSets[]::new,
+                frame -> new DescriptorSets(this), DescriptorSets::cleanUp);
     }
 
     public void scheduleCleanUp() {
@@ -221,11 +237,9 @@ public abstract class Pipeline {
     public abstract void cleanUp();
 
     void destroyDescriptorSets() {
-        for (DescriptorSets descriptorSets : this.descriptorSets) {
-            descriptorSets.cleanUp();
-        }
-
+        DescriptorSets[] previous = this.descriptorSets;
         this.descriptorSets = null;
+        DescriptorResources.closeFrames(previous, DescriptorSets::cleanUp);
     }
 
     public ManualUBO getManualUBO() {
@@ -280,9 +294,7 @@ public abstract class Pipeline {
 
     protected static class DescriptorSets {
         private final Pipeline pipeline;
-        private int poolSize = 10;
-        private long descriptorPool;
-        private LongBuffer sets;
+        private final DescriptorResources resources;
         private long currentSet;
         private int currentIdx = -1;
 
@@ -293,15 +305,24 @@ public abstract class Pipeline {
         DescriptorSets(Pipeline pipeline) {
             this.pipeline = pipeline;
             this.boundTextures = new ImageDescriptor.State[pipeline.imageDescriptors.size()];
-            this.dynamicOffsets = MemoryUtil.memAllocInt(pipeline.buffers.size());
             this.boundUBs = new long[pipeline.buffers.size()];
 
             Arrays.setAll(boundTextures, i -> new ImageDescriptor.State(0, 0));
-
-            try (MemoryStack stack = stackPush()) {
-                this.createDescriptorPool(stack);
-                this.createDescriptorSets(stack);
-            }
+            this.resources = DescriptorResources.create(new DescriptorResources.Backend() {
+                public IntBuffer allocateOffsets(int count) { return MemoryUtil.memAllocInt(count); }
+                public void freeOffsets(IntBuffer offsets) { MemoryUtil.memFree(offsets); }
+                public long createPool(int capacity) { return DescriptorSets.this.createDescriptorPool(capacity); }
+                public LongBuffer allocateSetStorage(int capacity) { return MemoryUtil.memAllocLong(capacity); }
+                public void allocateSets(long pool, int capacity, LongBuffer storage) {
+                    DescriptorSets.this.allocateDescriptorSets(pool, capacity, storage);
+                }
+                public void freeSetStorage(LongBuffer storage) { MemoryUtil.memFree(storage); }
+                public void destroyPool(long pool) { vkDestroyDescriptorPool(DEVICE, pool, null); }
+                public void retirePool(long pool) {
+                    MemoryManager.getInstance().addFrameOp(() -> vkDestroyDescriptorPool(DEVICE, pool, null));
+                }
+            }, 10, pipeline.buffers.size());
+            this.dynamicOffsets = this.resources.offsets();
         }
 
         protected void bindSets(VkCommandBuffer commandBuffer, UniformBuffer uniformBuffer, int bindPoint) {
@@ -344,7 +365,7 @@ public abstract class Pipeline {
                 ImageDescriptor imageDescriptor = pipeline.imageDescriptors.get(j);
                 VulkanImage image = imageDescriptor.getImage();
                 long view = imageDescriptor.getImageView(image);
-                long sampler = image.getSampler();
+                long sampler = imageDescriptor.getSampler(image);
 
                 if (imageDescriptor.isReadOnlyLayout)
                     image.readOnlyLayout();
@@ -369,27 +390,18 @@ public abstract class Pipeline {
             return false;
         }
 
-        private void checkPoolSize(MemoryStack stack) {
-            if (this.currentIdx >= this.poolSize) {
-                this.poolSize *= 2;
-
-                this.createDescriptorPool(stack);
-                this.createDescriptorSets(stack);
-                this.currentIdx = 0;
-
-            }
-        }
-
         private void updateDescriptorSet(MemoryStack stack, UniformBuffer uniformBuffer) {
 
             if (!needsUpdate(uniformBuffer))
                 return;
 
-            this.currentIdx++;
-
-            checkPoolSize(stack);
-
-            this.currentSet = this.sets.get(this.currentIdx);
+            int nextIndex = Math.addExact(this.currentIdx, 1);
+            if (nextIndex >= this.resources.capacity()) {
+                this.resources.grow(Math.multiplyExact(this.resources.capacity(), 2));
+                nextIndex = 0;
+            }
+            this.currentIdx = nextIndex;
+            this.currentSet = this.resources.sets().get(nextIndex);
 
             VkWriteDescriptorSet.Buffer descriptorWrites = VkWriteDescriptorSet.calloc(pipeline.buffers.size() + pipeline.imageDescriptors.size(), stack);
             VkDescriptorBufferInfo.Buffer[] bufferInfos = new VkDescriptorBufferInfo.Buffer[pipeline.buffers.size()];
@@ -423,7 +435,7 @@ public abstract class Pipeline {
                 ImageDescriptor imageDescriptor = pipeline.imageDescriptors.get(j);
                 VulkanImage image = imageDescriptor.getImage();
                 long view = imageDescriptor.getImageView(image);
-                long sampler = image.getSampler();
+                long sampler = imageDescriptor.getSampler(image);
                 int layout = imageDescriptor.getLayout();
 
                 if (imageDescriptor.isReadOnlyLayout)
@@ -452,64 +464,52 @@ public abstract class Pipeline {
             vkUpdateDescriptorSets(DEVICE, descriptorWrites, null);
         }
 
-        private void createDescriptorSets(MemoryStack stack) {
-            LongBuffer layout = stack.mallocLong(this.poolSize);
+        private void allocateDescriptorSets(long pool, int capacity, LongBuffer storage) {
+            try (MemoryStack stack = stackPush()) {
+                LongBuffer layout = stack.mallocLong(capacity);
+                for (int i = 0; i < capacity; ++i) layout.put(i, pipeline.descriptorSetLayout);
 
-            for (int i = 0; i < this.poolSize; ++i) {
-                layout.put(i, pipeline.descriptorSetLayout);
-            }
+                VkDescriptorSetAllocateInfo allocInfo = VkDescriptorSetAllocateInfo.calloc(stack);
+                allocInfo.sType$Default();
+                allocInfo.descriptorPool(pool);
+                allocInfo.pSetLayouts(layout);
 
-            VkDescriptorSetAllocateInfo allocInfo = VkDescriptorSetAllocateInfo.calloc(stack);
-            allocInfo.sType$Default();
-            allocInfo.descriptorPool(descriptorPool);
-            allocInfo.pSetLayouts(layout);
-
-            this.sets = MemoryUtil.memAllocLong(this.poolSize);
-
-            int result = vkAllocateDescriptorSets(DEVICE, allocInfo, this.sets);
-            if (result != VK_SUCCESS) {
-                throw new RuntimeException("Failed to allocate descriptor sets. Result:" + result);
+                int result = vkAllocateDescriptorSets(DEVICE, allocInfo, storage);
+                if (result != VK_SUCCESS) {
+                    throw new RuntimeException("Failed to allocate descriptor sets. Result:" + result);
+                }
             }
         }
 
-        private void createDescriptorPool(MemoryStack stack) {
-            int size = pipeline.buffers.size() + pipeline.imageDescriptors.size();
+        private long createDescriptorPool(int capacity) {
+            try (MemoryStack stack = stackPush()) {
+                int size = pipeline.buffers.size() + pipeline.imageDescriptors.size();
+                VkDescriptorPoolSize.Buffer poolSizes = VkDescriptorPoolSize.calloc(size, stack);
 
-            VkDescriptorPoolSize.Buffer poolSizes = VkDescriptorPoolSize.calloc(size, stack);
+                int i;
+                for (i = 0; i < pipeline.buffers.size(); ++i) {
+                    VkDescriptorPoolSize uniformBufferPoolSize = poolSizes.get(i);
+                    uniformBufferPoolSize.type(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC);
+                    uniformBufferPoolSize.descriptorCount(capacity);
+                }
 
-            int i;
-            for (i = 0; i < pipeline.buffers.size(); ++i) {
-                VkDescriptorPoolSize uniformBufferPoolSize = poolSizes.get(i);
+                for (; i < pipeline.buffers.size() + pipeline.imageDescriptors.size(); ++i) {
+                    VkDescriptorPoolSize textureSamplerPoolSize = poolSizes.get(i);
+                    textureSamplerPoolSize.type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+                    textureSamplerPoolSize.descriptorCount(capacity);
+                }
 
-                uniformBufferPoolSize.type(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC);
-                uniformBufferPoolSize.descriptorCount(this.poolSize);
+                VkDescriptorPoolCreateInfo poolInfo = VkDescriptorPoolCreateInfo.calloc(stack);
+                poolInfo.sType(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO);
+                poolInfo.pPoolSizes(poolSizes);
+                poolInfo.maxSets(capacity);
+
+                LongBuffer pool = stack.callocLong(1);
+                if (vkCreateDescriptorPool(DEVICE, poolInfo, null, pool) != VK_SUCCESS) {
+                    throw new RuntimeException("Failed to create descriptor pool");
+                }
+                return pool.get(0);
             }
-
-            for (; i < pipeline.buffers.size() + pipeline.imageDescriptors.size(); ++i) {
-                VkDescriptorPoolSize textureSamplerPoolSize = poolSizes.get(i);
-                textureSamplerPoolSize.type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-                textureSamplerPoolSize.descriptorCount(this.poolSize);
-            }
-
-            VkDescriptorPoolCreateInfo poolInfo = VkDescriptorPoolCreateInfo.calloc(stack);
-            poolInfo.sType(VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO);
-            poolInfo.pPoolSizes(poolSizes);
-            poolInfo.maxSets(this.poolSize);
-
-            LongBuffer pDescriptorPool = stack.mallocLong(1);
-
-            if (vkCreateDescriptorPool(DEVICE, poolInfo, null, pDescriptorPool) != VK_SUCCESS) {
-                throw new RuntimeException("Failed to create descriptor pool");
-            }
-
-            if (this.descriptorPool != VK_NULL_HANDLE) {
-                final long oldDescriptorPool = this.descriptorPool;
-                MemoryManager.getInstance().addFrameOp(() -> {
-                    vkDestroyDescriptorPool(DEVICE, oldDescriptorPool, null);
-                });
-            }
-
-            this.descriptorPool = pDescriptorPool.get(0);
         }
 
         public void resetIdx() {
@@ -517,10 +517,7 @@ public abstract class Pipeline {
         }
 
         private void cleanUp() {
-            vkResetDescriptorPool(DEVICE, descriptorPool, 0);
-            vkDestroyDescriptorPool(DEVICE, descriptorPool, null);
-
-            MemoryUtil.memFree(this.dynamicOffsets);
+            this.resources.close();
         }
 
     }
@@ -544,6 +541,9 @@ public abstract class Pipeline {
 
         SPIRV vertShaderSPIRV;
         SPIRV fragShaderSPIRV;
+        SPIRV tescShaderSPIRV;
+        SPIRV teseShaderSPIRV;
+        int patchControlPoints;
 
         RenderPass renderPass;
 
@@ -560,6 +560,9 @@ public abstract class Pipeline {
             Validate.isTrue(this.imageDescriptors != null && this.UBOs != null
                             && this.vertShaderSPIRV != null && this.fragShaderSPIRV != null,
                     "Cannot create Pipeline: resources missing");
+            Validate.isTrue((this.tescShaderSPIRV == null) == (this.teseShaderSPIRV == null)
+                            && (this.tescShaderSPIRV != null) == (this.patchControlPoints > 0),
+                    "Cannot create Pipeline: incomplete tessellation state");
 
             if (this.manualUBO != null)
                 this.UBOs.add(this.manualUBO);
@@ -575,18 +578,30 @@ public abstract class Pipeline {
         public void setSPIRVs(SPIRV vertShaderSPIRV, SPIRV fragShaderSPIRV) {
             this.vertShaderSPIRV = vertShaderSPIRV;
             this.fragShaderSPIRV = fragShaderSPIRV;
+            this.tescShaderSPIRV = null;
+            this.teseShaderSPIRV = null;
+            this.patchControlPoints = 0;
+        }
+
+        public void setTessellationSPIRVs(SPIRV control, SPIRV evaluation, int patchControlPoints) {
+            if (control == null || evaluation == null || patchControlPoints <= 0) {
+                throw new IllegalArgumentException("Tessellation requires both stages and a positive patch size");
+            }
+            this.tescShaderSPIRV = control;
+            this.teseShaderSPIRV = evaluation;
+            this.patchControlPoints = patchControlPoints;
         }
 
         public void compileShaders() {
             String resourcePath = "/assets/vulkanmod/shaders/";
 
-            this.vertShaderSPIRV = compileShaderAbsoluteFile(String.format("%s%s.vsh", resourcePath, this.shaderPath), ShaderKind.VERTEX_SHADER);
-            this.fragShaderSPIRV = compileShaderAbsoluteFile(String.format("%s%s.fsh", resourcePath, this.shaderPath), ShaderKind.FRAGMENT_SHADER);
+            setSPIRVs(compileShaderAbsoluteFile(String.format("%s%s.vsh", resourcePath, this.shaderPath), ShaderKind.VERTEX_SHADER),
+                    compileShaderAbsoluteFile(String.format("%s%s.fsh", resourcePath, this.shaderPath), ShaderKind.FRAGMENT_SHADER));
         }
 
         public void compileShaders(String name, String vsh, String fsh) {
-            this.vertShaderSPIRV = compileShader(String.format("%s.vsh", name), vsh, ShaderKind.VERTEX_SHADER);
-            this.fragShaderSPIRV = compileShader(String.format("%s.fsh", name), fsh, ShaderKind.FRAGMENT_SHADER);
+            setSPIRVs(compileShader(String.format("%s.vsh", name), vsh, ShaderKind.VERTEX_SHADER),
+                    compileShader(String.format("%s.fsh", name), fsh, ShaderKind.FRAGMENT_SHADER));
         }
 
         public void parseBindingsJSON() {
@@ -709,6 +724,8 @@ public abstract class Pipeline {
         public static int getStageFromString(String s) {
             return switch (s) {
                 case "vertex" -> VK_SHADER_STAGE_VERTEX_BIT;
+                case "tessellation_control" -> VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+                case "tessellation_evaluation" -> VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
                 case "fragment" -> VK_SHADER_STAGE_FRAGMENT_BIT;
                 case "all" -> VK_SHADER_STAGE_ALL_GRAPHICS;
                 case "compute" -> VK_SHADER_STAGE_COMPUTE_BIT;

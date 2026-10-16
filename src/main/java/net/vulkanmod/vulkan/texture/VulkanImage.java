@@ -101,6 +101,43 @@ public class VulkanImage {
         return image;
     }
 
+                                                                                                  
+    public static VulkanImage createDepthSnapshot(int format, int width, int height) {
+        if (!isDepthFormat(format) || width <= 0 || height <= 0) {
+            throw new IllegalArgumentException("A depth snapshot requires a depth format and positive dimensions");
+        }
+        Builder builder = builder(width, height).setFormat(format)
+                .setUsage(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)
+                .setLinearFiltering(false).setClamp(true);
+        builder.formatSize = Builder.formatSize(format);
+        VulkanImage image = new VulkanImage(builder);
+        try {
+            image.createImage(1, width, height, format, builder.usage);
+            if (image.id == 0 || image.allocation == 0) throw new IllegalStateException("Depth snapshot allocation returned a null handle");
+            image.mainImageView = createImageView(image.id, format, VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+            if (image.mainImageView == 0) throw new IllegalStateException("Depth snapshot view returned a null handle");
+            image.sampler = SamplerManager.getTextureSampler(builder.mipLevels, builder.samplerFlags);
+            if (image.sampler == 0) throw new IllegalStateException("Depth snapshot sampler returned a null handle");
+            return image;
+        } catch (RuntimeException | Error failure) {
+                                                                                          
+            try {
+                if (image.mainImageView != 0) vkDestroyImageView(Vulkan.getVkDevice(), image.mainImageView, null);
+            } catch (RuntimeException | Error cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            try {
+                if (image.id != 0 || image.allocation != 0) MemoryManager.freeImage(image.id, image.allocation);
+            } catch (RuntimeException | Error cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            image.mainImageView = 0;
+            image.id = 0;
+            image.allocation = 0;
+            throw failure;
+        }
+    }
+
     public static VulkanImage createWhiteTexture() {
         try (MemoryStack stack = stackPush()) {
             int i = 0xFFFFFFFF;

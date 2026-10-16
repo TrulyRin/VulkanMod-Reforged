@@ -55,6 +55,14 @@ public class RangeOption extends Option<Integer> {
         this.scaledNewValue = computeScaledValue(this.newValue);
     }
 
+    @Override
+    public boolean acceptsDraftValue(Object candidate) {
+        return super.acceptsDraftValue(candidate)
+                && candidate instanceof Integer integer
+                && integer >= this.min
+                && integer <= this.max;
+    }
+
     public float getScaledNewValue() {
         return scaledNewValue;
     }

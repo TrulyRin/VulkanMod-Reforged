@@ -2,6 +2,7 @@ package net.vulkanmod.vulkan.framebuffer;
 
 import it.unimi.dsi.fastutil.longs.Long2ReferenceOpenHashMap;
 import net.vulkanmod.Initializer;
+import net.vulkanmod.gl.GlFramebuffer;
 import net.vulkanmod.gl.GlTexture;
 import net.vulkanmod.render.util.MathUtil;
 import net.vulkanmod.vulkan.Renderer;
@@ -55,6 +56,7 @@ public class SwapChain extends Framebuffer {
     }
 
     public void recreate() {
+        GlFramebuffer.invalidateBorrowedAttachments();
         if (this.depthAttachment != null) {
             this.depthAttachment.free();
             this.depthAttachment = null;
@@ -207,7 +209,7 @@ public class SwapChain extends Framebuffer {
 
     private void createDepthResources() {
         this.depthAttachment = VulkanImage.createDepthImage(depthFormat, this.width, this.height,
-                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                MainDepthSnapshot.depthAttachmentUsage(),
                 false, false);
 
         if (this.depthAttachmentGlId == -1) {
@@ -227,6 +229,7 @@ public class SwapChain extends Framebuffer {
     }
 
     public void cleanUp() {
+        GlFramebuffer.invalidateBorrowedAttachments();
         VkDevice device = Vulkan.getVkDevice();
 
         if (!DYNAMIC_RENDERING) {

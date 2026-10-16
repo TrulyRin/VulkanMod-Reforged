@@ -1,6 +1,7 @@
 package net.vulkanmod.mixin.compatibility.gl;
 
 import net.vulkanmod.vulkan.VRenderSystem;
+import net.vulkanmod.gl.GlVertexArray;
 import org.lwjgl.opengl.GL41C;
 import org.lwjgl.system.NativeType;
 import org.spongepowered.asm.mixin.Mixin;
@@ -276,12 +277,16 @@ public class GL41M {
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribLdv(int p0, int p1, double[] p2) {
-        vulkanmod$putZero(p2);
+        if (p2 != null && p2.length > 0) {
+            p2[0] = GlVertexArray.getVertexAttribi(p0, p1);
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribLdv(int p0, int p1, java.nio.DoubleBuffer p2) {
-        vulkanmod$putZero(p2);
+        if (p2 != null && p2.remaining() > 0) {
+            p2.put(p2.position(), GlVertexArray.getVertexAttribi(p0, p1));
+        }
     }
 
     @Overwrite(remap = false)

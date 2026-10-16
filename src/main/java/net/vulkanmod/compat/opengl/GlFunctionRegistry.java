@@ -4,10 +4,12 @@ import net.minecraft.client.Minecraft;
 import net.vulkanmod.compat.opengl.GlDrawContract;
 import net.vulkanmod.compat.gl.GlCapabilityState;
 import net.vulkanmod.compat.gl.GlIntegerState;
+import net.vulkanmod.compat.gl.GlPatchState;
 import net.vulkanmod.compat.gl.GlPixelStore;
 import net.vulkanmod.gl.GlBuffer;
 import net.vulkanmod.gl.GlFramebuffer;
 import net.vulkanmod.gl.GlProgram;
+import net.vulkanmod.gl.GlProgramQueries;
 import net.vulkanmod.gl.GlQuery;
 import net.vulkanmod.gl.GlRenderbuffer;
 import net.vulkanmod.gl.GlSampler;
@@ -45,6 +47,7 @@ import static net.vulkanmod.compat.opengl.GlTrampolines.retL;
 import static net.vulkanmod.compat.opengl.GlTrampolines.retP;
 
 public final class GlFunctionRegistry {
+    private static final int DIAGNOSTIC_KEY_LIMIT = 256;
 
     private record Spec(String shape, GlTrampolines.Handler handler) {
     }
@@ -89,6 +92,7 @@ public final class GlFunctionRegistry {
 
     private static final int GL_VIEWPORT = 0x0BA2;
     private static final int GL_COLOR_CLEAR_VALUE = 0x0C22;
+    private static final int GL_DEPTH_CLEAR_VALUE = 0x0B73;
     private static final int GL_MAJOR_VERSION = 0x821B;
     private static final int GL_MINOR_VERSION = 0x821C;
     private static final int GL_NUM_EXTENSIONS = 0x821D;
@@ -137,7 +141,7 @@ public final class GlFunctionRegistry {
     public static synchronized long address(String name) {
         Spec spec = SPECS.get(name);
         if (spec == null) {
-            if (name.startsWith("gl") && REPORTED_MISSING.add(name)) {
+            if (name.startsWith("gl") && addDiagnosticKey(REPORTED_MISSING, name)) {
                 GlTrampolines.logWarn("Unimplemented GL function requested: {} (reported absent)", name);
             }
             return 0L;
@@ -159,6 +163,18 @@ public final class GlFunctionRegistry {
 
     public static int registeredCount() {
         return SPECS.size();
+    }
+
+    public static Set<String> reportedMissingFunctions() {
+        return Set.copyOf(new java.util.TreeSet<>(REPORTED_MISSING));
+    }
+
+    public static Set<String> reportedStubbedFunctions() {
+        return Set.copyOf(new java.util.TreeSet<>(REPORTED_STUBS));
+    }
+
+    public static Set<String> reportedFaultedFunctions() {
+        return GlTrampolines.faultedFunctionsSnapshot();
     }
 
     private static String contractFamily(String functionName) {
@@ -199,7 +215,7 @@ public final class GlFunctionRegistry {
     private static void stub(String... names) {
         for (String name : names) {
             SPECS.put(name, new Spec("L:", (ret, args) -> {
-                if (REPORTED_STUBS.add(name)) {
+                if (addDiagnosticKey(REPORTED_STUBS, name)) {
                     GlTrampolines.logWarn("Stubbed GL function called: {} (no-op, returns 0)", name);
                 }
                 GlTrampolines.retL(ret, 0L);
@@ -210,6 +226,13 @@ public final class GlFunctionRegistry {
     private static void noop(String name, String shape) {
         fn(name, shape, (ret, args) -> {
         });
+    }
+
+    private static boolean addDiagnosticKey(Set<String> destination, String key) {
+        if (destination.contains(key) || destination.size() >= DIAGNOSTIC_KEY_LIMIT) {
+            return false;
+        }
+        return destination.add(key);
     }
 
     private static void genLoop(long args, IntSupplier generator) {
@@ -247,6 +270,7 @@ public final class GlFunctionRegistry {
     }
 
     private static int newArbObject(int coreId, int objectType, int subtype) {
+        pruneArbShaderObjects();
         int handle = nextArbObjectHandle++;
         ARB_OBJECT_TO_CORE.put(handle, coreId);
         ARB_OBJECT_TYPE.put(handle, objectType);
@@ -269,10 +293,30 @@ public final class GlFunctionRegistry {
             ARB_CORE_PROGRAM_TO_HANDLE.remove(core);
         } else if (type == GL_SHADER_OBJECT_ARB) {
             GlProgram.deleteShader(core);
+            if (GlProgram.isShader(core)) {
+                                                                                             
+                pruneArbShaderObjects();
+                return;
+            }
         }
         ARB_OBJECT_TO_CORE.remove(handle);
         ARB_OBJECT_TYPE.remove(handle);
         ARB_OBJECT_SUBTYPE.remove(handle);
+        pruneArbShaderObjects();
+    }
+
+    private static void pruneArbShaderObjects() {
+        var iterator = ARB_OBJECT_TO_CORE.entrySet().iterator();
+        while (iterator.hasNext()) {
+            var entry = iterator.next();
+            int handle = entry.getKey();
+            if (ARB_OBJECT_TYPE.getOrDefault(handle, 0) == GL_SHADER_OBJECT_ARB
+                    && !GlProgram.isShader(entry.getValue())) {
+                ARB_OBJECT_TYPE.remove(handle);
+                ARB_OBJECT_SUBTYPE.remove(handle);
+                iterator.remove();
+            }
+        }
     }
 
     private static int getArbObjectParameter(int handle, int pname) {
@@ -470,6 +514,12 @@ public final class GlFunctionRegistry {
     }
 
     private static void ensureViewport() {
+        if (Renderer.isViewportInitialized()) {
+            for (int i = 0; i < 4; i++) {
+                VIEWPORT[i] = Renderer.getViewportBox(i);
+            }
+            return;
+        }
         if (VIEWPORT[2] == 0 || VIEWPORT[3] == 0) {
             try {
                 var window = Minecraft.getInstance().getWindow();
@@ -868,6 +918,8 @@ public final class GlFunctionRegistry {
                 for (int i = 0; i < 4; i++) {
                     MemoryUtil.memPutFloat(params + 4L * i, VRenderSystem.clearColor.get(i));
                 }
+            } else if (pname == GL_DEPTH_CLEAR_VALUE) {
+                MemoryUtil.memPutFloat(params, VRenderSystem.clearDepthValue);
             } else if (pname == GL_LINE_WIDTH) {
                 MemoryUtil.memPutFloat(params, 1.0f);
             } else {
@@ -882,7 +934,8 @@ public final class GlFunctionRegistry {
             int pname = argI(args, 0);
             long params = argP(args, 1);
             if (params != 0) {
-                MemoryUtil.memPutDouble(params, integerValue(pname, 0));
+                MemoryUtil.memPutDouble(params, pname == GL_DEPTH_CLEAR_VALUE
+                        ? (double) VRenderSystem.clearDepthValue : integerValue(pname, 0));
             }
         });
 
@@ -1170,12 +1223,27 @@ public final class GlFunctionRegistry {
     }
 
     private static void registerGl20() {
-        fn("glCreateProgram", "I:", (ret, args) -> retI(ret, GlProgram.createProgram()));
-        fn("glDeleteProgram", "V:i", (ret, args) -> GlProgram.deleteProgram(argI(args, 0)));
-        fn("glCreateShader", "I:i", (ret, args) -> retI(ret, GlProgram.createShader(argI(args, 0))));
-        fn("glDeleteShader", "V:i", (ret, args) -> GlProgram.deleteShader(argI(args, 0)));
+        fn("glCreateProgram", "I:", (ret, args) -> {
+            retI(ret, GlProgram.createProgram());
+            pruneArbShaderObjects();
+        });
+        fn("glDeleteProgram", "V:i", (ret, args) -> {
+            GlProgram.deleteProgram(argI(args, 0));
+            pruneArbShaderObjects();
+        });
+        fn("glCreateShader", "I:i", (ret, args) -> {
+            retI(ret, GlProgram.createShader(argI(args, 0)));
+            pruneArbShaderObjects();
+        });
+        fn("glDeleteShader", "V:i", (ret, args) -> {
+            GlProgram.deleteShader(argI(args, 0));
+            pruneArbShaderObjects();
+        });
         fn("glAttachShader", "V:ii", (ret, args) -> GlProgram.attachShader(argI(args, 0), argI(args, 1)));
-        noop("glDetachShader", "V:ii");
+        fn("glDetachShader", "V:ii", (ret, args) -> {
+            GlProgram.detachShader(argI(args, 0), argI(args, 1));
+            pruneArbShaderObjects();
+        });
         fn("glShaderSource", "V:iipp", (ret, args) -> {
             int shader = argI(args, 0);
             int count = argI(args, 1);
@@ -1241,28 +1309,12 @@ public final class GlFunctionRegistry {
             long name = argP(args, 1);
             retI(ret, name == 0 ? -1 : GlProgram.getUniformLocation(argI(args, 0), MemoryUtil.memUTF8(name)));
         });
-        fn("glGetActiveUniform", "V:iiipppp", (ret, args) -> {
-            long size = argP(args, 4);
-            long type = argP(args, 5);
-            if (size != 0) {
-                MemoryUtil.memPutInt(size, 0);
-            }
-            if (type != 0) {
-                MemoryUtil.memPutInt(type, 0);
-            }
-            writeOutString("", argI(args, 2), argP(args, 3), argP(args, 6));
-        });
-        fn("glGetActiveAttrib", "V:iiipppp", (ret, args) -> {
-            long size = argP(args, 4);
-            long type = argP(args, 5);
-            if (size != 0) {
-                MemoryUtil.memPutInt(size, 0);
-            }
-            if (type != 0) {
-                MemoryUtil.memPutInt(type, 0);
-            }
-            writeOutString("", argI(args, 2), argP(args, 3), argP(args, 6));
-        });
+        fn("glGetActiveUniform", "V:iiipppp", (ret, args) ->
+                GlProgramQueries.activeVariable(GlProgram.activeUniform(argI(args, 0), argI(args, 1)),
+                        argI(args, 2), argP(args, 3), argP(args, 4), argP(args, 5), argP(args, 6)));
+        fn("glGetActiveAttrib", "V:iiipppp", (ret, args) ->
+                GlProgramQueries.activeVariable(GlProgram.activeAttribute(argI(args, 0), argI(args, 1)),
+                        argI(args, 2), argP(args, 3), argP(args, 4), argP(args, 5), argP(args, 6)));
 
         fn("glUniform1i", "V:ii", (ret, args) -> GlProgram.uniform1i(argI(args, 0), argI(args, 1)));
         fn("glUniform1f", "V:if", (ret, args) -> GlProgram.uniform1f(argI(args, 0), argF(args, 1)));
@@ -1272,12 +1324,8 @@ public final class GlFunctionRegistry {
         noop("glUniform2i", "V:iii");
         fn("glUniform3i", "V:iiii", (ret, args) -> GlProgram.uniform3i(argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3)));
         noop("glUniform4i", "V:iiiii");
-        fn("glUniform1fv", "V:iip", (ret, args) -> {
-            long value = argP(args, 2);
-            if (argI(args, 1) >= 1 && value != 0) {
-                GlProgram.uniform1f(argI(args, 0), MemoryUtil.memGetFloat(value));
-            }
-        });
+        fn("glUniform1fv", "V:iip", (ret, args) ->
+                GlProgram.uniform1fv(argI(args, 0), argI(args, 1), argP(args, 2)));
         fn("glUniform2fv", "V:iip", (ret, args) -> {
             long value = argP(args, 2);
             if (argI(args, 1) >= 1 && value != 0) {
@@ -1308,25 +1356,14 @@ public final class GlFunctionRegistry {
         noop("glUniform3iv", "V:iip");
         noop("glUniform4iv", "V:iip");
         noop("glUniformMatrix2fv", "V:iibp");
-        noop("glUniformMatrix3fv", "V:iibp");
-        fn("glUniformMatrix4fv", "V:iibp", (ret, args) -> {
-            long value = argP(args, 3);
-            if (argI(args, 1) >= 1 && value != 0) {
-                GlProgram.uniformMatrix4fv(argI(args, 0), argB(args, 2), MemoryUtil.memFloatBuffer(value, 16));
-            }
-        });
-        fn("glGetUniformfv", "V:iip", (ret, args) -> {
-            long params = argP(args, 2);
-            if (params != 0) {
-                MemoryUtil.memPutFloat(params, 0.0f);
-            }
-        });
-        fn("glGetUniformiv", "V:iip", (ret, args) -> {
-            long params = argP(args, 2);
-            if (params != 0) {
-                MemoryUtil.memPutInt(params, 0);
-            }
-        });
+        fn("glUniformMatrix3fv", "V:iibp", (ret, args) ->
+                GlProgram.uniformMatrix3fv(argI(args, 0), argI(args, 1), argB(args, 2), argP(args, 3)));
+        fn("glUniformMatrix4fv", "V:iibp", (ret, args) ->
+                GlProgram.uniformMatrix4fv(argI(args, 0), argI(args, 1), argB(args, 2), argP(args, 3)));
+        fn("glGetUniformfv", "V:iip", (ret, args) ->
+                GlProgram.getUniformfv(argI(args, 0), argI(args, 1), argP(args, 2)));
+        fn("glGetUniformiv", "V:iip", (ret, args) ->
+                GlProgram.getUniformiv(argI(args, 0), argI(args, 1), argP(args, 2)));
 
         noop("glEnableVertexAttribArray", "V:i");
         noop("glDisableVertexAttribArray", "V:i");
@@ -1334,19 +1371,19 @@ public final class GlFunctionRegistry {
         fn("glGetVertexAttribiv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutInt(params, 0);
+                MemoryUtil.memPutInt(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
             }
         });
         fn("glGetVertexAttribfv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutFloat(params, 0.0f);
+                MemoryUtil.memPutFloat(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
             }
         });
         fn("glGetVertexAttribdv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutDouble(params, 0.0);
+                MemoryUtil.memPutDouble(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
             }
         });
         fn("glGetVertexAttribPointerv", "V:iip", (ret, args) -> {
@@ -1394,7 +1431,10 @@ public final class GlFunctionRegistry {
         noop("glFramebufferTexture1D", "V:iiiii");
         noop("glFramebufferTexture3D", "V:iiiiii");
         noop("glFramebufferTextureLayer", "V:iiiii");
-        noop("glBlitFramebuffer", "V:iiiiiiiiii");
+        fn("glBlitFramebuffer", "V:iiiiiiiiii", (ret, args) -> GlFramebuffer.blitFramebuffer(
+                argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3),
+                argI(args, 4), argI(args, 5), argI(args, 6), argI(args, 7),
+                argI(args, 8), argI(args, 9)));
 
         fn("glGenRenderbuffers", "V:ip", (ret, args) -> genLoop(args, GlRenderbuffer::genId));
         fn("glDeleteRenderbuffers", "V:ip", (ret, args) -> deleteLoop(args, GlRenderbuffer::deleteRenderbuffer));
@@ -1405,12 +1445,12 @@ public final class GlFunctionRegistry {
         });
         fn("glRenderbufferStorage", "V:iiii", (ret, args) -> GlRenderbuffer.renderbufferStorage(argI(args, 0), argI(args, 1),
                 argI(args, 2), argI(args, 3)));
-        fn("glRenderbufferStorageMultisample", "V:iiiii", (ret, args) -> GlRenderbuffer.renderbufferStorage(argI(args, 0), argI(args, 2),
+        fn("glRenderbufferStorageMultisample", "V:iiiii", (ret, args) -> GlRenderbuffer.renderbufferStorageMultisample(argI(args, 0), argI(args, 1), argI(args, 2),
                 argI(args, 3), argI(args, 4)));
         fn("glGetRenderbufferParameteriv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutInt(params, 0);
+                MemoryUtil.memPutInt(params, GlRenderbuffer.getRenderbufferParameter(argI(args, 0), argI(args, 1)));
             }
         });
 
@@ -1462,13 +1502,13 @@ public final class GlFunctionRegistry {
         fn("glGetVertexAttribIiv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutInt(params, 0);
+                MemoryUtil.memPutInt(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
             }
         });
         fn("glGetVertexAttribIuiv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutInt(params, 0);
+                MemoryUtil.memPutInt(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
             }
         });
         fn("glGetUniformuiv", "V:iip", (ret, args) -> {
@@ -1675,7 +1715,7 @@ public final class GlFunctionRegistry {
             noop(name, "V:iip");
         }
 
-        noop("glVertexAttribDivisor", "V:ii");
+        fn("glVertexAttribDivisor", "V:ii", (ret, args) -> GlVertexArray.vertexAttribDivisor(argI(args, 0), argI(args, 1)));
 
         noop("glVertexAttribLPointer", "V:iiiip");
         noop("glBindFragDataLocationIndexed", "V:iiip");
@@ -1696,7 +1736,7 @@ public final class GlFunctionRegistry {
         noop("glBlendEquationi", "V:ii");
         noop("glBlendEquationSeparatei", "V:iii");
         noop("glMinSampleShading", "V:f");
-        noop("glPatchParameteri", "V:ii");
+        fn("glPatchParameteri", "V:ii", (ret, args) -> GlPatchState.patchParameteri(argI(args, 0), argI(args, 1)));
         noop("glPatchParameterfv", "V:ip");
         noop("glDrawArraysIndirect", "V:ip");
         noop("glDrawElementsIndirect", "V:iip");
@@ -1767,7 +1807,7 @@ public final class GlFunctionRegistry {
         fn("glGetVertexAttribLdv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutDouble(params, 0.0);
+                MemoryUtil.memPutDouble(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
             }
         });
         noop("glShaderStorageBlockBinding", "V:iii");
@@ -2058,12 +2098,8 @@ public final class GlFunctionRegistry {
         });
         fn("glGetNamedBufferPointer", "P:ii", (ret, args) -> retP(ret, 0L));
 
-        fn("glBindTextureUnit", "V:ii", (ret, args) -> {
-            int previous = GlTexture.getActiveTexture();
-            GlTexture.activeTexture(GL_TEXTURE0 + argI(args, 0));
-            GlTexture.bindTexture(argI(args, 1));
-            GlTexture.activeTexture(previous);
-        });
+        fn("glBindTextureUnit", "V:ii", (ret, args) ->
+                GlTexture.bindTextureUnit(argI(args, 0), argI(args, 1)));
         fn("glTextureParameteri", "V:iii", (ret, args) -> {
             int pname = argI(args, 1);
             int param = argI(args, 2);
@@ -2482,7 +2518,10 @@ public final class GlFunctionRegistry {
         noop("glNamedFramebufferDrawBuffers", "V:iip");
         noop("glNamedFramebufferDrawBuffer", "V:ii");
         noop("glNamedFramebufferReadBuffer", "V:ii");
-        noop("glBlitNamedFramebuffer", "V:iiiiiiiiiiii");
+        fn("glBlitNamedFramebuffer", "V:iiiiiiiiiiii", (ret, args) -> GlFramebuffer.blitNamedFramebuffer(
+                argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3),
+                argI(args, 4), argI(args, 5), argI(args, 6), argI(args, 7),
+                argI(args, 8), argI(args, 9), argI(args, 10), argI(args, 11)));
         noop("glClearNamedFramebufferiv", "V:iiip");
         noop("glClearNamedFramebufferuiv", "V:iiip");
         noop("glClearNamedFramebufferfv", "V:iiip");
@@ -2491,10 +2530,22 @@ public final class GlFunctionRegistry {
         noop("glInvalidateNamedFramebufferSubData", "V:iipiiii");
         fn("glGetNamedFramebufferParameteriv", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
         fn("glGetNamedFramebufferParameteri", "I:ii", (ret, args) -> retI(ret, 0));
-        fn("glGetNamedFramebufferAttachmentParameteriv", "V:iiip", (ret, args) -> zeroInt(argP(args, 3)));
-        fn("glGetNamedFramebufferAttachmentParameteri", "I:iii", (ret, args) -> retI(ret, 0));
-        fn("glGetNamedRenderbufferParameteriv", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
-        fn("glGetNamedRenderbufferParameteri", "I:ii", (ret, args) -> retI(ret, 0));
+        fn("glGetNamedFramebufferAttachmentParameteriv", "V:iiip", (ret, args) -> {
+            long params = argP(args, 3);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlFramebuffer.getNamedFramebufferAttachmentParameteri(argI(args, 0),
+                        argI(args, 1), argI(args, 2)));
+            }
+        });
+        fn("glGetNamedFramebufferAttachmentParameteri", "I:iii", (ret, args) -> retI(ret, GlFramebuffer.getNamedFramebufferAttachmentParameteri(argI(args, 0),
+                argI(args, 1), argI(args, 2))));
+        fn("glGetNamedRenderbufferParameteriv", "V:iip", (ret, args) -> {
+            long params = argP(args, 2);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlRenderbuffer.getNamedRenderbufferParameter(argI(args, 0), argI(args, 1)));
+            }
+        });
+        fn("glGetNamedRenderbufferParameteri", "I:ii", (ret, args) -> retI(ret, GlRenderbuffer.getNamedRenderbufferParameter(argI(args, 0), argI(args, 1))));
 
         noop("glTransformFeedbackBufferBase", "V:iii");
         noop("glTransformFeedbackBufferRange", "V:iiill");
@@ -2653,14 +2704,25 @@ public final class GlFunctionRegistry {
         fn("glRenderbufferStorageEXT", "V:iiii", (ret, args) -> GlRenderbuffer.renderbufferStorage(argI(args, 0), argI(args, 1),
                 argI(args, 2), argI(args, 3)));
         fn("glGenerateMipmapEXT", "V:i", (ret, args) -> GlTexture.generateMipmap(argI(args, 0)));
-        fn("glGetFramebufferAttachmentParameterivEXT", "V:iiip", (ret, args) -> zeroInt(argP(args, 3)));
+        fn("glGetFramebufferAttachmentParameterivEXT", "V:iiip", (ret, args) -> {
+            long params = argP(args, 3);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlFramebuffer.getFramebufferAttachmentParameteri(argI(args, 0),
+                        argI(args, 1), argI(args, 2)));
+            }
+        });
         fn("glGetFramebufferAttachmentParameteriEXT", "I:iii", (ret, args) -> retI(ret, GlFramebuffer.getFramebufferAttachmentParameteri(argI(args, 0),
                 argI(args, 1), argI(args, 2))));
         fn("glGetFramebufferAttachmentParameteri", "I:iii", (ret, args) -> retI(ret, GlFramebuffer.getFramebufferAttachmentParameteri(argI(args, 0),
                 argI(args, 1), argI(args, 2))));
-        fn("glGetRenderbufferParameterivEXT", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
-        fn("glGetRenderbufferParameteriEXT", "I:ii", (ret, args) -> retI(ret, 0));
-        fn("glGetRenderbufferParameteri", "I:ii", (ret, args) -> retI(ret, 0));
+        fn("glGetRenderbufferParameterivEXT", "V:iip", (ret, args) -> {
+            long params = argP(args, 2);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlRenderbuffer.getRenderbufferParameter(argI(args, 0), argI(args, 1)));
+            }
+        });
+        fn("glGetRenderbufferParameteriEXT", "I:ii", (ret, args) -> retI(ret, GlRenderbuffer.getRenderbufferParameter(argI(args, 0), argI(args, 1))));
+        fn("glGetRenderbufferParameteri", "I:ii", (ret, args) -> retI(ret, GlRenderbuffer.getRenderbufferParameter(argI(args, 0), argI(args, 1))));
 
         noop("glTextureStorage1DEXT", "V:iiiii");
         noop("glTextureStorage2DEXT", "V:iiiiii");
@@ -2676,7 +2738,10 @@ public final class GlFunctionRegistry {
                 retI(ret, newArbObject(GlProgram.createProgram(), GL_PROGRAM_OBJECT_ARB, 0)));
         fn("glDeleteObjectARB", "V:i", (ret, args) -> deleteArbObject(argI(args, 0)));
         fn("glAttachObjectARB", "V:ii", (ret, args) -> GlProgram.attachShader(arbCoreObject(argI(args, 0)), arbCoreObject(argI(args, 1))));
-        noop("glDetachObjectARB", "V:ii");
+        fn("glDetachObjectARB", "V:ii", (ret, args) -> {
+            GlProgram.detachShader(arbCoreObject(argI(args, 0)), arbCoreObject(argI(args, 1)));
+            pruneArbShaderObjects();
+        });
         fn("glShaderSourceARB", "V:iipp", (ret, args) -> GlProgram.shaderSource(arbCoreObject(argI(args, 0)),
                 shaderSourceFromPointers(argI(args, 1), argP(args, 2), argP(args, 3))));
         fn("glCompileShaderARB", "V:i", (ret, args) -> GlProgram.compileShader(arbCoreObject(argI(args, 0))));
@@ -2721,12 +2786,8 @@ public final class GlFunctionRegistry {
         noop("glUniform2iARB", "V:iii");
         fn("glUniform3iARB", "V:iiii", (ret, args) -> GlProgram.uniform3i(argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3)));
         noop("glUniform4iARB", "V:iiiii");
-        fn("glUniform1fvARB", "V:iip", (ret, args) -> {
-            long value = argP(args, 2);
-            if (argI(args, 1) >= 1 && value != 0) {
-                GlProgram.uniform1f(argI(args, 0), MemoryUtil.memGetFloat(value));
-            }
-        });
+        fn("glUniform1fvARB", "V:iip", (ret, args) ->
+                GlProgram.uniform1fv(argI(args, 0), argI(args, 1), argP(args, 2)));
         fn("glUniform2fvARB", "V:iip", (ret, args) -> {
             long value = argP(args, 2);
             if (argI(args, 1) >= 1 && value != 0) {
@@ -2757,13 +2818,10 @@ public final class GlFunctionRegistry {
         noop("glUniform3ivARB", "V:iip");
         noop("glUniform4ivARB", "V:iip");
         noop("glUniformMatrix2fvARB", "V:iibp");
-        noop("glUniformMatrix3fvARB", "V:iibp");
-        fn("glUniformMatrix4fvARB", "V:iibp", (ret, args) -> {
-            long value = argP(args, 3);
-            if (argI(args, 1) >= 1 && value != 0) {
-                GlProgram.uniformMatrix4fv(argI(args, 0), argB(args, 2), MemoryUtil.memFloatBuffer(value, 16));
-            }
-        });
+        fn("glUniformMatrix3fvARB", "V:iibp", (ret, args) ->
+                GlProgram.uniformMatrix3fv(argI(args, 0), argI(args, 1), argB(args, 2), argP(args, 3)));
+        fn("glUniformMatrix4fvARB", "V:iibp", (ret, args) ->
+                GlProgram.uniformMatrix4fv(argI(args, 0), argI(args, 1), argB(args, 2), argP(args, 3)));
         fn("glGetUniformfvARB", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
@@ -2932,8 +2990,13 @@ public final class GlFunctionRegistry {
 
         fn("glNamedRenderbufferStorageEXT", "V:iiii", (ret, args) -> GlRenderbuffer.namedRenderbufferStorage(argI(args, 0),
                 argI(args, 1), argI(args, 2), argI(args, 3)));
-        fn("glGetNamedRenderbufferParameterivEXT", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
-        fn("glGetNamedRenderbufferParameteriEXT", "I:ii", (ret, args) -> retI(ret, 0));
+        fn("glGetNamedRenderbufferParameterivEXT", "V:iip", (ret, args) -> {
+            long params = argP(args, 2);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlRenderbuffer.getNamedRenderbufferParameter(argI(args, 0), argI(args, 1)));
+            }
+        });
+        fn("glGetNamedRenderbufferParameteriEXT", "I:ii", (ret, args) -> retI(ret, GlRenderbuffer.getNamedRenderbufferParameter(argI(args, 0), argI(args, 1))));
         fn("glNamedRenderbufferStorageMultisampleEXT", "V:iiiii", (ret, args) -> GlRenderbuffer.namedRenderbufferStorageMultisample(argI(args, 0),
                 argI(args, 1), argI(args, 2), argI(args, 3), argI(args, 4)));
         noop("glNamedRenderbufferStorageMultisampleCoverageEXT", "V:iiiiii");
@@ -2946,8 +3009,15 @@ public final class GlFunctionRegistry {
                 argI(args, 1), argI(args, 3), argI(args, 4)));
         fn("glNamedFramebufferRenderbufferEXT", "V:iiii", (ret, args) -> GlFramebuffer.namedFramebufferRenderbuffer(argI(args, 0),
                 argI(args, 1), argI(args, 2), argI(args, 3)));
-        fn("glGetNamedFramebufferAttachmentParameterivEXT", "V:iiip", (ret, args) -> zeroInt(argP(args, 3)));
-        fn("glGetNamedFramebufferAttachmentParameteriEXT", "I:iii", (ret, args) -> retI(ret, 0));
+        fn("glGetNamedFramebufferAttachmentParameterivEXT", "V:iiip", (ret, args) -> {
+            long params = argP(args, 3);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlFramebuffer.getNamedFramebufferAttachmentParameteri(argI(args, 0),
+                        argI(args, 1), argI(args, 2)));
+            }
+        });
+        fn("glGetNamedFramebufferAttachmentParameteriEXT", "I:iii", (ret, args) -> retI(ret, GlFramebuffer.getNamedFramebufferAttachmentParameteri(argI(args, 0),
+                argI(args, 1), argI(args, 2))));
         noop("glFramebufferDrawBufferEXT", "V:ii");
         noop("glFramebufferDrawBuffersEXT", "V:iip");
         noop("glFramebufferReadBufferEXT", "V:ii");
@@ -2982,18 +3052,23 @@ public final class GlFunctionRegistry {
         noop("glEnableVertexAttribArrayARB", "V:i");
         noop("glDisableVertexAttribArrayARB", "V:i");
         noop("glVertexAttribPointerARB", "V:iiibip");
-        fn("glGetVertexAttribivARB", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
-        fn("glGetVertexAttribiARB", "I:ii", (ret, args) -> retI(ret, 0));
+        fn("glGetVertexAttribivARB", "V:iip", (ret, args) -> {
+            long params = argP(args, 2);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
+            }
+        });
+        fn("glGetVertexAttribiARB", "I:ii", (ret, args) -> retI(ret, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1))));
         fn("glGetVertexAttribfvARB", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutFloat(params, 0.0f);
+                MemoryUtil.memPutFloat(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
             }
         });
         fn("glGetVertexAttribdvARB", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutDouble(params, 0.0);
+                MemoryUtil.memPutDouble(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
             }
         });
         fn("glGetVertexAttribPointervARB", "V:iip", (ret, args) -> {
@@ -3054,10 +3129,20 @@ public final class GlFunctionRegistry {
         fn("glGetFragDataLocationEXT", "I:ip", (ret, args) -> retI(ret, 0));
         fn("glGetUniformuivEXT", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
         fn("glGetUniformuiEXT", "I:ii", (ret, args) -> retI(ret, 0));
-        fn("glGetVertexAttribIivEXT", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
-        fn("glGetVertexAttribIiEXT", "I:ii", (ret, args) -> retI(ret, 0));
-        fn("glGetVertexAttribIuivEXT", "V:iip", (ret, args) -> zeroInt(argP(args, 2)));
-        fn("glGetVertexAttribIuiEXT", "I:ii", (ret, args) -> retI(ret, 0));
+        fn("glGetVertexAttribIivEXT", "V:iip", (ret, args) -> {
+            long params = argP(args, 2);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
+            }
+        });
+        fn("glGetVertexAttribIiEXT", "I:ii", (ret, args) -> retI(ret, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1))));
+        fn("glGetVertexAttribIuivEXT", "V:iip", (ret, args) -> {
+            long params = argP(args, 2);
+            if (params != 0) {
+                MemoryUtil.memPutInt(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
+            }
+        });
+        fn("glGetVertexAttribIuiEXT", "I:ii", (ret, args) -> retI(ret, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1))));
         noop("glUniform1uiEXT", "V:ii");
         noop("glUniform2uiEXT", "V:iii");
         noop("glUniform3uiEXT", "V:iiii");
@@ -3111,7 +3196,12 @@ public final class GlFunctionRegistry {
         fn("glGetIntegerIndexedEXT", "I:ii", (ret, args) -> retI(ret, 0));
         fn("glIsEnabledIndexedEXT", "I:ii", (ret, args) -> retI(ret, 0));
 
-        fn("glGetVertexAttribLdvEXT", "V:iip", (ret, args) -> zeroLong(argP(args, 2)));
+        fn("glGetVertexAttribLdvEXT", "V:iip", (ret, args) -> {
+            long params = argP(args, 2);
+            if (params != 0) {
+                MemoryUtil.memPutDouble(params, GlVertexArray.getVertexAttribi(argI(args, 0), argI(args, 1)));
+            }
+        });
         noop("glVertexArrayVertexAttribLOffsetEXT", "V:iiiiiil");
         noop("glVertexAttribL1dEXT", "V:id");
         noop("glVertexAttribL2dEXT", "V:idd");
@@ -3264,8 +3354,8 @@ public final class GlFunctionRegistry {
 
         noop("glMultiDrawArraysIndirectCountARB", "V:iplii");
         noop("glMultiDrawElementsIndirectCountARB", "V:iiplii");
-        noop("glVertexArrayVertexAttribDivisorEXT", "V:iii");
-        noop("glVertexAttribDivisorARB", "V:ii");
+        fn("glVertexArrayVertexAttribDivisorEXT", "V:iii", (ret, args) -> GlVertexArray.vertexArrayVertexAttribDivisor(argI(args, 0), argI(args, 1), argI(args, 2)));
+        fn("glVertexAttribDivisorARB", "V:ii", (ret, args) -> GlVertexArray.vertexAttribDivisor(argI(args, 0), argI(args, 1)));
         noop("glPointParameterfARB", "V:if");
         noop("glPointParameterfvARB", "V:ip");
 
@@ -3860,8 +3950,11 @@ public final class GlFunctionRegistry {
         noop("glRasterSamplesEXT", "V:ib");
         noop("glPolygonOffsetClampEXT", "V:fff");
         fn("glRenderbufferStorageMultisampleEXT", "V:iiiii", (ret, args) ->
-                GlRenderbuffer.renderbufferStorage(argI(args, 0), argI(args, 2), argI(args, 3), argI(args, 4)));
-        noop("glBlitFramebufferEXT", "V:iiiiiiiiii");
+                GlRenderbuffer.renderbufferStorageMultisample(argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3), argI(args, 4)));
+        fn("glBlitFramebufferEXT", "V:iiiiiiiiii", (ret, args) -> GlFramebuffer.blitFramebuffer(
+                argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3),
+                argI(args, 4), argI(args, 5), argI(args, 6), argI(args, 7),
+                argI(args, 8), argI(args, 9)));
         noop("glDepthBoundsEXT", "V:dd");
         noop("glClampColorARB", "V:ii");
         noop("glDispatchComputeGroupSizeARB", "V:iiiiii");

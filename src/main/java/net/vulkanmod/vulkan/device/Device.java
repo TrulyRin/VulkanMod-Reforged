@@ -1,5 +1,6 @@
 package net.vulkanmod.vulkan.device;
 
+import net.vulkanmod.Initializer;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
@@ -32,6 +33,7 @@ public class Device {
     public final VkPhysicalDeviceVulkan11Features availableFeatures11;
 
     private boolean drawIndirectSupported;
+    private final boolean portabilitySubset;
 
     public Device(VkPhysicalDevice device) {
         this.physicalDevice = device;
@@ -57,6 +59,13 @@ public class Device {
         if (this.availableFeatures.features().multiDrawIndirect() && this.availableFeatures11.shaderDrawParameters())
             this.drawIndirectSupported = true;
 
+        Set<String> availableExtensions = getAvailableExtensions(this.physicalDevice);
+
+        this.portabilitySubset = availableExtensions.contains(
+                KHRPortabilitySubset.VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+
+        Initializer.LOGGER.info("VulkanMod: {} exposes {} device extensions.",
+                this.deviceName, availableExtensions.size());
     }
 
     private static String decodeVendor(int i) {
@@ -102,30 +111,35 @@ public class Device {
     }
 
     public Set<String> getUnsupportedExtensions(Set<String> requiredExtensions) {
+        Set<String> unsupportedExtensions = new HashSet<>(requiredExtensions);
+        unsupportedExtensions.removeAll(getAvailableExtensions(physicalDevice));
+        return unsupportedExtensions;
+    }
+
+    static Set<String> getAvailableExtensions(VkPhysicalDevice physicalDevice) {
         try (MemoryStack stack = stackPush()) {
-
             IntBuffer extensionCount = stack.ints(0);
-
             vkEnumerateDeviceExtensionProperties(physicalDevice, (String) null, extensionCount, null);
 
-            VkExtensionProperties.Buffer availableExtensions = VkExtensionProperties.malloc(extensionCount.get(0),
-                    stack);
+            VkExtensionProperties.Buffer availableExtensions = VkExtensionProperties.malloc(extensionCount.get(0));
+            try {
+                vkEnumerateDeviceExtensionProperties(physicalDevice, (String) null, extensionCount, availableExtensions);
 
-            vkEnumerateDeviceExtensionProperties(physicalDevice, (String) null, extensionCount, availableExtensions);
-
-            Set<String> extensions = availableExtensions.stream()
-                    .map(VkExtensionProperties::extensionNameString)
-                    .collect(toSet());
-
-            Set<String> unsupportedExtensions = new HashSet<>(requiredExtensions);
-            unsupportedExtensions.removeAll(extensions);
-
-            return unsupportedExtensions;
+                return availableExtensions.stream()
+                        .map(VkExtensionProperties::extensionNameString)
+                        .collect(toSet());
+            } finally {
+                availableExtensions.free();
+            }
         }
     }
 
     public boolean isDrawIndirectSupported() {
         return drawIndirectSupported;
+    }
+
+    public boolean isPortabilitySubset() {
+        return portabilitySubset;
     }
 
     public boolean isAMD() {

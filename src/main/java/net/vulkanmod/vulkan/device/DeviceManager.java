@@ -2,6 +2,7 @@ package net.vulkanmod.vulkan.device;
 
 import it.unimi.dsi.fastutil.objects.ObjectArrayList;
 import net.vulkanmod.Initializer;
+import net.vulkanmod.compat.gl.GlPatchState;
 import net.vulkanmod.vulkan.VRenderSystem;
 import net.vulkanmod.vulkan.Vulkan;
 import net.vulkanmod.vulkan.queue.*;
@@ -32,6 +33,7 @@ public abstract class DeviceManager {
     public static VkDevice vkDevice;
 
     public static Device device;
+    private static boolean tessellationEnabled;
 
     public static VkPhysicalDeviceProperties deviceProperties;
     public static VkPhysicalDeviceMemoryProperties memoryProperties;
@@ -46,6 +48,17 @@ public abstract class DeviceManager {
     public static void init(VkInstance instance) {
         try {
             DeviceManager.getSuitableDevices(instance);
+
+            if (availableDevices.isEmpty()) {
+                throw new RuntimeException("No Vulkan-capable GPU was detected.\n"
+                        + net.vulkanmod.config.Platform.vulkanDriverHint());
+            }
+            if (suitableDevices.isEmpty()) {
+                throw new RuntimeException("Found " + availableDevices.size()
+                        + " GPU(s), but none support the required Vulkan extensions."
+                        + getAvailableDevicesInfo());
+            }
+
             DeviceManager.pickPhysicalDevice();
             DeviceManager.createLogicalDevice();
         } catch (Exception e) {
@@ -131,6 +144,15 @@ public abstract class DeviceManager {
         return device != null && device.isDrawIndirectSupported() && !device.isIntel();
     }
 
+    public static boolean isTessellationEnabled() {
+        return tessellationEnabled && vkDevice != null;
+    }
+
+    public static int maxTessellationPatchSize() {
+        return isTessellationEnabled() && deviceProperties != null
+                ? deviceProperties.limits().maxTessellationPatchSize() : 0;
+    }
+
     static Device autoPickDevice() {
         ArrayList<Device> integratedGPUs = new ArrayList<>();
         ArrayList<Device> otherDevices = new ArrayList<>();
@@ -165,6 +187,8 @@ public abstract class DeviceManager {
     }
 
     public static void createLogicalDevice() {
+        tessellationEnabled = false;
+        GlPatchState.configureLimit(0);
         try (MemoryStack stack = stackPush()) {
 
             net.vulkanmod.vulkan.queue.Queue.QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
@@ -188,6 +212,7 @@ public abstract class DeviceManager {
             deviceFeatures.sType$Default();
             deviceFeatures.features().samplerAnisotropy(device.availableFeatures.features().samplerAnisotropy());
             deviceFeatures.features().logicOp(device.availableFeatures.features().logicOp());
+            deviceFeatures.features().tessellationShader(device.availableFeatures.features().tessellationShader());
 
             deviceFeatures.features().multiDrawIndirect(device.isDrawIndirectSupported());
 
@@ -212,7 +237,11 @@ public abstract class DeviceManager {
 
             }
 
-            createInfo.ppEnabledExtensionNames(asPointerBuffer(Vulkan.REQUIRED_EXTENSION));
+            java.util.Set<String> deviceExtensions = new java.util.HashSet<>(Vulkan.REQUIRED_EXTENSION);
+            if (device.isPortabilitySubset()) {
+                deviceExtensions.add(KHRPortabilitySubset.VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+            }
+            createInfo.ppEnabledExtensionNames(asPointerBuffer(deviceExtensions));
 
             createInfo.ppEnabledLayerNames(Vulkan.ENABLE_VALIDATION_LAYERS ? asPointerBuffer(Vulkan.VALIDATION_LAYERS) : null);
 
@@ -222,6 +251,8 @@ public abstract class DeviceManager {
             Vulkan.checkResult(res, "Failed to create logical device");
 
             vkDevice = new VkDevice(pDevice.get(0), physicalDevice, createInfo, VK_API_VERSION_1_2);
+            tessellationEnabled = deviceFeatures.features().tessellationShader();
+            GlPatchState.configureLimit(maxTessellationPatchSize());
 
             graphicsQueue = new GraphicsQueue(stack, indices.graphicsFamily);
             transferQueue = new TransferQueue(stack, indices.transferFamily);
@@ -252,10 +283,7 @@ public abstract class DeviceManager {
         try (MemoryStack stack = stackPush()) {
             Queue.QueueFamilyIndices indices = findQueueFamilies(device);
 
-            VkExtensionProperties.Buffer availableExtensions = getAvailableExtension(stack, device);
-            boolean extensionsSupported = availableExtensions.stream()
-                    .map(VkExtensionProperties::extensionNameString)
-                    .collect(toSet())
+            boolean extensionsSupported = Device.getAvailableExtensions(device)
                     .containsAll(Vulkan.REQUIRED_EXTENSION);
 
             boolean swapChainAdequate = false;
@@ -271,16 +299,6 @@ public abstract class DeviceManager {
 
             return indices.isSuitable() && extensionsSupported && swapChainAdequate;
         }
-    }
-
-    private static VkExtensionProperties.Buffer getAvailableExtension(MemoryStack stack, VkPhysicalDevice device) {
-        IntBuffer extensionCount = stack.ints(0);
-        vkEnumerateDeviceExtensionProperties(device, (String) null, extensionCount, null);
-
-        VkExtensionProperties.Buffer availableExtensions = VkExtensionProperties.malloc(extensionCount.get(0), stack);
-        vkEnumerateDeviceExtensionProperties(device, (String) null, extensionCount, availableExtensions);
-
-        return availableExtensions;
     }
 
     public static int findDepthFormat(boolean use24BitsDepthFormat) {
@@ -346,11 +364,17 @@ public abstract class DeviceManager {
     }
 
     public static void destroy() {
-        graphicsQueue.cleanUp();
-        transferQueue.cleanUp();
-        computeQueue.cleanUp();
+        try {
+            graphicsQueue.cleanUp();
+            transferQueue.cleanUp();
+            computeQueue.cleanUp();
 
-        vkDestroyDevice(vkDevice, null);
+            vkDestroyDevice(vkDevice, null);
+        } finally {
+            vkDevice = null;
+            tessellationEnabled = false;
+            GlPatchState.configureLimit(0);
+        }
     }
 
     public static GraphicsQueue getGraphicsQueue() {

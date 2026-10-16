@@ -1,6 +1,12 @@
 package net.vulkanmod.vulkan;
 
 import com.mojang.blaze3d.vertex.VertexFormat;
+import com.mojang.blaze3d.vertex.MeshData;
+import net.vulkanmod.compat.gl.GlPatchState;
+import net.vulkanmod.render.ImmediateIndexStream;
+import net.vulkanmod.render.PatchGeometry;
+import net.vulkanmod.render.PatchIndexStream;
+import net.vulkanmod.render.QuadPatchIndices;
 import net.vulkanmod.vulkan.memory.*;
 import net.vulkanmod.vulkan.util.VUtil;
 import org.lwjgl.system.MemoryUtil;
@@ -30,6 +36,30 @@ public class Drawer {
     private final AutoIndexBuffer triangleFanIndexBuffer;
     private final AutoIndexBuffer triangleStripIndexBuffer;
     private UniformBuffer[] uniformBuffers;
+    private PatchIndexStream<IndexBuffer>[] patchIndices;
+    private ImmediateIndexStream<IndexBuffer>[] immediateIndices;
+
+    private static final ImmediateIndexStream.Backend<IndexBuffer> IMMEDIATE_BACKEND = new ImmediateIndexStream.Backend<>() {
+        public IndexBuffer create(int capacity, ImmediateIndexStream.Type type) {
+            return new IndexBuffer(capacity, MemoryTypes.HOST_MEM, type == ImmediateIndexStream.Type.U16
+                    ? IndexBuffer.IndexType.SHORT : IndexBuffer.IndexType.INT);
+        }
+        public void append(IndexBuffer buffer, ByteBuffer bytes) { buffer.copyBuffer(bytes); }
+        public void reset(IndexBuffer buffer) { buffer.reset(); }
+        public void retire(IndexBuffer buffer) { buffer.freeBuffer(); }
+    };
+
+    private static final PatchIndexStream.Backend<IndexBuffer> PATCH_BACKEND = new PatchIndexStream.Backend<>() {
+        public IndexBuffer create(int capacity, QuadPatchIndices.IndexType type) {
+            return new IndexBuffer(capacity, MemoryTypes.HOST_MEM, type == QuadPatchIndices.IndexType.U16
+                    ? IndexBuffer.IndexType.SHORT : IndexBuffer.IndexType.INT);
+        }
+        public void append(IndexBuffer buffer, ByteBuffer bytes) { buffer.copyBuffer(bytes); }
+        public void reset(IndexBuffer buffer) { buffer.reset(); }
+        public void retire(IndexBuffer buffer) { buffer.freeBuffer(); }
+        public ByteBuffer allocateStaging(int capacity) { return MemoryUtil.memAlloc(capacity); }
+        public void freeStaging(ByteBuffer bytes) { MemoryUtil.memFree(bytes); }
+    };
 
     private int currentFrame;
 
@@ -47,7 +77,9 @@ public class Drawer {
         this.currentFrame = currentFrame;
     }
 
+    @SuppressWarnings("unchecked")
     public void createResources(int framesNum) {
+        rethrowImmediateCleanup(closeImmediateIndices());
         this.framesNum = framesNum;
 
         if (this.vertexBuffers != null) {
@@ -65,11 +97,63 @@ public class Drawer {
         }
         this.uniformBuffers = new UniformBuffer[framesNum];
         Arrays.setAll(this.uniformBuffers, i -> new UniformBuffer(INITIAL_UB_SIZE, MemoryTypes.HOST_MEM));
+
+        if (this.patchIndices != null) {
+            for (var stream : this.patchIndices) stream.close();
+        }
+        this.patchIndices = (PatchIndexStream<IndexBuffer>[]) new PatchIndexStream<?>[framesNum];
+        Arrays.setAll(this.patchIndices, i -> new PatchIndexStream<>(PATCH_BACKEND, 16384));
+        this.immediateIndices = (ImmediateIndexStream<IndexBuffer>[]) new ImmediateIndexStream<?>[framesNum];
+        Arrays.setAll(this.immediateIndices, i -> new ImmediateIndexStream<>(IMMEDIATE_BACKEND, 16384));
     }
 
     public void resetBuffers(int currentFrame) {
+        this.immediateIndices[currentFrame].reset();
         this.vertexBuffers[currentFrame].reset();
         this.uniformBuffers[currentFrame].reset();
+        this.patchIndices[currentFrame].reset();
+    }
+
+                                                                                                  
+    public void preparePatches(MeshData.DrawState state, ByteBuffer customIndices) {
+        PatchGeometry.requireQuads(state.mode(), state.vertexCount(), state.indexCount(), GlPatchState.getPatchVertices());
+        if (customIndices != null) {
+            this.patchIndices[this.currentFrame].upload(customIndices, PatchGeometry.indexType(state.indexType()),
+                    state.indexCount(), state.vertexCount());
+        }
+    }
+
+    public void drawPatches(ByteBuffer vertices, MeshData.DrawState state, boolean customIndices) {
+        VertexBuffer vertexBuffer = this.vertexBuffers[this.currentFrame];
+        vertexBuffer.copyToVertexBuffer(state.format().getVertexSize(), state.vertexCount(), vertices);
+        if (customIndices) {
+            var stream = this.patchIndices[this.currentFrame];
+            IndexBuffer indices = stream.buffer();
+            if (indices == null || stream.indexCount() == 0) throw new IllegalStateException("Patch indices were not prepared");
+            drawIndexed(vertexBuffer, indices, stream.indexCount());
+        } else {
+            draw(vertexBuffer, state.vertexCount());
+        }
+    }
+
+                                                                                                        
+    public void draw(ByteBuffer vertices, MeshData.DrawState state, ByteBuffer customIndices) {
+        if (customIndices == null) {
+            draw(vertices, state.mode(), state.format(), state.vertexCount());
+            return;
+        }
+        var stream = this.immediateIndices[this.currentFrame];
+        ImmediateIndexStream.Type type = switch (state.indexType()) {
+            case SHORT -> ImmediateIndexStream.Type.U16;
+            case INT -> ImmediateIndexStream.Type.U32;
+        };
+                                                                                                          
+                                                                                                              
+        stream.upload(customIndices, type, state.indexCount());
+        if (stream.indexCount() == 0) return;
+        VertexBuffer vertexBuffer = this.vertexBuffers[this.currentFrame];
+        vertexBuffer.copyToVertexBuffer(state.format().getVertexSize(), state.vertexCount(), vertices);
+        drawIndexed(vertexBuffer, stream.buffer(), stream.indexCount());
     }
 
     public void draw(ByteBuffer buffer, VertexFormat.Mode mode, VertexFormat vertexFormat, int vertexCount) {
@@ -149,6 +233,18 @@ public class Drawer {
     }
 
     public void cleanUpResources() {
+        Throwable failure = closeImmediateIndices();
+        try { cleanUpExistingResources(); }
+        catch (RuntimeException | Error cleanup) { failure = combineImmediateCleanup(failure, cleanup); }
+        rethrowImmediateCleanup(failure);
+    }
+
+    private void cleanUpExistingResources() {
+        if (this.patchIndices != null) {
+            var previous = this.patchIndices;
+            this.patchIndices = null;
+            for (var stream : previous) stream.close();
+        }
         Buffer buffer;
         for (int i = 0; i < this.framesNum; ++i) {
             buffer = this.vertexBuffers[i];
@@ -165,6 +261,31 @@ public class Drawer {
         this.triangleFanIndexBuffer.freeBuffer();
         this.debugLineStripIndexBuffer.freeBuffer();
         this.triangleStripIndexBuffer.freeBuffer();
+    }
+
+    private Throwable closeImmediateIndices() {
+        var previous = this.immediateIndices;
+        this.immediateIndices = null;
+        Throwable failure = null;
+        if (previous != null) {
+            for (var stream : previous) {
+                if (stream == null) continue;
+                try { stream.close(); }
+                catch (RuntimeException | Error cleanup) { failure = combineImmediateCleanup(failure, cleanup); }
+            }
+        }
+        return failure;
+    }
+
+    private static Throwable combineImmediateCleanup(Throwable primary, Throwable cleanup) {
+        if (primary == null) return cleanup;
+        if (primary != cleanup) primary.addSuppressed(cleanup);
+        return primary;
+    }
+
+    private static void rethrowImmediateCleanup(Throwable failure) {
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
     }
 
     public AutoIndexBuffer getQuadsIndexBuffer() {

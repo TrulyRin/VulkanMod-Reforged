@@ -23,14 +23,7 @@ public class ScreenM {
     @Inject(method = "renderWithTooltip", at = @At("HEAD"))
     private void vulkanMod$beginScreenRenderStateBoundary(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick, CallbackInfo ci) {
         this.vulkanMod$screenStateSnapshot = new RenderStateSnapshot();
-
-        RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
-        RenderSystem.colorMask(true, true, true, true);
-        RenderSystem.disableDepthTest();
-        RenderSystem.depthMask(false);
-        RenderSystem.disableCull();
-        RenderSystem.enableBlend();
-        RenderSystem.blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ZERO);
+        Renderer.clearAttachments(GL11.GL_DEPTH_BUFFER_BIT);
     }
 
     @Inject(method = "renderWithTooltip", at = @At("RETURN"))

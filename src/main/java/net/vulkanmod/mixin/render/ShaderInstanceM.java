@@ -15,7 +15,11 @@ import net.minecraft.util.GsonHelper;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.interfaces.ShaderMixed;
 import net.vulkanmod.gl.GlEmulationLog;
+import net.vulkanmod.gl.GlProgram;
+import net.vulkanmod.compat.sable.veil.VeilShaderProgramAccess;
+import net.vulkanmod.compat.sable.veil.VeilProgramPipelines;
 import net.vulkanmod.vulkan.shader.GraphicsPipeline;
+import net.vulkanmod.vulkan.shader.LegacyProjectionSupplier;
 import net.vulkanmod.vulkan.shader.Pipeline;
 import net.vulkanmod.vulkan.shader.descriptor.UBO;
 import net.vulkanmod.vulkan.shader.layout.Uniform;
@@ -38,6 +42,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 
@@ -68,13 +73,19 @@ public class ShaderInstanceM implements ShaderMixed {
 
     private GraphicsPipeline pipeline;
     private final Map<VertexFormat, GraphicsPipeline> variantPipelines = new HashMap<>();
+    private final Map<VertexFormat, GraphicsPipeline> sablePipelines = new HashMap<>();
+    private final Map<String, UniformBufferView> uniformBuffers = new HashMap<>();
+
+    private record UniformBufferView(com.mojang.blaze3d.shaders.Uniform owner, MappedBuffer buffer) {}
     boolean isLegacy = false;
 
     public GraphicsPipeline getPipeline() {
+        if (VeilShaderProgramAccess.isWrapper(this)) return VeilProgramPipelines.getPipeline(this, null);
         return pipeline;
     }
 
     public GraphicsPipeline getPipeline(VertexFormat drawFormat) {
+        if (VeilShaderProgramAccess.isWrapper(this)) return VeilProgramPipelines.getPipeline(this, drawFormat);
         if (this.pipeline == null || drawFormat == null || drawFormat.equals(this.pipelineFormat)) {
             return this.pipeline;
         }
@@ -84,6 +95,57 @@ public class ShaderInstanceM implements ShaderMixed {
         }
 
         return this.variantPipelines.computeIfAbsent(drawFormat, this::createPipelineVariant);
+    }
+
+    @Override
+    public MappedBuffer uniformBuffer(String uniformName) {
+        if (VeilShaderProgramAccess.isWrapper(this)) {
+                                                                                     
+            return GlProgram.uniformBuffer(VeilShaderProgramAccess.programId(this), uniformName);
+        }
+        com.mojang.blaze3d.shaders.Uniform uniform = this.uniformMap.get(uniformName);
+        if (uniform == null) {
+            this.uniformBuffers.remove(uniformName);
+            return null;
+        }
+        UniformBufferView cached = this.uniformBuffers.get(uniformName);
+        if (cached != null && cached.owner() == uniform) {
+            return cached.buffer();
+        }
+
+                                                                                             
+        ByteBuffer buffer;
+        if (uniform.getType() <= 3) {
+            buffer = MemoryUtil.memByteBuffer(uniform.getIntBuffer());
+        } else if (uniform.getType() <= 10) {
+            buffer = MemoryUtil.memByteBuffer(uniform.getFloatBuffer());
+        } else {
+            this.uniformBuffers.remove(uniformName);
+            return null;
+        }
+        MappedBuffer mapped = MappedBuffer.createFromBuffer(buffer);
+        this.uniformBuffers.put(uniformName, new UniformBufferView(uniform, mapped));
+        return mapped;
+    }
+
+    @Override
+    public GraphicsPipeline getSablePipeline(VertexFormat drawFormat) {
+        if (drawFormat == null) {
+            return null;
+        }
+        return this.sablePipelines.computeIfAbsent(drawFormat, format -> {
+            try {
+                Pipeline.Builder builder = new Pipeline.Builder(format,
+                        "vulkanmod/compat/sable/terrain/terrain");
+                builder.parseBindingsJSON();
+                builder.compileShaders();
+                return builder.createGraphicsPipeline();
+            } catch (Exception exception) {
+                Initializer.LOGGER.error("Unable to create the Sable terrain pipeline for shader {}", this.name,
+                        exception);
+                return null;
+            }
+        });
     }
 
     @Inject(method = "<init>(Lnet/minecraft/server/packs/resources/ResourceProvider;Lnet/minecraft/resources/ResourceLocation;Lcom/mojang/blaze3d/vertex/VertexFormat;)V", at = @At("RETURN"))
@@ -178,6 +240,13 @@ public class ShaderInstanceM implements ShaderMixed {
             }
         });
         this.variantPipelines.clear();
+        this.sablePipelines.values().forEach(sablePipeline -> {
+            if (sablePipeline != null && sablePipeline != this.pipeline) {
+                sablePipeline.cleanUp();
+            }
+        });
+        this.sablePipelines.clear();
+        this.uniformBuffers.clear();
         ci.cancel();
     }
 
@@ -256,21 +325,15 @@ public class ShaderInstanceM implements ShaderMixed {
                 continue;
             }
 
-            Supplier<MappedBuffer> supplier;
-            ByteBuffer byteBuffer;
-
-            if (uniform.getType() <= 3) {
-                byteBuffer = MemoryUtil.memByteBuffer(uniform.getIntBuffer());
-            } else if (uniform.getType() <= 10) {
-                byteBuffer = MemoryUtil.memByteBuffer(uniform.getFloatBuffer());
-            } else {
+            MappedBuffer mappedBuffer = uniformBuffer(vUniform.getName());
+            if (mappedBuffer == null) {
                 throw new RuntimeException("out of bounds value for uniform " + uniform);
             }
-
-            MappedBuffer mappedBuffer = MappedBuffer.createFromBuffer(byteBuffer);
-            supplier = () -> mappedBuffer;
-
-            vUniform.setSupplier(supplier);
+            if ("ProjMat".equals(vUniform.getName()) && vUniform.getSize() == 16 && uniform.getType() == 10) {
+                vUniform.setSupplier(new LegacyProjectionSupplier(mappedBuffer));
+            } else {
+                vUniform.setSupplier(() -> mappedBuffer);
+            }
         }
 
     }
@@ -297,6 +360,7 @@ public class ShaderInstanceM implements ShaderMixed {
 
             GlslConverter converter = new GlslConverter();
             converter.setFormat(format);
+            converter.reserveUniformNames(this.uniformMap.keySet());
             Pipeline.Builder builder = new Pipeline.Builder(format, this.name);
 
             converter.process(vshSrc, fshSrc);
@@ -350,6 +414,14 @@ public class ShaderInstanceM implements ShaderMixed {
     }
 
     private static String fallbackShaderPath(VertexFormat format) {
+        if (DefaultVertexFormat.BLIT_SCREEN.equals(format)) {
+            return "minecraft/core/blit_screen/blit_screen";
+        }
+
+        if (DefaultVertexFormat.PARTICLE.equals(format)) {
+            return "minecraft/core/particle/particle";
+        }
+
         if (DefaultVertexFormat.POSITION_TEX_COLOR.equals(format)) {
             return "minecraft/core/position_tex_color/position_tex_color";
         }
@@ -358,8 +430,44 @@ public class ShaderInstanceM implements ShaderMixed {
             return "minecraft/core/position_tex/position_tex";
         }
 
+        if (hasAttributes(format, "uc_Position", "uc_UV0")) {
+            return "essential/core/uc_position_tex/uc_position_tex";
+        }
+
+        if (hasAttributes(format, "uc_Position", "uc_Color")) {
+            return "essential/core/uc_position_color/uc_position_color";
+        }
+
+        if (hasAttributes(format, "uc_Position")) {
+            return "essential/core/uc_position/uc_position";
+        }
+
+        if (hasAttributes(format, "Position", "Color", "UV0")) {
+            return "minecraft/core/position_color_tex/position_color_tex";
+        }
+
         if (DefaultVertexFormat.POSITION_COLOR_TEX_LIGHTMAP.equals(format)) {
             return "minecraft/core/position_color_tex_lightmap/position_color_tex_lightmap";
+        }
+
+        if (hasAttributes(format, "Position", "UV0", "Color", "UV2")) {
+            return "minecraft/core/particle/particle";
+        }
+
+        if (hasAttributes(format, "Position", "UV0", "Color")) {
+            return "minecraft/core/position_tex_color/position_tex_color";
+        }
+
+        if (DefaultVertexFormat.POSITION_COLOR_LIGHTMAP.equals(format)) {
+            return "minecraft/core/position_color_lightmap/position_color_lightmap";
+        }
+
+        if (DefaultVertexFormat.POSITION_COLOR_NORMAL.equals(format)) {
+            return "minecraft/core/position_color_normal/position_color_normal";
+        }
+
+        if (DefaultVertexFormat.POSITION_TEX_COLOR_NORMAL.equals(format)) {
+            return "minecraft/core/position_tex_color_normal/position_tex_color_normal";
         }
 
         if (DefaultVertexFormat.POSITION_COLOR.equals(format)) {
@@ -371,6 +479,10 @@ public class ShaderInstanceM implements ShaderMixed {
         }
 
         return null;
+    }
+
+    private static boolean hasAttributes(VertexFormat format, String... attributes) {
+        return format != null && format.getElementAttributeNames().equals(List.of(attributes));
     }
 
     private static ResourceLocation resolveShaderStageLocation(String stageName, String extension) {

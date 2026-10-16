@@ -11,9 +11,14 @@ import net.vulkanmod.render.vertex.TerrainBufferBuilder;
 import net.vulkanmod.render.vertex.TerrainRenderType;
 
 public class SortTransparencyTask extends ChunkTask {
+    private final long transparencyRevision;
+    private final QuadSorter.SortState transparencyState;
 
-    public SortTransparencyTask(RenderSection renderSection) {
-        super(renderSection);
+    public SortTransparencyTask(RenderSection renderSection, QuadSorter.SortState transparencyState,
+                                long buildRevision, long transparencyRevision) {
+        super(renderSection, buildRevision);
+        this.transparencyState = transparencyState;
+        this.transparencyRevision = transparencyRevision;
     }
 
     public String name() {
@@ -23,7 +28,9 @@ public class SortTransparencyTask extends ChunkTask {
     public Result runTask(BuilderResources context) {
         ThreadBuilderPack builderPack = context.builderPack;
 
-        if (this.cancelled.get()) {
+        if (this.cancelled.get()
+                || this.section.getBuildRevision() != this.buildRevision
+                || this.section.getTransparencyRevision() != this.transparencyRevision) {
             return Result.CANCELLED;
         }
 
@@ -32,26 +39,26 @@ public class SortTransparencyTask extends ChunkTask {
         float y = (float) vec3.y;
         float z = (float) vec3.z;
 
-        CompiledSection compiledSection = this.section.getCompiledSection();
-        QuadSorter.SortState transparencyState = compiledSection.transparencyState;
-
         TerrainBufferBuilder bufferBuilder = builderPack.builder(TerrainRenderType.TRANSLUCENT);
         bufferBuilder.begin();
-        bufferBuilder.restoreSortState(transparencyState);
+        bufferBuilder.restoreSortState(this.transparencyState);
 
         bufferBuilder.setupQuadSorting(x - (float) this.section.xOffset(), y - (float) this.section.yOffset(), z - (float) this.section.zOffset());
         TerrainBufferBuilder.RenderedBuffer renderedBuffer = bufferBuilder.end();
 
-        CompileResult compileResult = new CompileResult(this.section, false);
+        CompileResult compileResult = new CompileResult(
+                this.section, false, this.buildRevision, this.transparencyRevision);
         UploadBuffer uploadBuffer = new UploadBuffer(renderedBuffer);
         compileResult.renderedLayers.put(TerrainRenderType.TRANSLUCENT, uploadBuffer);
         renderedBuffer.release();
 
-        if (this.cancelled.get()) {
+        if (this.cancelled.get()
+                || this.section.getBuildRevision() != this.buildRevision
+                || this.section.getTransparencyRevision() != this.transparencyRevision) {
             uploadBuffer.release();
             return Result.CANCELLED;
         }
-        taskDispatcher.scheduleSectionUpdate(compileResult);
+        taskDispatcher.scheduleSectionUpdate(compileResult, this);
         return Result.SUCCESSFUL;
     }
 }

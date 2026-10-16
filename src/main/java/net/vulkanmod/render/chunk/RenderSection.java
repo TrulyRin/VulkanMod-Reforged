@@ -7,6 +7,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.vulkanmod.render.chunk.buffer.DrawBuffers;
+import net.vulkanmod.render.VBO;
 import net.vulkanmod.render.chunk.build.RenderRegion;
 import net.vulkanmod.render.chunk.build.RenderRegionBuilder;
 import net.vulkanmod.render.chunk.build.TaskDispatcher;
@@ -23,12 +24,16 @@ import java.util.Map;
 import java.util.Set;
 
 public class RenderSection {
+    private static final int MAX_BUILD_FAILURE_RETRIES = 2;
     static final Map<RenderSection, Set<BlockEntity>> globalBlockEntitiesMap = new Reference2ReferenceOpenHashMap<>();
 
     private ChunkArea chunkArea;
+    private VBO blockLayerVbo;
     public byte frustumIndex;
     public short lastFrame = -1;
     private short lastFrame2 = -1;
+
+    private long lastRebuildScheduledNanos = Long.MIN_VALUE;
 
     public byte adjDirs;
     public RenderSection
@@ -67,12 +72,25 @@ public class RenderSection {
     }
 
     public void setOrigin(int x, int y, int z) {
-        this.reset();
+        if (this.chunkArea != null) {
+            this.reset();
+        }
 
         this.xOffset = x;
         this.yOffset = y;
         this.zOffset = z;
     }
+
+    public VBO getBlockLayerVbo() { return this.blockLayerVbo; }
+
+    public void replaceBlockLayerVbo(VBO replacement) {
+        VBO previous = this.blockLayerVbo;
+        if (previous == replacement) return;
+        this.blockLayerVbo = replacement;
+        if (previous != null) previous.close();
+    }
+
+    public void releaseBlockLayerVbo() { this.replaceBlockLayerVbo(null); }
 
     public void addDir(int direction) {
         sourceDirs |= (byte) (1 << direction);
@@ -214,13 +232,33 @@ public class RenderSection {
             this.compileStatus.sortTask.cancel();
         }
 
-        if (!compiledSection.hasTransparencyState()) {
+        if (this.compileStatus.compiledBuildRevision != this.compileStatus.buildRevision
+                || !compiledSection.hasTransparencyState()) {
             return false;
         } else {
-            this.compileStatus.sortTask = new SortTransparencyTask(this);
-            taskDispatcher.schedule(this.compileStatus.sortTask);
-            return true;
+            long transparencyRevision = ++this.compileStatus.transparencyRevision;
+            this.compileStatus.sortTask = new SortTransparencyTask(
+                    this, compiledSection.getTransparencyState(),
+                    this.compileStatus.buildRevision, transparencyRevision);
+            if (taskDispatcher.schedule(this.compileStatus.sortTask)) {
+                return true;
+            }
+            this.compileStatus.sortTask = null;
+            return false;
         }
+    }
+
+    public boolean isInRebuildCooldown(long nowNanos, long cooldownNanos) {
+        return this.lastRebuildScheduledNanos != Long.MIN_VALUE
+                && nowNanos - this.lastRebuildScheduledNanos < cooldownNanos;
+    }
+
+    public long rebuildCooldownDeadlineNanos(long cooldownNanos) {
+        return this.lastRebuildScheduledNanos + cooldownNanos;
+    }
+
+    public void markRebuildScheduled(long nowNanos) {
+        this.lastRebuildScheduledNanos = nowNanos;
     }
 
     public boolean rebuildChunkAsync(TaskDispatcher dispatcher, RenderRegionBuilder renderRegionCache) {
@@ -229,8 +267,7 @@ public class RenderSection {
         if (chunkCompileTask == null)
             return false;
 
-        dispatcher.schedule(chunkCompileTask);
-        return true;
+        return dispatcher.schedule(chunkCompileTask);
     }
 
     public void rebuildChunkSync(TaskDispatcher dispatcher, RenderRegionBuilder renderRegionCache) {
@@ -247,10 +284,13 @@ public class RenderSection {
         if (!ChunkStatusMap.INSTANCE.chunkRenderReady(secX, secZ))
             return null;
 
+        long buildRevision = ++this.compileStatus.buildRevision;
+        ++this.compileStatus.transparencyRevision;
         RenderRegion renderRegion = renderRegionCache.createRegion(level, secX, secY, secZ);
 
         boolean flag1 = this.compileStatus.compiledSection == CompiledSection.UNCOMPILED;
-        this.compileStatus.buildTask = ChunkTask.createBuildTask(this, renderRegion, !flag1 || flag);
+        this.compileStatus.buildTask = ChunkTask.createBuildTask(
+                this, renderRegion, !flag1 || flag, buildRevision);
         return this.compileStatus.buildTask;
     }
 
@@ -346,7 +386,7 @@ public class RenderSection {
     }
 
     public void updateGlobalBlockEntities(Collection<BlockEntity> fullSet) {
-        Set<BlockEntity> addedBlockEntities = Sets.newHashSet(fullSet);
+        Set<BlockEntity> addedBlockEntities;
         Set<BlockEntity> removedBlockEntities;
         Set<BlockEntity> sectionSet;
         synchronized (globalBlockEntitiesMap) {
@@ -361,6 +401,7 @@ public class RenderSection {
             }
         }
 
+        addedBlockEntities = Sets.newHashSet(fullSet);
         if (sectionSet.size() != fullSet.size() || !sectionSet.containsAll(fullSet)) {
             removedBlockEntities = Sets.newHashSet(sectionSet);
             addedBlockEntities.removeAll(sectionSet);
@@ -380,14 +421,33 @@ public class RenderSection {
     }
 
     private void reset() {
-        this.clearGlobalBlockEntities();
+        ++this.compileStatus.buildRevision;
+        ++this.compileStatus.transparencyRevision;
+        this.lastRebuildScheduledNanos = Long.MIN_VALUE;
         this.cancelTasks();
         this.compileStatus.compiledSection = CompiledSection.UNCOMPILED;
+        this.compileStatus.compiledBuildRevision = -1L;
+        this.compileStatus.consecutiveBuildFailures = 0;
         this.dirty = true;
         this.visibility = 0;
         this.completelyEmpty = true;
+        this.containsBlockEntities = false;
 
-        this.resetDrawParameters();
+        Throwable failure = null;
+        try { this.clearGlobalBlockEntities(); }
+        catch (RuntimeException | Error cleanup) { failure = cleanup; }
+        try { this.resetDrawParameters(); }
+        catch (RuntimeException | Error cleanup) {
+            if (failure == null) failure = cleanup;
+            else if (failure != cleanup) failure.addSuppressed(cleanup);
+        }
+        try { this.releaseBlockLayerVbo(); }
+        catch (RuntimeException | Error cleanup) {
+            if (failure == null) failure = cleanup;
+            else if (failure != cleanup) failure.addSuppressed(cleanup);
+        }
+        if (failure instanceof RuntimeException runtime) throw runtime;
+        if (failure instanceof Error error) throw error;
     }
 
     private void clearGlobalBlockEntities() {
@@ -404,13 +464,41 @@ public class RenderSection {
     }
 
     public void setDirty(boolean playerChanged) {
+        this.compileStatus.consecutiveBuildFailures = 0;
+        this.markDirty(playerChanged);
+    }
+
+    private void markDirty(boolean playerChanged) {
+        ++this.compileStatus.buildRevision;
+        ++this.compileStatus.transparencyRevision;
         this.playerChanged = playerChanged || this.dirty && this.playerChanged;
         this.dirty = true;
         WorldRenderer.getInstance().scheduleGraphUpdate();
     }
 
-    public void setCompiledSection(CompiledSection compiledSection) {
+    public void setDirtyAfterBuildFailure(long failedBuildRevision) {
+        if (this.compileStatus.buildRevision == failedBuildRevision) {
+            this.compileStatus.consecutiveBuildFailures++;
+            if (this.compileStatus.consecutiveBuildFailures <= MAX_BUILD_FAILURE_RETRIES) {
+                this.markDirty(false);
+            }
+        }
+    }
+
+    public void setCompiledSection(CompiledSection compiledSection, long buildRevision) {
         this.compileStatus.compiledSection = compiledSection;
+        this.compileStatus.compiledBuildRevision = buildRevision;
+        if (this.compileStatus.buildRevision == buildRevision) {
+            this.compileStatus.consecutiveBuildFailures = 0;
+        }
+    }
+
+    public long getBuildRevision() {
+        return this.compileStatus.buildRevision;
+    }
+
+    public long getTransparencyRevision() {
+        return this.compileStatus.transparencyRevision;
     }
 
     public boolean setLastFrame(short i) {
@@ -435,5 +523,9 @@ public class RenderSection {
         CompiledSection compiledSection = CompiledSection.UNCOMPILED;
         BuildTask buildTask;
         SortTransparencyTask sortTask;
+        volatile long buildRevision;
+        volatile long transparencyRevision;
+        volatile long compiledBuildRevision = -1L;
+        int consecutiveBuildFailures;
     }
 }

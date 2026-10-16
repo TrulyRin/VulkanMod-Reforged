@@ -1,5 +1,6 @@
 package net.vulkanmod.mixin.render.target;
 
+import com.mojang.blaze3d.pipeline.MainTarget;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -61,9 +62,15 @@ public abstract class RenderTargetMixin implements ExtendedRenderTarget {
         needClear = false;
     }
 
-    @Inject(method = "bindRead", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "bindRead", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;assertOnRenderThread()V", shift = At.Shift.AFTER), cancellable = true)
     public void bindRead(CallbackInfo ci) {
         RenderSystem.assertOnRenderThread();
+
+        if ((Object) this instanceof MainTarget) {
+            Renderer.getInstance().getMainPass().bindAsTexture();
+            ci.cancel();
+            return;
+        }
 
         applyClear();
 
@@ -83,6 +90,12 @@ public abstract class RenderTargetMixin implements ExtendedRenderTarget {
     @Inject(method = "_bindWrite", at = @At("HEAD"), cancellable = true)
     private void _bindWrite(boolean bl, CallbackInfo ci) {
         RenderSystem.assertOnRenderThreadOrInit();
+
+        if ((Object) this instanceof MainTarget) {
+            Renderer.getInstance().getMainPass().rebindMainTarget();
+            ci.cancel();
+            return;
+        }
 
         GlFramebuffer.bindFramebuffer(GL30.GL_FRAMEBUFFER, this.frameBufferId);
         if (bl) {
@@ -126,9 +139,21 @@ public abstract class RenderTargetMixin implements ExtendedRenderTarget {
         ci.cancel();
     }
 
-    @Inject(method = "getColorTextureId", at = @At("HEAD"))
+    @Inject(method = "getColorTextureId", at = @At(value = "FIELD", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;colorTextureId:I", opcode = org.objectweb.asm.Opcodes.GETFIELD), cancellable = true)
     private void injClear(CallbackInfoReturnable<Integer> cir) {
+        if ((Object) this instanceof MainTarget) {
+            cir.setReturnValue(Renderer.getInstance().getMainPass().getColorAttachmentGlId());
+            return;
+        }
+
         prepareColorTextureForSampling();
+    }
+
+    @Inject(method = "getDepthTextureId", at = @At(value = "FIELD", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;depthBufferId:I", opcode = org.objectweb.asm.Opcodes.GETFIELD), cancellable = true)
+    private void getDepthTextureId(CallbackInfoReturnable<Integer> cir) {
+        if ((Object) this instanceof MainTarget) {
+            cir.setReturnValue(Renderer.getInstance().getMainPass().getDepthAttachmentGlId());
+        }
     }
 
     @Override

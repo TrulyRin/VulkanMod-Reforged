@@ -19,7 +19,7 @@ import static org.lwjgl.vulkan.VK10.*;
 public class Framebuffer {
     public static final int DEFAULT_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
 
-//    private long id;
+                      
 
     protected int format;
     protected int depthFormat;
@@ -38,7 +38,7 @@ public class Framebuffer {
 
     private final Reference2LongArrayMap<RenderPass> framebufferIds = new Reference2LongArrayMap<>();
 
-    //SwapChain
+               
     protected Framebuffer() {}
 
     public Framebuffer(Builder builder) {
@@ -75,7 +75,7 @@ public class Framebuffer {
 
         if (this.hasDepthAttachment) {
             this.depthAttachment = VulkanImage.createDepthImage(depthFormat, this.width, this.height,
-                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                    MainDepthSnapshot.depthAttachmentUsage(),
                     depthLinearFiltering, true);
 
             this.attachmentCount++;
@@ -100,6 +100,8 @@ public class Framebuffer {
                 attachments = stack.longs(colorAttachment.getImageView(), depthAttachment.getImageView());
             } else if (colorAttachment != null) {
                 attachments = stack.longs(colorAttachment.getImageView());
+            } else if (depthAttachment != null) {
+                attachments = stack.longs(depthAttachment.getImageView());
             } else {
                 throw new IllegalStateException();
             }
@@ -230,7 +232,7 @@ public class Framebuffer {
         VulkanImage colorAttachment;
         VulkanImage depthAttachment;
 
-//        int colorAttachments;
+                               
         boolean hasColorAttachment;
         boolean hasDepthAttachment;
 
@@ -240,7 +242,7 @@ public class Framebuffer {
         public Builder(int width, int height, int colorAttachments, boolean hasDepthAttachment) {
             Validate.isTrue(colorAttachments > 0 || hasDepthAttachment, "At least 1 attachment needed");
 
-            //TODO multi color attachments
+                                          
             Validate.isTrue(colorAttachments <= 1, "Not supported");
 
             this.createImages = true;
@@ -256,15 +258,18 @@ public class Framebuffer {
         }
 
         public Builder(VulkanImage colorAttachment, VulkanImage depthAttachment) {
+            Validate.isTrue(colorAttachment != null || depthAttachment != null, "At least 1 attachment needed");
+
             this.createImages = false;
             this.colorAttachment = colorAttachment;
             this.depthAttachment = depthAttachment;
 
-            this.format = colorAttachment.format;
+            this.format = colorAttachment != null ? colorAttachment.format : 0;
 
-            this.width = colorAttachment.width;
-            this.height = colorAttachment.height;
-            this.hasColorAttachment = true;
+            VulkanImage sizeSource = colorAttachment != null ? colorAttachment : depthAttachment;
+            this.width = sizeSource.width;
+            this.height = sizeSource.height;
+            this.hasColorAttachment = colorAttachment != null;
             this.hasDepthAttachment = depthAttachment != null;
 
             this.depthFormat = this.hasDepthAttachment ? depthAttachment.format : 0;

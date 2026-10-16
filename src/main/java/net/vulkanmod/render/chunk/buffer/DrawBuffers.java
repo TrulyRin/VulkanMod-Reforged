@@ -9,6 +9,7 @@ import net.vulkanmod.render.vertex.CustomVertexFormat;
 import net.vulkanmod.render.vertex.TerrainRenderType;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.memory.IndirectBuffer;
+import net.vulkanmod.vulkan.memory.MemoryManager;
 import net.vulkanmod.vulkan.shader.Pipeline;
 import org.joml.Vector3i;
 import org.lwjgl.system.MemoryStack;
@@ -17,16 +18,17 @@ import org.lwjgl.vulkan.VkCommandBuffer;
 
 import java.nio.ByteBuffer;
 import java.util.EnumMap;
+import java.util.Map;
 
 import static org.lwjgl.vulkan.VK10.*;
 
 public class DrawBuffers {
     private static final int VERTEX_SIZE = PipelineManager.TERRAIN_VERTEX_FORMAT.getVertexSize();
     private static final int INDEX_SIZE = Short.BYTES;
-    private static final int SOLID_VERTEX_BUFFER_BYTES = 1_048_576;
-    private static final int CUTOUT_VERTEX_BUFFER_BYTES = 1_048_576;
-    private static final int CUTOUT_MIPPED_VERTEX_BUFFER_BYTES = 2_097_152;
-    private static final int TRANSLUCENT_VERTEX_BUFFER_BYTES = 524_288;
+    private static final int SOLID_VERTEX_BUFFER_BYTES = 2_097_152;
+    private static final int CUTOUT_VERTEX_BUFFER_BYTES = 2_097_152;
+    private static final int CUTOUT_MIPPED_VERTEX_BUFFER_BYTES = 4_194_304;
+    private static final int TRANSLUCENT_VERTEX_BUFFER_BYTES = 1_048_576;
     private final int index;
     private final Vector3i origin;
     private final int minHeight;
@@ -41,38 +43,128 @@ public class DrawBuffers {
         this.minHeight = minHeight;
     }
 
-    public void upload(RenderSection section, UploadBuffer buffer, TerrainRenderType renderType) {
-        DrawParameters drawParameters = section.getDrawParameters(renderType);
-        int vertexOffset = drawParameters.vertexOffset;
-        int firstIndex = -1;
+    public PendingUpload stageUpload(RenderSection section, UploadBuffer buffer,
+                                     TerrainRenderType renderType, boolean fullReplacement) {
+        DrawParameters current = section.getDrawParameters(renderType);
+        DrawParameters staged = new DrawParameters();
+        if (!fullReplacement) {
+            staged.copyFrom(current);
+        }
+        PendingUpload pending = new PendingUpload(this, renderType, staged, fullReplacement);
 
-        if (!buffer.indexOnly) {
-            AreaBuffer.Segment segment = this.getAreaBufferOrAlloc(renderType).upload(buffer.getVertexBuffer(), vertexOffset, drawParameters);
-            vertexOffset = segment.offset / VERTEX_SIZE;
+        try {
+            int vertexOffset = staged.vertexOffset;
+            int firstIndex = -1;
 
-            drawParameters.baseInstance = encodeSectionOffset(section.xOffset(), section.yOffset(), section.zOffset());
+            if (!buffer.indexOnly) {
+                AreaBuffer.Segment segment = this.getAreaBufferOrAlloc(renderType)
+                        .upload(buffer.getVertexBuffer(), -1, staged);
+                vertexOffset = segment.offset / VERTEX_SIZE;
+                staged.vertexOffset = vertexOffset;
+                pending.uploadedVertex = true;
+
+                staged.baseInstance = encodeSectionOffset(
+                        section.xOffset(), section.yOffset(), section.zOffset());
+            }
+
+            if (!buffer.autoIndices) {
+                if (this.indexBuffer == null)
+                    this.indexBuffer = new AreaBuffer(AreaBuffer.Usage.INDEX, 131072, INDEX_SIZE);
+
+                AreaBuffer.Segment segment = this.indexBuffer.upload(buffer.getIndexBuffer(), -1, staged);
+                firstIndex = segment.offset / INDEX_SIZE;
+                staged.firstIndex = firstIndex;
+                pending.uploadedIndex = true;
+            }
+
+            staged.indexCount = buffer.indexCount;
+            staged.firstIndex = firstIndex;
+            staged.vertexOffset = vertexOffset;
+            return pending;
+        } catch (Throwable throwable) {
+            pending.discard();
+            throw throwable;
+        } finally {
+            buffer.release();
+        }
+    }
+
+    public void commitFullUpdate(RenderSection section,
+                                 Map<TerrainRenderType, PendingUpload> stagedLayers) {
+        for (TerrainRenderType renderType : TerrainRenderType.VALUES) {
+            PendingUpload pending = stagedLayers.get(renderType);
+            if (pending == null) {
+                this.clearCurrentParameters(section.getDrawParameters(renderType), renderType);
+            } else {
+                this.commitPending(section.getDrawParameters(renderType), pending);
+                stagedLayers.remove(renderType);
+            }
+        }
+    }
+
+    public void commitPartialUpdate(RenderSection section, PendingUpload pending) {
+        this.commitPending(section.getDrawParameters(pending.renderType), pending);
+    }
+
+    private void commitPending(DrawParameters current, PendingUpload pending) {
+        if (pending.owner != this || pending.resolved) {
+            throw new IllegalStateException("Invalid staged chunk upload");
         }
 
-        if (!buffer.autoIndices) {
-            if (this.indexBuffer == null)
-                this.indexBuffer = new AreaBuffer(AreaBuffer.Usage.INDEX, 131072, INDEX_SIZE);
-
-            AreaBuffer.Segment segment = this.indexBuffer.upload(buffer.getIndexBuffer(), drawParameters.firstIndex, drawParameters);
-            firstIndex = segment.offset / INDEX_SIZE;
+        if (pending.uploadedVertex) {
+            this.getAreaBuffer(pending.renderType)
+                    .rebindSegment(pending.parameters.vertexOffset, current);
+        }
+        if (pending.uploadedIndex) {
+            this.indexBuffer.rebindSegment(pending.parameters.firstIndex, current);
         }
 
-        drawParameters.indexCount = buffer.indexCount;
-        drawParameters.firstIndex = firstIndex;
-        drawParameters.vertexOffset = vertexOffset;
+        if (pending.fullReplacement) {
+            this.deferCurrentSegments(current, pending.renderType, true, true);
+            current.copyFrom(pending.parameters);
+        } else {
+            if (pending.uploadedVertex) {
+                this.deferCurrentSegments(current, pending.renderType, true, false);
+                current.vertexOffset = pending.parameters.vertexOffset;
+                current.baseInstance = pending.parameters.baseInstance;
+            }
+            if (pending.uploadedIndex) {
+                this.deferCurrentSegments(current, pending.renderType, false, true);
+                current.firstIndex = pending.parameters.firstIndex;
+            }
+            current.indexCount = pending.parameters.indexCount;
+        }
 
-        buffer.release();
+        pending.resolved = true;
+    }
+
+    private void clearCurrentParameters(DrawParameters current, TerrainRenderType renderType) {
+        this.deferCurrentSegments(current, renderType, true, true);
+        current.clearValues();
+    }
+
+    private void deferCurrentSegments(DrawParameters current, TerrainRenderType renderType,
+                                      boolean vertex, boolean index) {
+        MemoryManager memoryManager = MemoryManager.getInstance();
+        if (vertex && current.vertexOffset != -1) {
+            AreaBuffer vertexBuffer = this.getAreaBuffer(renderType);
+            if (vertexBuffer != null) {
+                memoryManager.addToFreeSegment(vertexBuffer, current.vertexOffset);
+            }
+        }
+        if (index && current.firstIndex != -1 && this.indexBuffer != null) {
+            memoryManager.addToFreeSegment(this.indexBuffer, current.firstIndex);
+        }
     }
 
     private AreaBuffer getAreaBufferOrAlloc(TerrainRenderType renderType) {
         this.allocated = true;
 
         return this.vertexBuffers.computeIfAbsent(
-                renderType, renderType1 -> new AreaBuffer(AreaBuffer.Usage.VERTEX, initialVertexBufferElementCount(renderType), VERTEX_SIZE));
+                renderType, renderType1 -> {
+                    net.vulkanmod.render.optimization.ChunkFrameDiagnostics.recordAreaBufferCreated();
+                    return new AreaBuffer(AreaBuffer.Usage.VERTEX, initialVertexBufferElementCount(renderType), VERTEX_SIZE);
+                });
     }
 
     static int initialVertexBufferElementCount(TerrainRenderType renderType) {
@@ -193,6 +285,7 @@ public class DrawBuffers {
         if (!this.allocated)
             return;
 
+        net.vulkanmod.render.optimization.ChunkFrameDiagnostics.recordAreaReleased();
         this.vertexBuffers.values().forEach(AreaBuffer::freeBuffer);
         this.vertexBuffers.clear();
 
@@ -215,6 +308,41 @@ public class DrawBuffers {
         return indexBuffer;
     }
 
+    public static final class PendingUpload {
+        private final DrawBuffers owner;
+        private final TerrainRenderType renderType;
+        private final DrawParameters parameters;
+        private final boolean fullReplacement;
+        private boolean uploadedVertex;
+        private boolean uploadedIndex;
+        private boolean resolved;
+
+        private PendingUpload(DrawBuffers owner, TerrainRenderType renderType,
+                              DrawParameters parameters, boolean fullReplacement) {
+            this.owner = owner;
+            this.renderType = renderType;
+            this.parameters = parameters;
+            this.fullReplacement = fullReplacement;
+        }
+
+        public void discard() {
+            if (this.resolved) {
+                return;
+            }
+            MemoryManager memoryManager = MemoryManager.getInstance();
+            if (this.uploadedVertex) {
+                AreaBuffer vertexBuffer = this.owner.getAreaBuffer(this.renderType);
+                if (vertexBuffer != null) {
+                    memoryManager.addToFreeSegment(vertexBuffer, this.parameters.vertexOffset);
+                }
+            }
+            if (this.uploadedIndex && this.owner.indexBuffer != null) {
+                memoryManager.addToFreeSegment(this.owner.indexBuffer, this.parameters.firstIndex);
+            }
+            this.resolved = true;
+        }
+    }
+
     public static class DrawParameters {
         int indexCount = 0;
         int firstIndex = -1;
@@ -222,6 +350,20 @@ public class DrawBuffers {
         int baseInstance;
 
         public DrawParameters() {}
+
+        private void copyFrom(DrawParameters source) {
+            this.indexCount = source.indexCount;
+            this.firstIndex = source.firstIndex;
+            this.vertexOffset = source.vertexOffset;
+            this.baseInstance = source.baseInstance;
+        }
+
+        private void clearValues() {
+            this.indexCount = 0;
+            this.firstIndex = -1;
+            this.vertexOffset = -1;
+            this.baseInstance = 0;
+        }
 
         public void reset(ChunkArea chunkArea, TerrainRenderType r) {
             AreaBuffer areaBuffer = chunkArea.getDrawBuffers().getAreaBuffer(r);
@@ -234,9 +376,7 @@ public class DrawBuffers {
                 indexBuffer.setSegmentFree(this.firstIndex);
             }
 
-            this.indexCount = 0;
-            this.firstIndex = -1;
-            this.vertexOffset = -1;
+            this.clearValues();
         }
     }
 

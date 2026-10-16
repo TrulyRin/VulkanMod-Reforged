@@ -1,33 +1,26 @@
-VulkanMod NeoForge Unofficial Fork
+VulkanMod Reforged
 
-This project is an unofficial modified fork of xCollateral/VulkanMod:
+An unofficial modified fork of VulkanMod:
 https://github.com/xCollateral/VulkanMod
 
-The fork was modified on 2026-06-19 for Minecraft 1.21.1 NeoForge compatibility, release metadata cleanup, and local compatibility fixes.
+Original authors: xCollateral and the VulkanMod contributors.
+Fork maintainer and contributed modifications: Rindw (TrulyRin).
 
-Original project authorship and contribution credit belongs to xCollateral and VulkanMod contributors.
-Fork maintenance credit: Rindw.
+This fork was modified on 2026-06-19 for NeoForge compatibility and
+release metadata. Further renderer, compatibility, and publication
+changes were made through 2026-10-16.
 
-This fork is not endorsed by or affiliated with the upstream VulkanMod maintainers. The VulkanMod name, logo, and related project branding may be subject to rights outside the LGPLv3 code license.
+The covered code remains licensed under LGPL-3.0-only. See LICENSE for
+the LGPLv3 text and COPYING for the incorporated GPLv3 text.
 
-## Attribution requirements for forks and redistribution
+Preserve applicable copyright, license, warranty, and attribution notices
+and identify modified versions as required by those licenses. Do not
+misrepresent authorship or imply endorsement by this fork's maintainer
+or the upstream contributors.
 
-You are free to fork, modify, and redistribute this project under the LGPLv3 — no
-permission is needed. In exercising those rights you must, as the license requires:
+The code license grants no trademark rights. Upstream names, logos, and
+other branding remain subject to their owners' applicable rights.
 
-1. Keep the LGPLv3/GPLv3 license texts (LICENSE, COPYING) and this NOTICE file intact.
-2. Keep the copyright and authorship attributions above. Under GPLv3 section 7(b),
-   which LGPLv3 incorporates, preservation of these attributions is a condition of the
-   license, not a courtesy request.
-3. State that you changed the files, and when.
-4. Make the corresponding source of your version available under LGPLv3/GPLv3 to
-   anyone you distribute binaries to — including builds published to CurseForge,
-   Modrinth, or any other platform.
-
-Credit is due to both:
-  - xCollateral and the VulkanMod contributors, for the original project.
-  - Rindw (TrulyRin), for this fork's modifications.
-
-Removing the license texts, this NOTICE, or the attributions above, or distributing
-binaries without offering corresponding source, is a license violation and terminates
-your rights under section 8.
+This notice does not restrict copying, modification, or redistribution
+permitted by LGPLv3/GPLv3. Corresponding source and build scripts accompany
+the releases.

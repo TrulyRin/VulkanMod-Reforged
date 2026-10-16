@@ -13,6 +13,7 @@ import net.vulkanmod.gl.GlTexture;
 import net.vulkanmod.gl.GlVertexArray;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.VRenderSystem;
+import net.vulkanmod.vulkan.texture.ImageUtil;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL11C;
 import org.lwjgl.opengl.GL12;
@@ -86,6 +87,10 @@ public class GL11M {
     @NativeType("void")
     @Overwrite(remap = false)
     public static int glGetInteger(@NativeType("GLenum") int pname) {
+        if (pname == GL11.GL_VIEWPORT) {
+            ensureViewport();
+            return viewport[0];
+        }
         if (GlPixelStore.isPixelStoreParameter(pname)) {
             return GlPixelStore.getInteger(pname);
         }
@@ -266,7 +271,9 @@ public class GL11M {
     public static void glGetFloatv(@NativeType("GLenum") int pname, @NativeType("GLfloat *") float[] params) {
         if (pname == GL11.GL_VIEWPORT) {
             ensureViewport();
-            System.arraycopy(viewport, 0, params, 0, Math.min(4, params.length));
+            for (int i = 0; i < Math.min(4, params.length); i++) {
+                params[i] = viewport[i];
+            }
         } else if (pname == GL_COLOR_CLEAR_VALUE) {
             for (int i = 0; i < Math.min(4, params.length); i++) {
                 params[i] = VRenderSystem.clearColor.get(i);
@@ -395,14 +402,18 @@ public class GL11M {
 
     @Overwrite(remap = false)
     public static void glReadPixels(@NativeType("GLint") int x, @NativeType("GLint") int y, @NativeType("GLsizei") int width, @NativeType("GLsizei") int height, @NativeType("GLenum") int format, @NativeType("GLenum") int type, @NativeType("void *") ByteBuffer pixels) {
-        zeroReadPixelsFallback(width, height, format, type, pixels);
+        if (!readPixelsFromFramebuffer(x, y, width, height, format, type, pixels)) {
+            zeroReadPixelsFallback(width, height, format, type, pixels);
+        }
     }
 
     @Overwrite(remap = false)
     public static void glReadPixels(@NativeType("GLint") int x, @NativeType("GLint") int y, @NativeType("GLsizei") int width, @NativeType("GLsizei") int height, @NativeType("GLenum") int format, @NativeType("GLenum") int type, @NativeType("void *") long pixels) {
-        int byteCount = readPixelsByteCount(width, height, format, type);
-        if (pixels != 0L && byteCount > 0) {
-            MemoryUtil.memSet(pixels, 0, byteCount);
+        if (!readPixelsFromFramebuffer(x, y, width, height, format, type, pixels)) {
+            int byteCount = readPixelsByteCount(width, height, format, type);
+            if (pixels != 0L && byteCount > 0) {
+                MemoryUtil.memSet(pixels, 0, byteCount);
+            }
         }
     }
 
@@ -413,7 +424,9 @@ public class GL11M {
 
     @Overwrite(remap = false)
     public static void glReadPixels(@NativeType("GLint") int x, @NativeType("GLint") int y, @NativeType("GLsizei") int width, @NativeType("GLsizei") int height, @NativeType("GLenum") int format, @NativeType("GLenum") int type, @NativeType("void *") FloatBuffer pixels) {
-        zeroReadPixelsFallback(width, height, format, type, pixels);
+        if (!readPixelsFromFramebuffer(x, y, width, height, format, type, pixels)) {
+            zeroReadPixelsFallback(width, height, format, type, pixels);
+        }
     }
 
     @Overwrite(remap = false)
@@ -483,6 +496,9 @@ public class GL11M {
 
     @Overwrite(remap = false)
     public static double glGetDouble(@NativeType("GLenum") int pname) {
+        if (pname == GL11.GL_DEPTH_CLEAR_VALUE) {
+            return VRenderSystem.clearDepthValue;
+        }
         return glGetInteger(pname);
     }
 
@@ -552,6 +568,12 @@ public class GL11M {
     }
 
     private static void ensureViewport() {
+        if (Renderer.isViewportInitialized()) {
+            for (int i = 0; i < 4; i++) {
+                viewport[i] = Renderer.getViewportBox(i);
+            }
+            return;
+        }
         if (viewport[2] == 0 || viewport[3] == 0) {
             var window = Minecraft.getInstance().getWindow();
             viewport[0] = 0;
@@ -572,6 +594,57 @@ public class GL11M {
         for (int i = 0; i < byteCount; i++) {
             pixels.put(pixels.position() + i, (byte) 0);
         }
+    }
+
+    private static boolean readPixelsFromFramebuffer(int x, int y, int width, int height, int format, int type, ByteBuffer pixels) {
+        if (pixels == null) {
+            return true;
+        }
+        if (pixels.remaining() < readPixelsByteCount(width, height, format, type)) {
+            return false;
+        }
+
+        return readPixelsFromFramebuffer(x, y, width, height, format, type, MemoryUtil.memAddress(pixels));
+    }
+
+    private static boolean readPixelsFromFramebuffer(int x, int y, int width, int height, int format, int type, FloatBuffer pixels) {
+        if (pixels == null) {
+            return true;
+        }
+        if (pixels.remaining() < elementsForByteCount(readPixelsByteCount(width, height, format, type), Float.BYTES)) {
+            return false;
+        }
+
+        return readPixelsFromFramebuffer(x, y, width, height, format, type, MemoryUtil.memAddress(pixels));
+    }
+
+    private static boolean readPixelsFromFramebuffer(int x, int y, int width, int height, int format, int type, long pixels) {
+        if (pixels == 0L || width <= 0 || height <= 0) {
+            return true;
+        }
+        if (!isSupportedReadPixelsFormat(format, type)) {
+            return false;
+        }
+
+        GlFramebuffer.ReadPixelsImage readImage = GlFramebuffer.resolveReadPixelsImage(format);
+        if (readImage == null) {
+            return false;
+        }
+
+        try {
+            ImageUtil.downloadTextureRegion(readImage.image(), pixels, x, y, width, height, readImage.aspectMask(), bytesPerPixel(format, type));
+            return true;
+        } catch (RuntimeException e) {
+            GlEmulationLog.warnContractGap("framebuffer_readback", "glReadPixels.downloadFailed",
+                    "glReadPixels Vulkan readback failed for format 0x{} type 0x{}; returning safe fallback data",
+                    Integer.toHexString(format), Integer.toHexString(type));
+            return false;
+        }
+    }
+
+    private static boolean isSupportedReadPixelsFormat(int format, int type) {
+        return (format == GL11.GL_RGBA && type == GL11.GL_UNSIGNED_BYTE)
+                || (format == GL11.GL_DEPTH_COMPONENT && type == GL11.GL_FLOAT);
     }
 
     private static void zeroReadPixelsFallback(int width, int height, int format, int type, IntBuffer pixels) {

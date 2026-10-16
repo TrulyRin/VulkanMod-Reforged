@@ -7,6 +7,9 @@ import net.minecraft.client.renderer.ShaderInstance;
 import net.vulkanmod.compat.observer.GuiRenderTrace;
 import net.vulkanmod.gl.GlTexture;
 import net.vulkanmod.interfaces.ShaderMixed;
+import net.vulkanmod.compat.sable.render.SublevelRenderScope;
+import net.vulkanmod.compat.sable.veil.VeilProgramDraws;
+import net.vulkanmod.compat.sable.veil.VeilShaderProgramAccess;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.VRenderSystem;
 import net.vulkanmod.vulkan.shader.GraphicsPipeline;
@@ -21,10 +24,6 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import static org.lwjgl.vulkan.VK10.VK_BLEND_FACTOR_ONE;
-import static org.lwjgl.vulkan.VK10.VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-import static org.lwjgl.vulkan.VK10.VK_BLEND_FACTOR_ZERO;
-
 @Mixin(value = BufferUploader.class, priority = 900)
 public class BufferUploaderM {
     @Inject(method = "reset", at = @At("HEAD"), cancellable = true)
@@ -38,12 +37,12 @@ public class BufferUploaderM {
 
         RenderSystem.assertOnRenderThread();
 
-        MeshData.DrawState parameters = meshData.drawState();
-
-        Renderer renderer = Renderer.getInstance();
-
-        if (parameters.vertexCount() > 0) {
+        try (meshData) {
+            MeshData.DrawState parameters = meshData.drawState();
+            if (parameters.vertexCount() <= 0) return;
+            Renderer renderer = Renderer.getInstance();
             ShaderInstance shaderInstance = RenderSystem.getShader();
+            if (shaderInstance == null) return;
             String shaderName = shaderInstance.getName();
 
             if (!shaderInstance.getVertexFormat().equals(parameters.format())) {
@@ -53,82 +52,66 @@ public class BufferUploaderM {
 
             }
 
-            shaderInstance.apply();
-
-            GraphicsPipeline pipeline = ((ShaderMixed)(shaderInstance)).getPipeline(parameters.format());
-
-            if (pipeline == null) {
-
-                meshData.close();
-                return;
+            boolean programOwned = VeilShaderProgramAccess.isWrapper(shaderInstance);
+            GraphicsPipeline pipeline;
+            if (programOwned) {
+                pipeline = VeilProgramDraws.prepare(shaderInstance, parameters.format(), true,
+                        RenderSystem.getModelViewMatrix(), RenderSystem.getProjectionMatrix());
+            } else {
+                shaderInstance.apply();
+                pipeline = ((ShaderMixed) shaderInstance).getPipeline(parameters.format());
             }
-
-            if (isFlatGuiDraw(shaderName, parameters)) {
-                configureFlatGuiDrawState();
-            }
+            if (pipeline == null) return;
 
             traceHudDraw(shaderName, pipeline, parameters);
-
-            VRenderSystem.setPrimitiveTopology(parameters.mode());
-            renderer.bindGraphicsPipeline(pipeline);
-            VTextureSelector.bindShaderTextures(pipeline);
-            renderer.uploadAndBindUBOs(pipeline);
-            Renderer.getDrawer().draw(meshData.vertexBuffer(), parameters.mode(), parameters.format(), parameters.vertexCount());
+            drawPrepared(renderer, pipeline, meshData, programOwned);
         }
-
-        meshData.close();
     }
 
     @Inject(method = "draw", at = @At("HEAD"), cancellable = true)
     private static void draw(MeshData meshData, CallbackInfo ci) {
         ci.cancel();
 
-        MeshData.DrawState parameters = meshData.drawState();
-
-        if (parameters.vertexCount() > 0) {
+        RenderSystem.assertOnRenderThread();
+        try (meshData) {
+            MeshData.DrawState parameters = meshData.drawState();
+            if (parameters.vertexCount() <= 0) return;
             Renderer renderer = Renderer.getInstance();
             Pipeline pipeline = renderer.getBoundPipeline();
+            var scope = SublevelRenderScope.current().orElse(null);
+            Object activeShader = scope != null && scope.shader() != null ? scope.shader() : RenderSystem.getShader();
+            if (activeShader instanceof ShaderInstance shader && VeilShaderProgramAccess.isWrapper(shader)) {
+                GraphicsPipeline owned = VeilProgramDraws.prepare(shader, parameters.format(), true);
+                if (owned == null) return;
+                try {
+                    drawPrepared(renderer, owned, meshData, true);
+                } finally {
+                    renderer.restoreGraphicsPipeline(pipeline);
+                }
+                return;
+            }
+            if (pipeline == null) return;
+            if (pipeline instanceof GraphicsPipeline graphics && graphics.hasTessellation()) {
+                throw new IllegalStateException("Raw patch draw requires its Veil shader owner");
+            }
             renderer.uploadAndBindUBOs(pipeline);
-
-            Renderer.getDrawer().draw(meshData.vertexBuffer(), parameters.mode(), parameters.format(), parameters.vertexCount());
-        }
-
-        meshData.close();
-    }
-
-    private static boolean isFlatGuiDraw(String shaderName, MeshData.DrawState parameters) {
-        return isFlatGuiShader(shaderName)
-                && isOrthographicProjection();
-    }
-
-    private static boolean isFlatGuiShader(String shaderName) {
-        return "position_tex".equals(shaderName)
-                || "position_tex_color".equals(shaderName)
-                || shaderName.startsWith("rendertype_gui")
-                || shaderName.startsWith("rendertype_text");
-    }
-
-    private static boolean isOrthographicProjection() {
-        return RenderSystem.getProjectionMatrix().m33() == 1.0f;
-    }
-
-    private static void configureFlatGuiDrawState() {
-        VRenderSystem.disableDepthTest();
-        VRenderSystem.depthMask(false);
-        VRenderSystem.disableCull();
-        VRenderSystem.enableBlend();
-        if (!isVignetteBlendState()) {
-            VRenderSystem.blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ZERO);
+            Renderer.getDrawer().draw(meshData.vertexBuffer(), parameters, meshData.indexBuffer());
         }
     }
 
-    private static boolean isVignetteBlendState() {
-        PipelineState.BlendInfo blendInfo = PipelineState.blendInfo;
-        return blendInfo.enabled
-                && blendInfo.srcRgbFactor == VK_BLEND_FACTOR_ZERO
-                && blendInfo.dstRgbFactor == VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR
-                && blendInfo.srcAlphaFactor == VK_BLEND_FACTOR_ONE
-                && blendInfo.dstAlphaFactor == VK_BLEND_FACTOR_ZERO;
+    private static void drawPrepared(Renderer renderer, GraphicsPipeline pipeline, MeshData meshData, boolean programOwned) {
+        MeshData.DrawState state = meshData.drawState();
+        boolean patches = pipeline.hasTessellation();
+        if (patches) Renderer.getDrawer().preparePatches(state, meshData.indexBuffer());
+        VRenderSystem.setPrimitiveTopology(state.mode());
+        renderer.bindGraphicsPipeline(pipeline);
+        if (!programOwned) VTextureSelector.bindShaderTextures(pipeline);
+        renderer.uploadAndBindUBOs(pipeline);
+        if (patches) {
+            Renderer.getDrawer().drawPatches(meshData.vertexBuffer(), state, meshData.indexBuffer() != null);
+        } else {
+            Renderer.getDrawer().draw(meshData.vertexBuffer(), state, meshData.indexBuffer());
+        }
     }
 
     private static void traceHudDraw(String shaderName, GraphicsPipeline pipeline, MeshData.DrawState parameters) {

@@ -3,6 +3,7 @@ package net.vulkanmod.compat;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 
 public class CompatPolicyManager {
@@ -61,6 +62,13 @@ public class CompatPolicyManager {
         }
 
         return CompatCategory.UNKNOWN;
+    }
+
+    public static Optional<String> getVerifiedVersionPrefix(String modId) {
+        if (modId == null) {
+            return Optional.empty();
+        }
+        return Optional.ofNullable(verifiedModVersions.get(modId.toLowerCase(java.util.Locale.ROOT)));
     }
 
     public static boolean isCoexistenceIncompatible() {

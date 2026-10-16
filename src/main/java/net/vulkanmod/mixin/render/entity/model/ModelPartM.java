@@ -27,8 +27,9 @@ public abstract class ModelPartM {
 
     @Inject(method = "compile", at = @At("HEAD"), cancellable = true)
     private void injCompile(PoseStack.Pose pose, VertexConsumer vertexConsumer, int light, int overlay, int color, CallbackInfo ci) {
-        if (GuiEntityRenderState.isGuiEntityPreview(light)) {
+        if (GuiEntityRenderState.isGuiEntityPreview()) {
             GuiEntityRenderState.prepareDeferredDraw();
+            return;
         }
 
         this.renderCubes(pose, vertexConsumer, light, overlay, color);

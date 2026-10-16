@@ -191,10 +191,22 @@ public class GL44M {
 
     @Overwrite(remap = false)
     public static void glBindSamplers(@NativeType("GLuint") int first, @NativeType("GLuint const *") IntBuffer samplers) {
+        if (samplers == null) {
+            return;
+        }
+        for (int i = samplers.position(); i < samplers.limit(); i++) {
+            net.vulkanmod.gl.GlSampler.bindSampler(first + i - samplers.position(), samplers.get(i));
+        }
     }
 
     @Overwrite(remap = false)
     public static void glBindSamplers(@NativeType("GLuint") int first, @NativeType("GLuint const *") int[] samplers) {
+        if (samplers == null) {
+            return;
+        }
+        for (int i = 0; i < samplers.length; i++) {
+            net.vulkanmod.gl.GlSampler.bindSampler(first + i, samplers[i]);
+        }
     }
 
     @Overwrite(remap = false)

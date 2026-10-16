@@ -2,6 +2,7 @@ package net.vulkanmod.config;
 
 import net.minecraft.client.Minecraft;
 import net.vulkanmod.render.chunk.build.light.LightMode;
+import net.vulkanmod.render.optimization.AdaptiveChunkUploadBudget;
 import net.vulkanmod.vulkan.device.DeviceManager;
 
 public final class PerformancePresetApplier {
@@ -44,5 +45,7 @@ public final class PerformancePresetApplier {
                 minecraft.levelRenderer.allChanged();
             }
         }
+
+        AdaptiveChunkUploadBudget.reset();
     }
 }

@@ -98,17 +98,26 @@ public class QuadSorter {
         long ptr = bufferBuilder.getPtr();
 
         final int size = indexType.bytes;
-        final int stride = 4; // 4 vertices in a quad
+        final int stride = 4;                        
         for (int i = 0; i < sortingPoints.length; ++i) {
             final int quadIndex = sortingPoints[i];
             final int baseVertex = quadIndex * stride;
 
-            MemoryUtil.memPutInt(ptr + (size * 0L), baseVertex + 0);
-            MemoryUtil.memPutInt(ptr + (size * 1L), baseVertex + 1);
-            MemoryUtil.memPutInt(ptr + (size * 2L), baseVertex + 2);
-            MemoryUtil.memPutInt(ptr + (size * 3L), baseVertex + 2);
-            MemoryUtil.memPutInt(ptr + (size * 4L), baseVertex + 3);
-            MemoryUtil.memPutInt(ptr + (size * 5L), baseVertex + 0);
+            if (indexType == VertexFormat.IndexType.SHORT) {
+                MemoryUtil.memPutShort(ptr + (size * 0L), (short) (baseVertex + 0));
+                MemoryUtil.memPutShort(ptr + (size * 1L), (short) (baseVertex + 1));
+                MemoryUtil.memPutShort(ptr + (size * 2L), (short) (baseVertex + 2));
+                MemoryUtil.memPutShort(ptr + (size * 3L), (short) (baseVertex + 2));
+                MemoryUtil.memPutShort(ptr + (size * 4L), (short) (baseVertex + 3));
+                MemoryUtil.memPutShort(ptr + (size * 5L), (short) (baseVertex + 0));
+            } else {
+                MemoryUtil.memPutInt(ptr + (size * 0L), baseVertex + 0);
+                MemoryUtil.memPutInt(ptr + (size * 1L), baseVertex + 1);
+                MemoryUtil.memPutInt(ptr + (size * 2L), baseVertex + 2);
+                MemoryUtil.memPutInt(ptr + (size * 3L), baseVertex + 2);
+                MemoryUtil.memPutInt(ptr + (size * 4L), baseVertex + 3);
+                MemoryUtil.memPutInt(ptr + (size * 5L), baseVertex + 0);
+            }
 
             ptr += size * 6L;
         }

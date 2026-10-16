@@ -1,6 +1,7 @@
 package net.vulkanmod.vulkan;
 
 import net.vulkanmod.Initializer;
+import net.vulkanmod.config.Platform;
 import net.vulkanmod.vulkan.device.Device;
 import net.vulkanmod.vulkan.device.DeviceManager;
 import net.vulkanmod.vulkan.framebuffer.SwapChain;
@@ -10,6 +11,7 @@ import net.vulkanmod.vulkan.memory.MemoryTypes;
 import net.vulkanmod.vulkan.memory.StagingBuffer;
 import net.vulkanmod.vulkan.queue.Queue;
 import net.vulkanmod.vulkan.shader.Pipeline;
+import net.vulkanmod.vulkan.texture.SamplerManager;
 import net.vulkanmod.vulkan.util.VUtil;
 import net.vulkanmod.vulkan.util.VkResult;
 import org.lwjgl.PointerBuffer;
@@ -27,13 +29,14 @@ import static net.vulkanmod.vulkan.queue.Queue.getQueueFamilies;
 import static net.vulkanmod.vulkan.util.VUtil.asPointerBuffer;
 import static org.lwjgl.glfw.GLFWVulkan.glfwCreateWindowSurface;
 import static org.lwjgl.glfw.GLFWVulkan.glfwGetRequiredInstanceExtensions;
-import static org.lwjgl.system.MemoryStack.stackGet;
 import static org.lwjgl.system.MemoryStack.stackPush;
 import static org.lwjgl.system.MemoryUtil.NULL;
 import static org.lwjgl.util.vma.Vma.vmaCreateAllocator;
 import static org.lwjgl.util.vma.Vma.vmaDestroyAllocator;
 import static org.lwjgl.vulkan.EXTDebugUtils.*;
 import static org.lwjgl.vulkan.KHRDynamicRendering.VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME;
+import static org.lwjgl.vulkan.KHRPortabilityEnumeration.VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+import static org.lwjgl.vulkan.KHRPortabilityEnumeration.VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
 import static org.lwjgl.vulkan.KHRSwapchain.VK_KHR_SWAPCHAIN_EXTENSION_NAME;
 import static org.lwjgl.vulkan.VK10.*;
 import static org.lwjgl.vulkan.VK12.VK_API_VERSION_1_2;
@@ -134,6 +137,8 @@ public class Vulkan {
     public static boolean use24BitsDepthFormat = true;
     private static int DEFAULT_DEPTH_FORMAT = 0;
 
+    private static boolean portabilityEnumeration = false;
+
     public static void initVulkan(long window) {
         Initializer.LOGGER.info("VulkanMod: initVulkan starting...");
         createInstance();
@@ -186,6 +191,7 @@ public class Vulkan {
 
     public static void cleanUp() {
         vkDeviceWaitIdle(DeviceManager.vkDevice);
+        net.vulkanmod.compat.sable.veil.VeilProgramPipelines.cleanUp();
         vkDestroyCommandPool(DeviceManager.vkDevice, commandPool, null);
         vkDestroyFence(DeviceManager.vkDevice, immediateFence, null);
 
@@ -193,6 +199,7 @@ public class Vulkan {
 
         Renderer.getInstance().cleanUpResources();
         swapChain.cleanUp();
+        SamplerManager.cleanUp();
 
         freeStagingBuffers();
 
@@ -217,6 +224,11 @@ public class Vulkan {
         }
 
         try (MemoryStack stack = stackPush()) {
+            portabilityEnumeration = Platform.isMacOS()
+                    && getAvailableInstanceExtensions(stack).contains(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+        }
+
+        try (MemoryStack stack = stackPush()) {
 
             VkApplicationInfo appInfo = VkApplicationInfo.calloc(stack);
 
@@ -231,7 +243,12 @@ public class Vulkan {
 
             createInfo.sType(VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO);
             createInfo.pApplicationInfo(appInfo);
-            createInfo.ppEnabledExtensionNames(getRequiredInstanceExtensions());
+            createInfo.ppEnabledExtensionNames(getRequiredInstanceExtensions(stack));
+
+            if (portabilityEnumeration) {
+                createInfo.flags(createInfo.flags() | VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR);
+                Initializer.LOGGER.info("VulkanMod: macOS portability ICD (MoltenVK); enabling portability enumeration.");
+            }
 
             if (ENABLE_VALIDATION_LAYERS) {
 
@@ -244,11 +261,28 @@ public class Vulkan {
 
             PointerBuffer instancePtr = stack.mallocPointer(1);
 
+            Initializer.LOGGER.info("VulkanMod: calling vkCreateInstance...");
             int result = vkCreateInstance(createInfo, null, instancePtr);
-            checkResult(result, "Failed to create instance");
+            if (result != VK_SUCCESS) {
+                throw new RuntimeException("Failed to create Vulkan instance: " + VkResult.decode(result)
+                        + "\n" + Platform.vulkanDriverHint());
+            }
 
-            instance = new VkInstance(instancePtr.get(0), createInfo);
+            Initializer.LOGGER.info("VulkanMod: vkCreateInstance succeeded; building instance capabilities...");
+            instance = VkInstanceFactory.create(instancePtr.get(0), createInfo);
         }
+    }
+
+    private static Set<String> getAvailableInstanceExtensions(MemoryStack stack) {
+        IntBuffer extensionCount = stack.ints(0);
+        vkEnumerateInstanceExtensionProperties((String) null, extensionCount, null);
+
+        VkExtensionProperties.Buffer availableExtensions = VkExtensionProperties.malloc(extensionCount.get(0), stack);
+        vkEnumerateInstanceExtensionProperties((String) null, extensionCount, availableExtensions);
+
+        return availableExtensions.stream()
+                .map(VkExtensionProperties::extensionNameString)
+                .collect(toSet());
     }
 
     static boolean checkValidationLayerSupport() {
@@ -410,23 +444,31 @@ public class Vulkan {
 
     }
 
-    private static PointerBuffer getRequiredInstanceExtensions() {
+    private static PointerBuffer getRequiredInstanceExtensions(MemoryStack stack) {
 
         PointerBuffer glfwExtensions = glfwGetRequiredInstanceExtensions();
 
-        if (ENABLE_VALIDATION_LAYERS) {
-
-            MemoryStack stack = stackGet();
-
-            PointerBuffer extensions = stack.mallocPointer(glfwExtensions.capacity() + 1);
-
-            extensions.put(glfwExtensions);
-            extensions.put(stack.UTF8(VK_EXT_DEBUG_UTILS_EXTENSION_NAME));
-
-            return extensions.rewind();
+        if (glfwExtensions == null) {
+            throw new RuntimeException("GLFW could not find the Vulkan loader / required instance extensions.\n"
+                    + Platform.vulkanDriverHint());
         }
 
-        return glfwExtensions;
+        int extra = (ENABLE_VALIDATION_LAYERS ? 1 : 0) + (portabilityEnumeration ? 1 : 0);
+        if (extra == 0) {
+            return glfwExtensions;
+        }
+
+        PointerBuffer extensions = stack.mallocPointer(glfwExtensions.capacity() + extra);
+        extensions.put(glfwExtensions);
+
+        if (ENABLE_VALIDATION_LAYERS) {
+            extensions.put(stack.UTF8(VK_EXT_DEBUG_UTILS_EXTENSION_NAME));
+        }
+        if (portabilityEnumeration) {
+            extensions.put(stack.UTF8(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME));
+        }
+
+        return extensions.rewind();
     }
 
     public static void checkResult(int result, String errorMessage) {

@@ -28,8 +28,9 @@ public class GraphicsPipeline extends Pipeline {
     private final VertexFormat vertexFormat;
     private final VertexInputDescription vertexInputDescription;
 
-    private long vertShaderModule = 0;
-    private long fragShaderModule = 0;
+    private final GraphicsShaderStages shaderStages;
+    private final GraphicsShaderStages.TessellationState tessellationState;
+    private boolean closed;
 
     GraphicsPipeline(Builder builder) {
         super(builder.shaderPath);
@@ -39,26 +40,41 @@ public class GraphicsPipeline extends Pipeline {
         this.pushConstants = builder.pushConstants;
         this.vertexFormat = builder.vertexFormat;
 
-        this.vertexInputDescription = new VertexInputDescription(this.vertexFormat);
+        this.tessellationState = GraphicsShaderStages.TessellationState.of(
+                builder.tescShaderSPIRV != null || builder.teseShaderSPIRV != null,
+                builder.patchControlPoints, DeviceManager.isTessellationEnabled(),
+                DeviceManager.maxTessellationPatchSize());
 
-        createDescriptorSetLayout();
-        createPipelineLayout();
-        createShaderModules(builder.vertShaderSPIRV, builder.fragShaderSPIRV);
-
-        if (builder.renderPass != null)
-            graphicsPipelines.computeIfAbsent(PipelineState.DEFAULT,
-                    (ToLongFunction<PipelineState>) this::createGraphicsPipeline);
-
-        createDescriptorSets(Renderer.getFramesNum());
-
-        PIPELINES.add(this);
+        try (var construction = new ResourceRollback()) {
+            this.vertexInputDescription = new VertexInputDescription(this.vertexFormat);
+            construction.add(this.vertexInputDescription::cleanUp);
+            createDescriptorSetLayout();
+            construction.add(() -> vkDestroyDescriptorSetLayout(DeviceManager.vkDevice, descriptorSetLayout, null));
+            createPipelineLayout();
+            construction.add(() -> vkDestroyPipelineLayout(DeviceManager.vkDevice, pipelineLayout, null));
+            this.shaderStages = createShaderModules(builder);
+            construction.add(this.shaderStages::close);
+            construction.add(this::destroyGraphicsPipelines);
+            if (builder.renderPass != null)
+                graphicsPipelines.computeIfAbsent(PipelineState.DEFAULT,
+                        (ToLongFunction<PipelineState>) this::createGraphicsPipeline);
+            createDescriptorSets(Renderer.getFramesNum());
+            construction.add(this::destroyDescriptorSets);
+            PIPELINES.add(this);
+            construction.commit();
+        }
     }
 
     public int getVariantCount() {
         return graphicsPipelines.size();
     }
 
+    public boolean hasTessellation() {
+        return shaderStages.hasTessellation();
+    }
+
     public long getHandle(PipelineState state) {
+        if (closed) throw new IllegalStateException("Graphics pipeline is closed");
         if (net.vulkanmod.compat.observer.CompatProfiler.ENABLED) {
             if (graphicsPipelines.containsKey(state)) {
                 net.vulkanmod.compat.observer.CompatProfiler.shaderCacheHits++;
@@ -73,28 +89,15 @@ public class GraphicsPipeline extends Pipeline {
         try (MemoryStack stack = stackPush()) {
             ByteBuffer entryPoint = stack.UTF8("main");
 
-            VkPipelineShaderStageCreateInfo.Buffer shaderStages = VkPipelineShaderStageCreateInfo.calloc(2, stack);
-
-            VkPipelineShaderStageCreateInfo vertShaderStageInfo = shaderStages.get(0);
-
-            vertShaderStageInfo.sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO);
-            vertShaderStageInfo.stage(VK_SHADER_STAGE_VERTEX_BIT);
-            vertShaderStageInfo.module(vertShaderModule);
-            vertShaderStageInfo.pName(entryPoint);
-
-            VkPipelineShaderStageCreateInfo fragShaderStageInfo = shaderStages.get(1);
-
-            fragShaderStageInfo.sType(VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO);
-            fragShaderStageInfo.stage(VK_SHADER_STAGE_FRAGMENT_BIT);
-            fragShaderStageInfo.module(fragShaderModule);
-            fragShaderStageInfo.pName(entryPoint);
+            VkPipelineShaderStageCreateInfo.Buffer shaderStages = this.shaderStages.write(stack, entryPoint);
 
             VkPipelineVertexInputStateCreateInfo vertexInputInfo = VkPipelineVertexInputStateCreateInfo.calloc(stack);
             vertexInputInfo.sType(VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO);
             vertexInputInfo.pVertexBindingDescriptions(vertexInputDescription.bindingDescriptions);
             vertexInputInfo.pVertexAttributeDescriptions(vertexInputDescription.attributeDescriptions);
 
-            final int topology = PipelineState.AssemblyRasterState.decodeTopology(state.assemblyRasterState);
+            final int topology = tessellationState.topology(
+                    PipelineState.AssemblyRasterState.decodeTopology(state.assemblyRasterState));
 
             VkPipelineInputAssemblyStateCreateInfo inputAssembly = VkPipelineInputAssemblyStateCreateInfo.calloc(stack);
             inputAssembly.sType(VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO);
@@ -197,6 +200,7 @@ public class GraphicsPipeline extends Pipeline {
             pipelineInfo.pStages(shaderStages);
             pipelineInfo.pVertexInputState(vertexInputInfo);
             pipelineInfo.pInputAssemblyState(inputAssembly);
+            pipelineInfo.pTessellationState(tessellationState.write(stack));
             pipelineInfo.pViewportState(viewportState);
             pipelineInfo.pRasterizationState(rasterizer);
             pipelineInfo.pMultisampleState(multisampling);
@@ -222,9 +226,11 @@ public class GraphicsPipeline extends Pipeline {
                 pipelineInfo.pNext(renderingInfo);
             }
 
-            LongBuffer pGraphicsPipeline = stack.mallocLong(1);
+            LongBuffer pGraphicsPipeline = stack.callocLong(1);
 
             if (vkCreateGraphicsPipelines(DeviceManager.vkDevice, PIPELINE_CACHE, pipelineInfo, null, pGraphicsPipeline) != VK_SUCCESS) {
+                if (pGraphicsPipeline.get(0) != VK_NULL_HANDLE)
+                    vkDestroyPipeline(DeviceManager.vkDevice, pGraphicsPipeline.get(0), null);
                 throw new RuntimeException("Failed to create graphics pipeline");
             }
 
@@ -232,41 +238,73 @@ public class GraphicsPipeline extends Pipeline {
         }
     }
 
-    private void createShaderModules(SPIRVUtils.SPIRV vertSpirv, SPIRVUtils.SPIRV fragSpirv) {
-        this.vertShaderModule = createShaderModule(vertSpirv.bytecode());
-        this.fragShaderModule = createShaderModule(fragSpirv.bytecode());
+    private static GraphicsShaderStages createShaderModules(Builder builder) {
+        var sources = new java.util.ArrayList<GraphicsShaderStages.Source>(4);
+        sources.add(new GraphicsShaderStages.Source(VK_SHADER_STAGE_VERTEX_BIT, builder.vertShaderSPIRV.bytecode()));
+        if (builder.tescShaderSPIRV != null) {
+            sources.add(new GraphicsShaderStages.Source(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+                    builder.tescShaderSPIRV.bytecode()));
+        }
+        if (builder.teseShaderSPIRV != null) {
+            sources.add(new GraphicsShaderStages.Source(VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
+                    builder.teseShaderSPIRV.bytecode()));
+        }
+        sources.add(new GraphicsShaderStages.Source(VK_SHADER_STAGE_FRAGMENT_BIT, builder.fragShaderSPIRV.bytecode()));
+        VkDevice moduleDevice = DeviceManager.vkDevice;
+        return GraphicsShaderStages.create(sources, new GraphicsShaderStages.Backend() {
+            @Override
+            public long create(ByteBuffer bytecode) {
+                return createShaderModule(bytecode);
+            }
+
+            @Override
+            public void destroy(long module) {
+                vkDestroyShaderModule(moduleDevice, module, null);
+            }
+        });
     }
 
     public void cleanUp() {
-        vkDestroyShaderModule(DeviceManager.vkDevice, vertShaderModule, null);
-        vkDestroyShaderModule(DeviceManager.vkDevice, fragShaderModule, null);
+        if (closed) return;
+        closed = true;
+        try (var release = new ResourceRollback()) {
+            release.add(() -> Renderer.getInstance().removeUsedPipeline(this));
+            release.add(() -> PIPELINES.remove(this));
+            release.add(vertexInputDescription::cleanUp);
+            release.add(() -> vkDestroyDescriptorSetLayout(DeviceManager.vkDevice, descriptorSetLayout, null));
+            release.add(() -> vkDestroyPipelineLayout(DeviceManager.vkDevice, pipelineLayout, null));
+            release.add(shaderStages::close);
+            release.add(this::destroyGraphicsPipelines);
+            release.add(this::destroyDescriptorSets);
+        }
+    }
 
-        vertexInputDescription.cleanUp();
-
-        destroyDescriptorSets();
-
-        graphicsPipelines.forEach((state, pipeline) -> {
-            vkDestroyPipeline(DeviceManager.vkDevice, pipeline, null);
-        });
-        graphicsPipelines.clear();
-
-        vkDestroyDescriptorSetLayout(DeviceManager.vkDevice, descriptorSetLayout, null);
-        vkDestroyPipelineLayout(DeviceManager.vkDevice, pipelineLayout, null);
-
-        PIPELINES.remove(this);
-        Renderer.getInstance().removeUsedPipeline(this);
+    private void destroyGraphicsPipelines() {
+        try (var release = new ResourceRollback()) {
+            graphicsPipelines.forEach((state, handle) ->
+                    release.add(() -> vkDestroyPipeline(DeviceManager.vkDevice, handle, null)));
+            graphicsPipelines.clear();
+        }
     }
 
     static class VertexInputDescription {
         final VkVertexInputAttributeDescription.Buffer attributeDescriptions;
         final VkVertexInputBindingDescription.Buffer bindingDescriptions;
+        private boolean closed;
 
         VertexInputDescription(VertexFormat vertexFormat) {
-            this.bindingDescriptions = getBindingDescription(vertexFormat);
-            this.attributeDescriptions = getAttributeDescriptions(vertexFormat);
+            try (var construction = new ResourceRollback()) {
+                this.bindingDescriptions = getBindingDescription(vertexFormat);
+                construction.add(() -> MemoryUtil.memFree(this.bindingDescriptions));
+                this.attributeDescriptions = getAttributeDescriptions(vertexFormat);
+                construction.add(() -> MemoryUtil.memFree(this.attributeDescriptions));
+                construction.commit();
+            }
         }
 
         void cleanUp() {
+            if (closed) return;
+            closed = true;
             MemoryUtil.memFree(this.bindingDescriptions);
             MemoryUtil.memFree(this.attributeDescriptions);
         }
@@ -274,12 +312,14 @@ public class GraphicsPipeline extends Pipeline {
 
     private static VkVertexInputBindingDescription.Buffer getBindingDescription(VertexFormat vertexFormat) {
         VkVertexInputBindingDescription.Buffer bindingDescription = VkVertexInputBindingDescription.calloc(1);
-
-        bindingDescription.binding(0);
-        bindingDescription.stride(vertexFormat.getVertexSize());
-        bindingDescription.inputRate(VK_VERTEX_INPUT_RATE_VERTEX);
-
-        return bindingDescription;
+        try (var construction = new ResourceRollback()) {
+            construction.add(() -> MemoryUtil.memFree(bindingDescription));
+            bindingDescription.binding(0);
+            bindingDescription.stride(vertexFormat.getVertexSize());
+            bindingDescription.inputRate(VK_VERTEX_INPUT_RATE_VERTEX);
+            construction.commit();
+            return bindingDescription;
+        }
     }
 
     private static VkVertexInputAttributeDescription.Buffer getAttributeDescriptions(VertexFormat vertexFormat) {
@@ -288,7 +328,8 @@ public class GraphicsPipeline extends Pipeline {
         int size = elements.size();
 
         VkVertexInputAttributeDescription.Buffer attributeDescriptions = VkVertexInputAttributeDescription.calloc(size);
-
+        try (var construction = new ResourceRollback()) {
+        construction.add(() -> MemoryUtil.memFree(attributeDescriptions));
         int offset = 0;
 
         for (int i = 0; i < size; ++i) {
@@ -372,7 +413,10 @@ public class GraphicsPipeline extends Pipeline {
                 }
 
                 case GENERIC -> {
-                    if (type == VertexFormatElement.Type.SHORT && elementCount == 1) {
+                    if (type == VertexFormatElement.Type.USHORT && elementCount == 1) {
+                        posDescription.format(VK_FORMAT_R16_UINT);
+                    }
+                    else if (type == VertexFormatElement.Type.SHORT && elementCount == 1) {
                         posDescription.format(VK_FORMAT_R16_SINT);
                         posDescription.offset(offset);
 
@@ -389,12 +433,19 @@ public class GraphicsPipeline extends Pipeline {
                     }
                 }
 
-                default -> throw new RuntimeException(String.format("Unknown format: %s", usage));
+                default -> {
+                                                                                                       
+                    if (type == VertexFormatElement.Type.USHORT && elementCount == 1)
+                        posDescription.format(VK_FORMAT_R16_UINT);
+                    else throw new RuntimeException(String.format("Unknown format: %s", usage));
+                }
             }
 
             posDescription.offset(((VertexFormatMixed) (vertexFormat)).getOffset(i));
         }
 
+        construction.commit();
         return attributeDescriptions.rewind();
+        }
     }
 }

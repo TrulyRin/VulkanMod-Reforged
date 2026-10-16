@@ -344,10 +344,7 @@ public class GL45M {
 
     @Overwrite(remap = false)
     public static void glBindTextureUnit(@NativeType("GLuint") int unit, @NativeType("GLuint") int texture) {
-        int previousUnit = GlTexture.getActiveTexture();
-        GlTexture.activeTexture(GL30.GL_TEXTURE0 + unit);
-        GlTexture.bindTexture(texture);
-        GlTexture.activeTexture(previousUnit);
+        GlTexture.bindTextureUnit(unit, texture);
     }
 
     @Overwrite(remap = false)
@@ -411,6 +408,7 @@ public class GL45M {
 
     @Overwrite(remap = false)
     public static void glBlitNamedFramebuffer(int p0, int p1, int p2, int p3, int p4, int p5, int p6, int p7, int p8, int p9, int p10, int p11) {
+        GlFramebuffer.blitNamedFramebuffer(p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11);
     }
 
     @Overwrite(remap = false)
@@ -833,17 +831,21 @@ public class GL45M {
 
     @Overwrite(remap = false)
     public static int glGetNamedFramebufferAttachmentParameteri(int p0, int p1, int p2) {
-        return 0;
+        return GlFramebuffer.getNamedFramebufferAttachmentParameteri(p0, p1, p2);
     }
 
     @Overwrite(remap = false)
     public static void glGetNamedFramebufferAttachmentParameteriv(int p0, int p1, int p2, int[] p3) {
-        vulkanmod$zero(p3);
+        if (p3 != null && p3.length > 0) {
+            p3[0] = GlFramebuffer.getNamedFramebufferAttachmentParameteri(p0, p1, p2);
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetNamedFramebufferAttachmentParameteriv(int p0, int p1, int p2, java.nio.IntBuffer p3) {
-        vulkanmod$zero(p3);
+        if (p3 != null && p3.remaining() > 0) {
+            p3.put(p3.position(), GlFramebuffer.getNamedFramebufferAttachmentParameteri(p0, p1, p2));
+        }
     }
 
     @Overwrite(remap = false)
@@ -863,17 +865,21 @@ public class GL45M {
 
     @Overwrite(remap = false)
     public static int glGetNamedRenderbufferParameteri(int p0, int p1) {
-        return 0;
+        return GlRenderbuffer.getNamedRenderbufferParameter(p0, p1);
     }
 
     @Overwrite(remap = false)
     public static void glGetNamedRenderbufferParameteriv(int p0, int p1, int[] p2) {
-        vulkanmod$zero(p2);
+        if (p2 != null && p2.length > 0) {
+            p2[0] = GlRenderbuffer.getNamedRenderbufferParameter(p0, p1);
+        }
     }
 
     @Overwrite(remap = false)
     public static void glGetNamedRenderbufferParameteriv(int p0, int p1, java.nio.IntBuffer p2) {
-        vulkanmod$zero(p2);
+        if (p2 != null && p2.remaining() > 0) {
+            p2.put(p2.position(), GlRenderbuffer.getNamedRenderbufferParameter(p0, p1));
+        }
     }
 
     @Overwrite(remap = false)

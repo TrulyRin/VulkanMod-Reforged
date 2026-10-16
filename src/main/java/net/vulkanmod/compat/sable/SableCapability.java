@@ -1,0 +1,10 @@
+package net.vulkanmod.compat.sable;
+
+public enum SableCapability {
+    TERRAIN_TRANSFORMS,
+    LAYERED_RENDERING,
+    ENTITY_RENDERING,
+    LIGHTING_AND_TINT,
+    FRAMEBUFFER_INTEROPERABILITY,
+    NATIVE_FLYWHEEL_BACKEND
+}

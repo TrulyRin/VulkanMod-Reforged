@@ -13,6 +13,20 @@ base {
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
+repositories {
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
+            includeGroup "maven.modrinth"
+        }
+    }
+}
+
 neoForge {
     version = project.neo_version
 
@@ -58,43 +72,54 @@ neoForge {
 }
 
 project.ext.lwjglVersion = "3.3.3"
-project.ext.winNatives = "natives-windows"
+
+project.ext.bundledNatives = ["natives-windows", "natives-linux", "natives-macos", "natives-macos-arm64"]
+
+def host = org.gradle.internal.os.OperatingSystem.current()
+project.ext.devNatives = host.windows ? "natives-windows"
+        : host.macOsX ? (System.getProperty("os.arch").contains("aarch64") ? "natives-macos-arm64" : "natives-macos")
+        : "natives-linux"
 
 dependencies {
-    // Standard LWJGL for Vulkan
+
+    compileOnly "io.github.llamalad7:mixinextras-neoforge:0.5.3"
+
     implementation "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
     implementation "org.lwjgl:lwjgl-shaderc:$lwjglVersion"
     implementation "org.lwjgl:lwjgl-vma:$lwjglVersion"
 
-    runtimeOnly "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$winNatives"
-    runtimeOnly "org.lwjgl:lwjgl-vma:$lwjglVersion:$winNatives"
+    runtimeOnly "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$devNatives"
+    runtimeOnly "org.lwjgl:lwjgl-vma:$lwjglVersion:$devNatives"
 
-    // Add to runtime classpath for Dev Runs
     additionalRuntimeClasspath "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:$lwjglVersion"
     additionalRuntimeClasspath "org.lwjgl:lwjgl-vma:$lwjglVersion"
-    additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$winNatives"
-    additionalRuntimeClasspath "org.lwjgl:lwjgl-vma:$lwjglVersion:$winNatives"
+    additionalRuntimeClasspath "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$devNatives"
+    additionalRuntimeClasspath "org.lwjgl:lwjgl-vma:$lwjglVersion:$devNatives"
 
-    // Bundle them for production via JarJar
     jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion"
     jarJar "org.lwjgl:lwjgl-shaderc:$lwjglVersion"
     jarJar "org.lwjgl:lwjgl-vma:$lwjglVersion"
-    jarJar "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$winNatives"
-    jarJar "org.lwjgl:lwjgl-vma:$lwjglVersion:$winNatives"
+    bundledNatives.each { n ->
+        jarJar "org.lwjgl:lwjgl-shaderc:$lwjglVersion:$n"
+        jarJar "org.lwjgl:lwjgl-vma:$lwjglVersion:$n"
+    }
+    jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-macos"
+    jarJar "org.lwjgl:lwjgl-vulkan:$lwjglVersion:natives-macos-arm64"
 
-    // Flywheel backend SPI (runtime ships inside Create's jar-in-jar; compile against the same version)
     compileOnly files("libs/flywheel-neoforge-1.21.1-1.0.6.jar")
+    compileOnly("maven.modrinth:T9PomCSv:1L6XJqnY") {
+        transitive = false
+    }
+
 }
 
-// Ensure JarJar only contains what we want
 configurations.jarJar {
     exclude group: 'org.lwjgl', module: 'lwjgl'
     exclude group: 'org.lwjgl', module: 'lwjgl-glfw'
     exclude group: 'org.lwjgl', module: 'lwjgl-opengl'
     exclude group: 'org.lwjgl', module: 'lwjgl-stb'
 }
-
 
 processResources {
     inputs.property "version", project.version
@@ -107,7 +132,6 @@ processResources {
 tasks.withType(JavaCompile).configureEach {
     it.options.release = 21
 }
-
 
 java {
     withSourcesJar()
@@ -134,21 +158,15 @@ publishing {
     }
 }
 
-// Post-process: strip module-info.class from embedded LWJGL JarJar jars.
-// Without this, lwjgl-vulkan ends up in its own JPMS module layer,
-// invisible to org.lwjgl.glfw in the boot layer, causing:
-//   NoClassDefFoundError: org/lwjgl/vulkan/VkInstance
 tasks.named('jar') {
     doLast {
         def jarFile = archiveFile.get().asFile
         def tmpDir = new File(temporaryDir, "repack")
 
-        // Extract the fat jar
         tmpDir.deleteDir()
         tmpDir.mkdirs()
         ant.unzip(src: jarFile, dest: tmpDir)
 
-        // Strip module-info.class from each embedded LWJGL jar
         def jarjarDir = new File(tmpDir, "META-INF/jarjar")
         if (jarjarDir.exists()) {
             jarjarDir.listFiles().findAll { it.name.endsWith('.jar') && it.name.startsWith('lwjgl-') }.each { embeddedJar ->
@@ -163,22 +181,105 @@ tasks.named('jar') {
                 stripped.renameTo(embeddedJar)
             }
 
-            // Fix metadata.json because NeoForge JarJar generates duplicate identifiers for natives
             def metadataFile = new File(jarjarDir, "metadata.json")
             if (metadataFile.exists()) {
                 def slurper = new groovy.json.JsonSlurper()
                 def metadata = slurper.parseText(metadataFile.text)
                 metadata.jars.each { jarEntry ->
-                    if (jarEntry.path.contains("-natives-")) {
-                        jarEntry.identifier.artifact += "-natives"
+                    def m = (jarEntry.path =~ /-(natives-[a-z0-9-]+)\.jar$/)
+                    if (m) {
+                        jarEntry.identifier.artifact += "-" + m[0][1]
                     }
                 }
                 metadataFile.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(metadata))
             }
         }
 
-        // Repack
         jarFile.delete()
         ant.zip(destfile: jarFile, basedir: tmpDir)
+    }
+}
+
+tasks.register('verifyBundledLwjgl') {
+    group = 'verification'
+    description = 'Verifies that the production jar contains loadable LWJGL Vulkan and native artifacts.'
+    dependsOn tasks.named('jar')
+
+    doLast {
+        def outputJar = tasks.named('jar').get().archiveFile.get().asFile
+        def requiredPaths = [
+                "META-INF/jarjar/lwjgl-vulkan-${lwjglVersion}.jar",
+                "META-INF/jarjar/lwjgl-vulkan-${lwjglVersion}-natives-macos.jar",
+                "META-INF/jarjar/lwjgl-vulkan-${lwjglVersion}-natives-macos-arm64.jar",
+                "META-INF/jarjar/lwjgl-shaderc-${lwjglVersion}.jar",
+                "META-INF/jarjar/lwjgl-shaderc-${lwjglVersion}-natives-windows.jar",
+                "META-INF/jarjar/lwjgl-shaderc-${lwjglVersion}-natives-linux.jar",
+                "META-INF/jarjar/lwjgl-shaderc-${lwjglVersion}-natives-macos.jar",
+                "META-INF/jarjar/lwjgl-shaderc-${lwjglVersion}-natives-macos-arm64.jar",
+                "META-INF/jarjar/lwjgl-vma-${lwjglVersion}.jar",
+                "META-INF/jarjar/lwjgl-vma-${lwjglVersion}-natives-windows.jar",
+                "META-INF/jarjar/lwjgl-vma-${lwjglVersion}-natives-linux.jar",
+                "META-INF/jarjar/lwjgl-vma-${lwjglVersion}-natives-macos.jar",
+                "META-INF/jarjar/lwjgl-vma-${lwjglVersion}-natives-macos-arm64.jar",
+        ].collect { it.toString() }
+
+        def outer = new java.util.zip.ZipFile(outputJar)
+        try {
+            requiredPaths.each { path ->
+                if (outer.getEntry(path) == null) {
+                    throw new GradleException("Missing bundled dependency: ${path}")
+                }
+            }
+
+            def metadataEntry = outer.getEntry('META-INF/jarjar/metadata.json')
+            if (metadataEntry == null) {
+                throw new GradleException('Missing META-INF/jarjar/metadata.json')
+            }
+            def metadata = outer.getInputStream(metadataEntry).withCloseable { stream ->
+                new groovy.json.JsonSlurper().parse(stream)
+            }
+            def metadataPaths = metadata.jars.collect { it.path } as Set
+            if (!metadataPaths.containsAll(requiredPaths)) {
+                throw new GradleException('JarJar metadata does not list every bundled LWJGL artifact')
+            }
+            def identifiers = metadata.jars.collect { "${it.identifier.group}:${it.identifier.artifact}" }
+            if (identifiers.size() != identifiers.toSet().size()) {
+                throw new GradleException('JarJar metadata contains duplicate dependency identifiers')
+            }
+
+            def verifyNestedJar = { String path, List<String> requiredEntries ->
+                temporaryDir.mkdirs()
+                def nestedFile = File.createTempFile('vulkanmod-lwjgl-', '.jar', temporaryDir)
+                try {
+                    outer.getInputStream(outer.getEntry(path)).withCloseable { input ->
+                        nestedFile.withOutputStream { output -> output << input }
+                    }
+                    def nested = new java.util.zip.ZipFile(nestedFile)
+                    try {
+                        requiredEntries.each { entry ->
+                            if (nested.getEntry(entry) == null) {
+                                throw new GradleException("${path} is missing ${entry}")
+                            }
+                        }
+                        if (nested.entries().toList().any { it.name == 'module-info.class'
+                                || (it.name.startsWith('META-INF/versions/') && it.name.endsWith('/module-info.class')) }) {
+                            throw new GradleException("${path} still contains module-info.class")
+                        }
+                    } finally {
+                        nested.close()
+                    }
+                } finally {
+                    nestedFile.delete()
+                }
+            }
+
+            verifyNestedJar(requiredPaths[0], ['org/lwjgl/vulkan/VK.class'])
+            verifyNestedJar(requiredPaths[1], ['macos/x64/org/lwjgl/vulkan/libMoltenVK.dylib'])
+            verifyNestedJar(requiredPaths[2], ['macos/arm64/org/lwjgl/vulkan/libMoltenVK.dylib'])
+        } finally {
+            outer.close()
+        }
+
+        logger.lifecycle("Verified bundled LWJGL Vulkan, shaderc, VMA, and macOS MoltenVK in ${outputJar.name}")
     }
 }

@@ -16,6 +16,8 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 import net.vulkanmod.render.chunk.TerrainRenderState;
 import net.vulkanmod.render.chunk.WorldRenderer;
+import net.vulkanmod.Initializer;
+import net.vulkanmod.compat.sable.render.SublevelRenderScope;
 import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.At;
@@ -63,6 +65,15 @@ public abstract class LevelRendererMixin {
     @Inject(method = "renderLevel", at = @At("HEAD"))
     private void prepareLevelRenderState(DeltaTracker deltaTracker, boolean bl, Camera camera, GameRenderer gameRenderer, LightTexture lightTexture, Matrix4f matrix4f, Matrix4f matrix4f2, CallbackInfo ci) {
         prepareWorldPassRenderState();
+    }
+
+    @Inject(method = "renderLevel", at = @At("RETURN"))
+    private void finishLevelRenderState(DeltaTracker deltaTracker, boolean bl, Camera camera, GameRenderer gameRenderer,
+                                        LightTexture lightTexture, Matrix4f matrix4f, Matrix4f matrix4f2, CallbackInfo ci) {
+        int leakedScopes = SublevelRenderScope.forceUnwind();
+        if (leakedScopes > 0) {
+            Initializer.LOGGER.error("Leaked Sable render scopes at frame end: {}", leakedScopes);
+        }
     }
 
     @Inject(method = "setupRender", at = @At("HEAD"))
@@ -125,6 +136,17 @@ public abstract class LevelRendererMixin {
         this.worldRenderer.setSectionDirty(x, y, z, flag);
     }
 
+    @Inject(method = "blockChanged", at = @At("HEAD"), cancellable = true)
+    private void skipInvisibleLeafUpdates(net.minecraft.world.level.BlockGetter blockGetter, BlockPos pos,
+                                          net.minecraft.world.level.block.state.BlockState oldState,
+                                          net.minecraft.world.level.block.state.BlockState newState,
+                                          int flags, CallbackInfo ci) {
+        if (net.vulkanmod.render.culling.LeafUpdateFilter.isInvisibleLeafPropertyChange(oldState, newState)) {
+            net.vulkanmod.render.optimization.ChunkFrameDiagnostics.recordLeafDirtySkipped();
+            ci.cancel();
+        }
+    }
+
     @Inject(method = "getSectionStatistics", at = @At("HEAD"), cancellable = true)
     public void getSectionStatistics(CallbackInfoReturnable<String> cir) {
         cir.setReturnValue(this.worldRenderer.getChunkStatistics());
@@ -132,7 +154,7 @@ public abstract class LevelRendererMixin {
 
     @Inject(method = "hasRenderedAllSections", at = @At("HEAD"), cancellable = true)
     public void hasRenderedAllSections(CallbackInfoReturnable<Boolean> cir) {
-        cir.setReturnValue(!this.worldRenderer.graphNeedsUpdate() && this.worldRenderer.getTaskDispatcher().isIdle());
+        cir.setReturnValue(!this.worldRenderer.hasPendingSectionWork());
     }
 
     @Inject(method = "countRenderedSections", at = @At("HEAD"), cancellable = true)

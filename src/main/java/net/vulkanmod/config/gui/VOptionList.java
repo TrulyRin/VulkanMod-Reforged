@@ -7,6 +7,7 @@ import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.vulkanmod.config.gui.render.GuiRenderer;
+import net.vulkanmod.config.gui.page.SettingsPageListener;
 import net.vulkanmod.config.gui.widget.OptionWidget;
 import net.vulkanmod.config.gui.widget.VAbstractWidget;
 import net.vulkanmod.config.option.Option;
@@ -15,7 +16,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
 
-public class VOptionList extends GuiElement {
+public class VOptionList extends GuiElement implements SettingsPageListener {
     private final List<Entry> children = new ObjectArrayList<>();
     boolean scrolling = false;
     float scrollAmount = 0.0f;
@@ -49,7 +50,7 @@ public class VOptionList extends GuiElement {
             int width = this.itemWidth;
             int height = this.itemHeight;
 
-            // add a header (this is MOSTLY for the search)
+                                                           
             String title = block.title();
             if (title != null && !title.isEmpty()) {
                 this.addEntry(new Entry(null, 8, title));
@@ -209,7 +210,7 @@ public class VOptionList extends GuiElement {
         this.renderList(mouseX, mouseY);
         GuiRenderer.disableScissor();
 
-        // Scroll bar
+                     
         int maxScroll = this.getMaxScroll();
         if (maxScroll > 0) {
             RenderSystem.enableBlend();
@@ -291,7 +292,7 @@ public class VOptionList extends GuiElement {
         }
 
         public void render(int y, int mouseX, int mouseY, boolean updateState, int listX) {
-            // if there is a title, RENDER IT!!!
+                                                
             if (headerTitle != null && !headerTitle.isEmpty()) {
                 int headerY = y + 4;
                 GuiRenderer.drawString(

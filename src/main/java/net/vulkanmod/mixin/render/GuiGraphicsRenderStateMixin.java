@@ -19,18 +19,20 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 @Mixin(GuiGraphics.class)
 public class GuiGraphicsRenderStateMixin {
     @Unique
-    private RenderStateSnapshot vulkanMod$tooltipStateSnapshot;
+    private final Deque<RenderStateSnapshot> vulkanMod$tooltipStateSnapshots = new ArrayDeque<>();
     @Unique
-    private RenderStateSnapshot vulkanMod$itemStateSnapshot;
+    private final Deque<RenderStateSnapshot> vulkanMod$itemStateSnapshots = new ArrayDeque<>();
 
     @Inject(method = "renderTooltipInternal", at = @At("HEAD"))
     private void vulkanMod$beginTooltipRenderStateBoundary(Font font, List<ClientTooltipComponent> components, int mouseX, int mouseY,
                                                            ClientTooltipPositioner tooltipPositioner, CallbackInfo ci) {
-        this.vulkanMod$tooltipStateSnapshot = new RenderStateSnapshot();
+        this.vulkanMod$tooltipStateSnapshots.push(new RenderStateSnapshot());
         GuiItemRenderState.beginTooltipOverlay();
         vulkanMod$prepareFlatGuiOverlayState();
     }
@@ -38,8 +40,7 @@ public class GuiGraphicsRenderStateMixin {
     @Inject(method = "renderTooltipInternal", at = @At("RETURN"))
     private void vulkanMod$endTooltipRenderStateBoundary(Font font, List<ClientTooltipComponent> components, int mouseX, int mouseY,
                                                          ClientTooltipPositioner tooltipPositioner, CallbackInfo ci) {
-        RenderStateSnapshot snapshot = this.vulkanMod$tooltipStateSnapshot;
-        this.vulkanMod$tooltipStateSnapshot = null;
+        RenderStateSnapshot snapshot = this.vulkanMod$tooltipStateSnapshots.poll();
 
         if (snapshot != null) {
             ((GuiGraphics) (Object) this).flush();
@@ -61,7 +62,7 @@ public class GuiGraphicsRenderStateMixin {
             at = @At("HEAD"))
     private void vulkanMod$beginItemRenderStateBoundary(@Nullable LivingEntity entity, @Nullable Level level, ItemStack stack, int x, int y,
                                                         int seed, int guiOffset, CallbackInfo ci) {
-        this.vulkanMod$itemStateSnapshot = new RenderStateSnapshot();
+        this.vulkanMod$itemStateSnapshots.push(new RenderStateSnapshot());
         vulkanMod$prepareGuiItemState();
     }
 
@@ -69,8 +70,7 @@ public class GuiGraphicsRenderStateMixin {
             at = @At("RETURN"))
     private void vulkanMod$endItemRenderStateBoundary(@Nullable LivingEntity entity, @Nullable Level level, ItemStack stack, int x, int y,
                                                       int seed, int guiOffset, CallbackInfo ci) {
-        RenderStateSnapshot snapshot = this.vulkanMod$itemStateSnapshot;
-        this.vulkanMod$itemStateSnapshot = null;
+        RenderStateSnapshot snapshot = this.vulkanMod$itemStateSnapshots.poll();
 
         if (snapshot != null) {
             snapshot.restore();

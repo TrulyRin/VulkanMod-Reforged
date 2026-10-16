@@ -2,6 +2,7 @@ package net.vulkanmod.gl;
 
 import it.unimi.dsi.fastutil.ints.Int2ReferenceOpenHashMap;
 import net.vulkanmod.compat.gl.GlPixelStore;
+import net.vulkanmod.compat.gl.TextureUnitLimits;
 import net.vulkanmod.vulkan.memory.MemoryManager;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.texture.ImageUtil;
@@ -22,9 +23,53 @@ import static org.lwjgl.vulkan.VK10.*;
 public class GlTexture {
     private static int ID_COUNTER = 1;
     private static final Int2ReferenceOpenHashMap<GlTexture> map = new Int2ReferenceOpenHashMap<>();
+    private static final GlTexture[] boundByUnit = new GlTexture[TextureUnitLimits.COMBINED];
     private static int boundTextureId = 0;
     private static GlTexture boundTexture;
     private static int activeTexture = 0;
+
+                                                                                                    
+    public static BindingSnapshot captureBindings(long unitMask) {
+        long validMask=(1L<<TextureUnitLimits.COMBINED)-1L;
+        if((unitMask&~validMask)!=0L) throw new IllegalArgumentException("Texture binding mask exceeds available units");
+        GlTexture[] bindings=new GlTexture[Long.bitCount(unitMask)];
+        long remaining=unitMask;
+        for(int index=0;remaining!=0L;index++) {
+            int unit=Long.numberOfTrailingZeros(remaining);
+            bindings[index]=boundByUnit[unit];
+            remaining&=remaining-1L;
+        }
+        return new BindingSnapshot(unitMask,bindings);
+    }
+
+    public static final class BindingSnapshot {
+        private final long unitMask;
+        private final GlTexture[] bindings;
+        private boolean restored;
+
+        private BindingSnapshot(long unitMask,GlTexture[] bindings) {
+            this.unitMask=unitMask; this.bindings=bindings;
+        }
+
+                                                                                                           
+        public void restore() {
+            if(restored) return;
+            restored=true;
+            long remaining=unitMask;
+            if(remaining==0L) return;
+            for(int index=0;remaining!=0L;index++) {
+                int unit=Long.numberOfTrailingZeros(remaining);
+                GlTexture texture=bindings[index];
+                                                                                                    
+                if(texture!=null && map.get(texture.id)!=texture) texture=null;
+                boundByUnit[unit]=texture;
+                VTextureSelector.bindGlTexture(unit,texture==null?0:texture.id,texture==null?null:texture.vulkanImage);
+                remaining&=remaining-1L;
+            }
+            boundTexture=boundByUnit[activeTexture];
+            boundTextureId=boundTexture==null?0:boundTexture.id;
+        }
+    }
 
     public static void bindIdToImage(int id, VulkanImage vulkanImage) {
         GlTexture texture = getOrCreate(id);
@@ -53,15 +98,23 @@ public class GlTexture {
         boundTextureId = id;
         boundTexture = map.get(id);
 
-        if (id <= 0)
-            return;
-
-        if (boundTexture == null)
+        if (id > 0 && boundTexture == null)
             boundTexture = getOrCreate(id);
 
-        VulkanImage vulkanImage = boundTexture.vulkanImage;
-        if (vulkanImage != null)
-            VTextureSelector.bindTexture(activeTexture, vulkanImage);
+        boundByUnit[activeTexture] = boundTexture;
+        VTextureSelector.bindGlTexture(activeTexture, id,
+                boundTexture != null ? boundTexture.vulkanImage : null);
+    }
+
+    public static void bindTextureUnit(int unit, int id) {
+        if (!TextureUnitLimits.isValid(unit)) return;
+        int previous = getActiveTexture();
+        activeTexture(GL30.GL_TEXTURE0 + unit);
+        try {
+            bindTexture(id);
+        } finally {
+            activeTexture(previous);
+        }
     }
 
     public static void glDeleteTextures(IntBuffer intBuffer) {
@@ -72,6 +125,11 @@ public class GlTexture {
 
     public static void glDeleteTextures(int i) {
         GlTexture glTexture = map.remove(i);
+        if (glTexture == null) return;
+        for (int unit = 0; unit < boundByUnit.length; unit++) {
+            if (boundByUnit[unit] == glTexture) boundByUnit[unit] = null;
+        }
+        VTextureSelector.deleteGlTexture(i);
         VulkanImage image = glTexture != null ? glTexture.vulkanImage : null;
         if (image != null)
             MemoryManager.getInstance().addToFreeable(image);
@@ -90,10 +148,12 @@ public class GlTexture {
     }
 
     public static void activeTexture(int i) {
-        activeTexture = i - GL30.GL_TEXTURE0;
-        if (Renderer.getInstance() != null) {
-            VTextureSelector.setActiveTexture(activeTexture);
-        }
+        int unit = i - GL30.GL_TEXTURE0;
+        if (!TextureUnitLimits.isValid(unit)) return;
+        activeTexture = unit;
+        boundTexture = boundByUnit[unit];
+        boundTextureId = boundTexture != null ? boundTexture.id : 0;
+        VTextureSelector.setActiveTexture(unit);
     }
 
     public static int getActiveTexture() {
@@ -118,7 +178,7 @@ public class GlTexture {
         }
 
         boundTexture.allocateIfNeeded(width, height, internalFormat, type);
-        VTextureSelector.bindTexture(activeTexture, boundTexture.vulkanImage);
+        VTextureSelector.bindGlTexture(activeTexture, boundTexture.id, boundTexture.vulkanImage);
 
         texSubImage2D(target, level, 0, 0, width, height, format, type, pixels);
     }
@@ -133,7 +193,7 @@ public class GlTexture {
         }
 
         boundTexture.allocateIfNeeded(width, height, internalFormat, type);
-        VTextureSelector.bindTexture(activeTexture, boundTexture.vulkanImage);
+        VTextureSelector.bindGlTexture(activeTexture, boundTexture.id, boundTexture.vulkanImage);
 
         texSubImage2D(target, level, 0, 0, width, height, format, type, pixels);
     }
@@ -501,7 +561,7 @@ public class GlTexture {
     }
 
     private void setVulkanImageReference(VulkanImage vulkanImage) {
-        this.vulkanImage = vulkanImage;
+        publishVulkanImage(vulkanImage);
 
         if (vulkanImage == null) {
             this.width = 0;
@@ -514,6 +574,11 @@ public class GlTexture {
 
         setImageMetadata(GL11.GL_TEXTURE_2D, vulkanImage.width, vulkanImage.height, 1,
                 GlUtil.getGlFormat(vulkanImage.format));
+    }
+
+    private void publishVulkanImage(VulkanImage image) {
+        this.vulkanImage = image;
+        if (map.get(this.id) == this) VTextureSelector.updateGlTexture(this.id, image);
     }
 
     private boolean hasMetadataForTarget(int target) {
@@ -551,20 +616,21 @@ public class GlTexture {
     }
 
     void allocateImage(int width, int height, int vkFormat) {
-        if (this.vulkanImage != null)
-            this.vulkanImage.free();
-
+        VulkanImage previous = this.vulkanImage;
+        VulkanImage replacement;
         if (VulkanImage.isDepthFormat(vkFormat))
-            this.vulkanImage = VulkanImage.createDepthImage(vkFormat,
+            replacement = VulkanImage.createDepthImage(vkFormat,
                     width, height,
-                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                    VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                     false, true);
         else
-            this.vulkanImage = new VulkanImage.Builder(width, height)
+            replacement = new VulkanImage.Builder(width, height)
                     .setMipLevels(maxLevel + 1)
                     .setFormat(vkFormat)
                     .addUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
                     .createVulkanImage();
+        publishVulkanImage(replacement);
+        if (previous != null) previous.free();
     }
 
     void updateSampler() {

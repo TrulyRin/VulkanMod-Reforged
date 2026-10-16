@@ -7,11 +7,13 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import com.mojang.datafixers.util.Pair;
+import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.client.renderer.ShaderInstance;
 import net.minecraft.server.packs.resources.ResourceProvider;
 import net.neoforged.fml.ModLoader;
 import net.neoforged.neoforge.client.event.RegisterShadersEvent;
+import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.memory.MemoryManager;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Final;
@@ -99,6 +101,15 @@ public abstract class GameRendererMixin {
     @Shadow public abstract float getRenderDistance();
 
     @Shadow protected abstract void loadBlurEffect(ResourceProvider resourceProvider);
+
+                                                                                                 
+                                                                                              
+    @Inject(method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
+            at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;bindWrite(Z)V", shift = At.Shift.AFTER),
+            require = 1, allow = 1)
+    private void vulkanMod$resolveWorldBeforeGuiCache(DeltaTracker deltaTracker, boolean renderLevel, CallbackInfo ci) {
+        Renderer.getInstance().getMainPass().resolveRenderScaleForGui();
+    }
 
     @Inject(method = "reloadShaders", at = @At("HEAD"), cancellable = true)
     public void reloadShaders(ResourceProvider provider, CallbackInfo ci) {

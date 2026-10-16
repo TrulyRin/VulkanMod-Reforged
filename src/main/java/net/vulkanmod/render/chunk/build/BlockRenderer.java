@@ -9,10 +9,10 @@ import net.minecraft.client.resources.model.BakedModel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Vec3i;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.LeavesBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.BooleanOp;
@@ -47,8 +47,13 @@ public class BlockRenderer {
 
     BlockState blockState;
 
+    private boolean leavesCulling;
+    private boolean backFaceCulling;
+
     public void setResources(BuilderResources resources) {
         this.resources = resources;
+        this.leavesCulling = net.vulkanmod.Initializer.CONFIG.leavesCulling;
+        this.backFaceCulling = net.vulkanmod.Initializer.CONFIG.backFaceCulling;
     }
 
     final Object2ByteLinkedOpenHashMap<Block.BlockStatePairKey> occlusionCache = new Object2ByteLinkedOpenHashMap<>(2048, 0.25F) {
@@ -94,7 +99,7 @@ public class BlockRenderer {
 
             if (!quads.isEmpty()) {
                 mutableBlockPos.setWithOffset(blockPos, direction);
-                if (shouldRenderFace(blockState, direction, mutableBlockPos)) {
+                if (!this.backFaceCulling || shouldRenderFace(blockState, direction, mutableBlockPos)) {
                     renderModelFace(bufferBuilder, quads, lightPipeline, direction);
                 }
             }
@@ -179,13 +184,13 @@ public class BlockRenderer {
         BlockGetter blockGetter = resources.region;
         BlockState adjBlockState = blockGetter.getBlockState(adjPos);
 
-        if (net.vulkanmod.Initializer.CONFIG.leavesCulling) {
-            if (blockState.getBlock() instanceof LeavesBlock && adjBlockState.getBlock() instanceof LeavesBlock) {
-                return false;
-            }
+        if (blockState.skipRendering(adjBlockState, direction)) {
+            return false;
         }
 
-        if (blockState.skipRendering(adjBlockState, direction)) {
+        if (this.leavesCulling
+                && blockState.is(BlockTags.LEAVES)
+                && adjBlockState.is(BlockTags.LEAVES)) {
             return false;
         }
 

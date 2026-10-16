@@ -36,12 +36,25 @@ public class TerrainBufferBuilder {
     protected VertexBuilder vertexBuilder;
 
     public TerrainBufferBuilder(int size) {
-        this.bufferPtr = ALLOCATOR.malloc(size);
-        this.capacity = size;
+        this(size, PipelineManager.TERRAIN_VERTEX_FORMAT);
+    }
 
-        this.format = PipelineManager.TERRAIN_VERTEX_FORMAT;
-        this.vertexBuilder = PipelineManager.TERRAIN_VERTEX_FORMAT == CustomVertexFormat.COMPRESSED_TERRAIN
+    public TerrainBufferBuilder(int size, VertexFormat format) {
+        if (format != com.mojang.blaze3d.vertex.DefaultVertexFormat.BLOCK
+                && format != CustomVertexFormat.COMPRESSED_TERRAIN) {
+            throw new IllegalArgumentException("Unsupported terrain vertex format");
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("Terrain buffer capacity must be positive");
+        }
+        this.format = format;
+        this.vertexBuilder = format == CustomVertexFormat.COMPRESSED_TERRAIN
                 ? new VertexBuilder.CompressedVertexBuilder() : new VertexBuilder.DefaultVertexBuilder();
+        this.bufferPtr = ALLOCATOR.malloc(size);
+        if (this.bufferPtr == 0L) {
+            throw new OutOfMemoryError("Failed to allocate " + size + " terrain buffer bytes");
+        }
+        this.capacity = size;
     }
 
     public void ensureCapacity() {
@@ -174,6 +187,7 @@ public class TerrainBufferBuilder {
         }
 
         this.discard();
+        this.reset();
     }
 
     public void close() {

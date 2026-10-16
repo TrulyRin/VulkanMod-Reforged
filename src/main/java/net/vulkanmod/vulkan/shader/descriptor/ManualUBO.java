@@ -15,7 +15,7 @@ public class ManualUBO extends UBO {
 
     @Override
     public void update(long ptr) {
-        // update manually
+                          
         if (update)
             MemoryUtil.memCopy(this.srcPtr, ptr, this.srcSize);
     }

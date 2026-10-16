@@ -1,10 +1,12 @@
 package net.vulkanmod.vulkan.texture;
 
+import net.vulkanmod.vulkan.Synchronization;
 import net.vulkanmod.vulkan.device.DeviceManager;
 import net.vulkanmod.vulkan.memory.MemoryManager;
 import net.vulkanmod.vulkan.queue.CommandPool;
 import net.vulkanmod.vulkan.util.VUtil;
 import org.lwjgl.PointerBuffer;
+import org.lwjgl.opengl.GL11;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.*;
 
@@ -35,12 +37,16 @@ public abstract class ImageUtil {
     }
 
     public static void downloadTexture(VulkanImage image, long ptr) {
+        downloadTextureRegion(image, ptr, 0, 0, image.width, image.height, image.aspect, image.formatSize);
+    }
+
+    public static void downloadTextureRegion(VulkanImage image, long ptr, int x, int y, int width, int height, int aspectMask, int bytesPerPixel) {
         try (MemoryStack stack = stackPush()) {
             int prevLayout = image.getCurrentLayout();
             CommandPool.CommandBuffer commandBuffer = DeviceManager.getGraphicsQueue().beginCommands();
             image.transitionImageLayout(stack, commandBuffer.getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
 
-            long imageSize = (long) image.width * image.height * image.formatSize;
+            long imageSize = (long) width * height * bytesPerPixel;
 
             LongBuffer pStagingBuffer = stack.mallocLong(1);
             PointerBuffer pStagingAllocation = stack.pointers(0L);
@@ -50,8 +56,8 @@ public abstract class ImageUtil {
                     pStagingBuffer,
                     pStagingAllocation);
 
-            copyImageToBuffer(commandBuffer.getHandle(), pStagingBuffer.get(0), image.getId(), 0, image.width, image.height, 0, 0, 0, 0, 0);
-            image.transitionImageLayout(stack, commandBuffer.getHandle(), prevLayout);
+            copyImageToBuffer(commandBuffer.getHandle(), pStagingBuffer.get(0), image.getId(), 0, width, height, x, y, 0, 0, 0, aspectMask);
+            image.transitionImageLayout(stack, commandBuffer.getHandle(), restoredLayout(prevLayout));
 
             long fence = DeviceManager.getGraphicsQueue().submitCommands(commandBuffer);
             vkWaitForFences(DeviceManager.vkDevice, fence, true, VUtil.UINT64_MAX);
@@ -65,13 +71,17 @@ public abstract class ImageUtil {
     }
 
     public static void copyImageToBuffer(VkCommandBuffer commandBuffer, long buffer, long image, int mipLevel, int width, int height, int xOffset, int yOffset, int bufferOffset, int bufferRowLenght, int bufferImageHeight) {
+        copyImageToBuffer(commandBuffer, buffer, image, mipLevel, width, height, xOffset, yOffset, bufferOffset, bufferRowLenght, bufferImageHeight, VK_IMAGE_ASPECT_COLOR_BIT);
+    }
+
+    public static void copyImageToBuffer(VkCommandBuffer commandBuffer, long buffer, long image, int mipLevel, int width, int height, int xOffset, int yOffset, int bufferOffset, int bufferRowLenght, int bufferImageHeight, int aspectMask) {
         try (MemoryStack stack = stackPush()) {
 
             VkBufferImageCopy.Buffer region = VkBufferImageCopy.calloc(1, stack);
             region.bufferOffset(bufferOffset);
             region.bufferRowLength(bufferRowLenght);
             region.bufferImageHeight(bufferImageHeight);
-            region.imageSubresource().aspectMask(VK_IMAGE_ASPECT_COLOR_BIT);
+            region.imageSubresource().aspectMask(aspectMask);
             region.imageSubresource().mipLevel(mipLevel);
             region.imageSubresource().baseArrayLayer(0);
             region.imageSubresource().layerCount(1);
@@ -80,6 +90,116 @@ public abstract class ImageUtil {
 
             vkCmdCopyImageToBuffer(commandBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, region);
         }
+    }
+
+    public static void blitImage(VulkanImage source, VulkanImage destination,
+                                 int srcX0, int srcY0, int srcX1, int srcY1,
+                                 int dstX0, int dstY0, int dstX1, int dstY1,
+                                 int aspectMask, int filter) {
+        CommandPool.CommandBuffer commandBuffer = DeviceManager.getGraphicsQueue().getCommandBuffer();
+
+        try (MemoryStack stack = stackPush()) {
+            int sourceLayout = source.getCurrentLayout();
+            int destinationLayout = destination.getCurrentLayout();
+
+            source.transitionImageLayout(stack, commandBuffer.getHandle(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            destination.transitionImageLayout(stack, commandBuffer.getHandle(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+            int sourceWidth = Math.abs(srcX1 - srcX0);
+            int sourceHeight = Math.abs(srcY1 - srcY0);
+            int destinationWidth = Math.abs(dstX1 - dstX0);
+            int destinationHeight = Math.abs(dstY1 - dstY0);
+
+            boolean canCopy = sourceWidth == destinationWidth && sourceHeight == destinationHeight
+                    && srcX1 >= srcX0 && srcY1 >= srcY0
+                    && dstX1 >= dstX0 && dstY1 >= dstY0;
+            if (canCopy) {
+                copyImage(commandBuffer.getHandle(), source, destination, srcX0, srcY0, dstX0, dstY0,
+                        sourceWidth, sourceHeight, aspectMask);
+            } else {
+                blitImage(commandBuffer.getHandle(), source, destination, srcX0, srcY0, srcX1, srcY1,
+                        dstX0, dstY0, dstX1, dstY1, aspectMask, vulkanBlitFilter(filter, aspectMask));
+            }
+
+            source.transitionImageLayout(stack, commandBuffer.getHandle(), restoredLayout(sourceLayout));
+            destination.transitionImageLayout(stack, commandBuffer.getHandle(), restoredLayout(destinationLayout));
+        }
+
+        long fence = DeviceManager.getGraphicsQueue().endIfNeeded(commandBuffer);
+        if (fence != VK_NULL_HANDLE) {
+            Synchronization.INSTANCE.addCommandBuffer(commandBuffer);
+        }
+    }
+
+    private static void copyImage(VkCommandBuffer commandBuffer, VulkanImage source, VulkanImage destination,
+                                  int srcX, int srcY, int dstX, int dstY, int width, int height, int aspectMask) {
+        try (MemoryStack stack = stackPush()) {
+            VkImageCopy.Buffer region = VkImageCopy.calloc(1, stack);
+            region.srcSubresource()
+                    .aspectMask(aspectMask)
+                    .mipLevel(0)
+                    .baseArrayLayer(0)
+                    .layerCount(1);
+            region.srcOffset().set(srcX, srcY, 0);
+            region.dstSubresource()
+                    .aspectMask(aspectMask)
+                    .mipLevel(0)
+                    .baseArrayLayer(0)
+                    .layerCount(1);
+            region.dstOffset().set(dstX, dstY, 0);
+            region.extent().set(width, height, 1);
+
+            vkCmdCopyImage(commandBuffer,
+                    source.getId(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    destination.getId(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    region);
+        }
+    }
+
+    private static void blitImage(VkCommandBuffer commandBuffer, VulkanImage source, VulkanImage destination,
+                                  int srcX0, int srcY0, int srcX1, int srcY1,
+                                  int dstX0, int dstY0, int dstX1, int dstY1,
+                                  int aspectMask, int filter) {
+        try (MemoryStack stack = stackPush()) {
+            VkImageBlit.Buffer blit = VkImageBlit.calloc(1, stack);
+            blit.srcOffsets(0, VkOffset3D.calloc(stack).set(srcX0, srcY0, 0));
+            blit.srcOffsets(1, VkOffset3D.calloc(stack).set(srcX1, srcY1, 1));
+            blit.srcSubresource()
+                    .aspectMask(aspectMask)
+                    .mipLevel(0)
+                    .baseArrayLayer(0)
+                    .layerCount(1);
+
+            blit.dstOffsets(0, VkOffset3D.calloc(stack).set(dstX0, dstY0, 0));
+            blit.dstOffsets(1, VkOffset3D.calloc(stack).set(dstX1, dstY1, 1));
+            blit.dstSubresource()
+                    .aspectMask(aspectMask)
+                    .mipLevel(0)
+                    .baseArrayLayer(0)
+                    .layerCount(1);
+
+            vkCmdBlitImage(commandBuffer,
+                    source.getId(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    destination.getId(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    blit,
+                    filter);
+        }
+    }
+
+    private static int vulkanBlitFilter(int glFilter, int aspectMask) {
+        if (glFilter == GL11.GL_LINEAR && aspectMask == VK_IMAGE_ASPECT_COLOR_BIT) {
+            return VK_FILTER_LINEAR;
+        }
+
+        return VK_FILTER_NEAREST;
+    }
+
+    private static int restoredLayout(int previousLayout) {
+        if (previousLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        }
+
+        return previousLayout;
     }
 
     public static void generateMipmaps(VulkanImage image) {

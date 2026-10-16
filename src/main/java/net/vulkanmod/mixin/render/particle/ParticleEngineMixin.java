@@ -4,12 +4,14 @@ import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.particle.Particle;
 import net.minecraft.client.particle.ParticleEngine;
+import it.unimi.dsi.fastutil.objects.Reference2IntOpenHashMap;
 import net.minecraft.client.particle.ParticleRenderType;
 import net.minecraft.world.phys.Vec3;
 import net.vulkanmod.Initializer;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -22,11 +24,34 @@ public class ParticleEngineMixin {
 
     @Shadow @Final private Map<ParticleRenderType, Queue<Particle>> particles;
 
+    @Unique
+    private final Reference2IntOpenHashMap<Class<?>> vulkanmod$sameTypeCounts = new Reference2IntOpenHashMap<>();
+    @Unique
+    private long vulkanmod$countsGameTime = Long.MIN_VALUE;
+
     @Inject(method = "add", at = @At("HEAD"), cancellable = true)
     private void onAdd(Particle particle, CallbackInfo ci) {
         if (this.shouldCullAndPrioritize(particle)) {
             ci.cancel();
+            return;
         }
+        this.vulkanmod$sameTypeCounts.addTo(particle.getClass(), 1);
+    }
+
+    @Unique
+    private int vulkanmod$sameTypeCount(Particle particle) {
+        Minecraft mc = Minecraft.getInstance();
+        long gameTime = mc.level == null ? Long.MIN_VALUE : mc.level.getGameTime();
+        if (gameTime != this.vulkanmod$countsGameTime) {
+            this.vulkanmod$countsGameTime = gameTime;
+            this.vulkanmod$sameTypeCounts.clear();
+            for (Queue<Particle> queue : this.particles.values()) {
+                for (Particle p : queue) {
+                    this.vulkanmod$sameTypeCounts.addTo(p.getClass(), 1);
+                }
+            }
+        }
+        return this.vulkanmod$sameTypeCounts.getInt(particle.getClass());
     }
 
     private boolean shouldCullAndPrioritize(Particle particle) {
@@ -83,24 +108,6 @@ public class ParticleEngineMixin {
             }
         }
 
-        ParticleRenderType renderType = particle.getRenderType();
-        Queue<Particle> queue = this.particles.get(renderType);
-        if (queue == null) {
-            return false;
-        }
-
-        Class<?> particleClass = particle.getClass();
-        int sameTypeCount = 0;
-        for (Particle p : queue) {
-            if (p.getClass() == particleClass) {
-                sameTypeCount++;
-            }
-        }
-
-        if (sameTypeCount >= maxCount) {
-            return true;
-        }
-
-        return false;
+        return this.vulkanmod$sameTypeCount(particle) >= maxCount;
     }
 }

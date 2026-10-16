@@ -67,6 +67,22 @@ public class MemoryManager {
         INSTANCE = new MemoryManager();
     }
 
+    public static synchronized void resizeFrames(int frames) {
+        Validate.isTrue(frames > 0, "Frame count must be positive");
+
+        if (INSTANCE != null) {
+            for (int frame = 0; frame < Frames; ++frame) {
+                INSTANCE.setCurrentFrame(frame);
+                INSTANCE.freeBuffers(frame);
+                INSTANCE.doFrameOps(frame);
+                INSTANCE.freeSegments(frame);
+            }
+        }
+
+        Frames = frames;
+        INSTANCE = new MemoryManager();
+    }
+
     MemoryManager() {
         for (int i = 0; i < Frames; ++i) {
             this.freeableBuffers[i] = new ObjectArrayList<>();
