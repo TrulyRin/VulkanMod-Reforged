@@ -19,7 +19,7 @@ import static org.lwjgl.vulkan.VK10.*;
 public class Framebuffer {
     public static final int DEFAULT_FORMAT = VK_FORMAT_R8G8B8A8_UNORM;
 
-                      
+
 
     protected int format;
     protected int depthFormat;
@@ -38,7 +38,7 @@ public class Framebuffer {
 
     private final Reference2LongArrayMap<RenderPass> framebufferIds = new Reference2LongArrayMap<>();
 
-               
+
     protected Framebuffer() {}
 
     public Framebuffer(Builder builder) {
@@ -67,7 +67,8 @@ public class Framebuffer {
         if (this.hasColorAttachment) {
             this.colorAttachment = VulkanImage.builder(this.width, this.height)
                     .setFormat(format)
-                    .setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)
+                    .setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                            | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
                     .setLinearFiltering(linearFiltering)
                     .setClamp(true)
                     .createVulkanImage();
@@ -136,7 +137,7 @@ public class Framebuffer {
         Renderer.getInstance().setBoundFramebuffer(this);
 
         Renderer.setViewport(0, 0, this.width, this.height);
-        Renderer.setScissor(0, 0, this.width, this.height);
+        Renderer.applyScissor();
     }
 
     protected long getFramebufferId(RenderPass renderPass) {
@@ -232,7 +233,7 @@ public class Framebuffer {
         VulkanImage colorAttachment;
         VulkanImage depthAttachment;
 
-                               
+
         boolean hasColorAttachment;
         boolean hasDepthAttachment;
 
@@ -242,7 +243,7 @@ public class Framebuffer {
         public Builder(int width, int height, int colorAttachments, boolean hasDepthAttachment) {
             Validate.isTrue(colorAttachments > 0 || hasDepthAttachment, "At least 1 attachment needed");
 
-                                          
+
             Validate.isTrue(colorAttachments <= 1, "Not supported");
 
             this.createImages = true;

@@ -11,6 +11,7 @@ import net.vulkanmod.gl.GlFramebuffer;
 import net.vulkanmod.gl.GlProgram;
 import net.vulkanmod.gl.GlProgramQueries;
 import net.vulkanmod.gl.GlQuery;
+import net.vulkanmod.gl.GlReadPixels;
 import net.vulkanmod.gl.GlRenderbuffer;
 import net.vulkanmod.gl.GlSampler;
 import net.vulkanmod.gl.GlSync;
@@ -109,6 +110,7 @@ public final class GlFunctionRegistry {
     private static final int GL_STENCIL_TEST = 0x0B90;
     private static final int GL_CULL_FACE = 0x0B44;
     private static final int GL_BLEND = 0x0BE2;
+    private static final int GL_SCISSOR_TEST = 0x0C11;
     private static final int GL_FRAMEBUFFER_COMPLETE = 0x8CD5;
     private static final int GL_RGBA = 0x1908;
     private static final int GL_UNSIGNED_BYTE = 0x1401;
@@ -294,7 +296,7 @@ public final class GlFunctionRegistry {
         } else if (type == GL_SHADER_OBJECT_ARB) {
             GlProgram.deleteShader(core);
             if (GlProgram.isShader(core)) {
-                                                                                             
+
                 pruneArbShaderObjects();
                 return;
             }
@@ -516,7 +518,7 @@ public final class GlFunctionRegistry {
     private static void ensureViewport() {
         if (Renderer.isViewportInitialized()) {
             for (int i = 0; i < 4; i++) {
-                VIEWPORT[i] = Renderer.getViewportBox(i);
+                VIEWPORT[i] = Renderer.getGlViewport(i);
             }
             return;
         }
@@ -980,6 +982,7 @@ public final class GlFunctionRegistry {
                 case GL_STENCIL_TEST -> VRenderSystem.enableStencilTest();
                 case GL_CULL_FACE -> VRenderSystem.enableCull();
                 case GL_BLEND -> VRenderSystem.enableBlend();
+                case GL_SCISSOR_TEST -> Renderer.setScissorEnabled(true);
                 default -> {
                 }
             }
@@ -990,6 +993,7 @@ public final class GlFunctionRegistry {
                 case GL_STENCIL_TEST -> VRenderSystem.disableStencilTest();
                 case GL_CULL_FACE -> VRenderSystem.disableCull();
                 case GL_BLEND -> VRenderSystem.disableBlend();
+                case GL_SCISSOR_TEST -> Renderer.setScissorEnabled(false);
                 default -> {
                 }
             }
@@ -1073,9 +1077,9 @@ public final class GlFunctionRegistry {
             VIEWPORT[1] = argI(args, 1);
             VIEWPORT[2] = argI(args, 2);
             VIEWPORT[3] = argI(args, 3);
-            Renderer.setViewport(VIEWPORT[0], VIEWPORT[1], VIEWPORT[2], VIEWPORT[3]);
+            Renderer.setGlViewport(VIEWPORT[0], VIEWPORT[1], VIEWPORT[2], VIEWPORT[3]);
         });
-        noop("glScissor", "V:iiii");
+        fn("glScissor", "V:iiii", (ret, args) -> Renderer.setScissor(argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3)));
         fn("glLineWidth", "V:f", (ret, args) -> VRenderSystem.setLineWidth(argF(args, 0)));
         noop("glPointSize", "V:f");
         fn("glPolygonMode", "V:ii", (ret, args) -> VRenderSystem.setPolygonModeGL(argI(args, 1)));
@@ -1088,7 +1092,9 @@ public final class GlFunctionRegistry {
         fn("glPixelStoref", "V:if", (ret, args) -> GlPixelStore.setInteger(argI(args, 0), (int) argF(args, 1)));
         noop("glDrawBuffer", "V:i");
         noop("glReadBuffer", "V:i");
-        noop("glReadPixels", "V:iiiiiip");
+        fn("glReadPixels", "V:iiiiiip", (ret, args) -> GlReadPixels.readPixels(
+                argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3),
+                argI(args, 4), argI(args, 5), argP(args, 6)));
         fn("glDrawArrays", "V:iii", (ret, args) -> GlDrawContract.drawArrays(argI(args, 0), argI(args, 1), argI(args, 2)));
         fn("glDrawElements", "V:iiip", (ret, args) -> GlDrawContract.drawElements(argI(args, 0), argI(args, 1), argI(args, 2), argP(args, 3)));
     }
@@ -1365,9 +1371,10 @@ public final class GlFunctionRegistry {
         fn("glGetUniformiv", "V:iip", (ret, args) ->
                 GlProgram.getUniformiv(argI(args, 0), argI(args, 1), argP(args, 2)));
 
-        noop("glEnableVertexAttribArray", "V:i");
-        noop("glDisableVertexAttribArray", "V:i");
-        noop("glVertexAttribPointer", "V:iiibip");
+        fn("glEnableVertexAttribArray", "V:i", (ret, args) -> GlVertexArray.enableVertexAttribArray(argI(args, 0)));
+        fn("glDisableVertexAttribArray", "V:i", (ret, args) -> GlVertexArray.disableVertexAttribArray(argI(args, 0)));
+        fn("glVertexAttribPointer", "V:iiibip", (ret, args) -> GlVertexArray.vertexAttribPointer(
+                argI(args, 0), argI(args, 1), argI(args, 2), argB(args, 3), argI(args, 4), argP(args, 5)));
         fn("glGetVertexAttribiv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
@@ -1389,7 +1396,7 @@ public final class GlFunctionRegistry {
         fn("glGetVertexAttribPointerv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutAddress(params, 0L);
+                MemoryUtil.memPutAddress(params, GlVertexArray.getVertexAttribPointer(argI(args, 0), argI(args, 1)));
             }
         });
 
@@ -1498,7 +1505,8 @@ public final class GlFunctionRegistry {
         noop("glBeginConditionalRender", "V:ii");
         noop("glEndConditionalRender", "V:");
         noop("glClampColor", "V:ii");
-        noop("glVertexAttribIPointer", "V:iiiip");
+        fn("glVertexAttribIPointer", "V:iiiip", (ret, args) -> GlVertexArray.vertexAttribIPointer(
+                argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3), argP(args, 4)));
         fn("glGetVertexAttribIiv", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
@@ -3049,9 +3057,10 @@ public final class GlFunctionRegistry {
             zeroInt(argP(args, 5));
             writeOutString("", argI(args, 2), argP(args, 3), argP(args, 6));
         });
-        noop("glEnableVertexAttribArrayARB", "V:i");
-        noop("glDisableVertexAttribArrayARB", "V:i");
-        noop("glVertexAttribPointerARB", "V:iiibip");
+        fn("glEnableVertexAttribArrayARB", "V:i", (ret, args) -> GlVertexArray.enableVertexAttribArray(argI(args, 0)));
+        fn("glDisableVertexAttribArrayARB", "V:i", (ret, args) -> GlVertexArray.disableVertexAttribArray(argI(args, 0)));
+        fn("glVertexAttribPointerARB", "V:iiibip", (ret, args) -> GlVertexArray.vertexAttribPointer(
+                argI(args, 0), argI(args, 1), argI(args, 2), argB(args, 3), argI(args, 4), argP(args, 5)));
         fn("glGetVertexAttribivARB", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
@@ -3074,7 +3083,7 @@ public final class GlFunctionRegistry {
         fn("glGetVertexAttribPointervARB", "V:iip", (ret, args) -> {
             long params = argP(args, 2);
             if (params != 0) {
-                MemoryUtil.memPutAddress(params, 0L);
+                MemoryUtil.memPutAddress(params, GlVertexArray.getVertexAttribPointer(argI(args, 0), argI(args, 1)));
             }
         });
         fn("glGetVertexAttribPointerARB", "P:ii", (ret, args) -> retP(ret, 0L));
@@ -3163,7 +3172,8 @@ public final class GlFunctionRegistry {
                 "4bv", "4sv", "4ubv", "4usv"}) {
             noop("glVertexAttribI" + vector + "EXT", "V:ip");
         }
-        noop("glVertexAttribIPointerEXT", "V:iiiip");
+        fn("glVertexAttribIPointerEXT", "V:iiiip", (ret, args) -> GlVertexArray.vertexAttribIPointer(
+                argI(args, 0), argI(args, 1), argI(args, 2), argI(args, 3), argP(args, 4)));
 
         noop("glProgramUniform1dEXT", "V:iid");
         noop("glProgramUniform2dEXT", "V:iidd");

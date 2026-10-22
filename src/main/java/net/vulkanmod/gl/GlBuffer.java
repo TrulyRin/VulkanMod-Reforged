@@ -22,7 +22,6 @@ public class GlBuffer {
     private static final Int2ReferenceOpenHashMap<GlBuffer> map = new Int2ReferenceOpenHashMap<>();
 
     private static GlBuffer arrayBufferBound;
-    private static GlBuffer elementArrayBufferBound;
     private static GlBuffer pixelPackBufferBound;
     private static GlBuffer pixelUnpackBufferBound;
     private static GlBuffer copyReadBufferBound;
@@ -53,7 +52,7 @@ public class GlBuffer {
 
         switch (target) {
             case GL32.GL_ARRAY_BUFFER -> arrayBufferBound = glBuffer;
-            case GL32.GL_ELEMENT_ARRAY_BUFFER -> elementArrayBufferBound = glBuffer;
+            case GL32.GL_ELEMENT_ARRAY_BUFFER -> GlVertexArray.bindElementBuffer(glBuffer);
             case GL32.GL_PIXEL_PACK_BUFFER -> pixelPackBufferBound = glBuffer;
             case GL32.GL_PIXEL_UNPACK_BUFFER -> pixelUnpackBufferBound = glBuffer;
             case GL32.GL_COPY_READ_BUFFER -> copyReadBufferBound = glBuffer;
@@ -204,21 +203,17 @@ public class GlBuffer {
 
     public static void glDeleteBuffers(int id) {
         var buffer = map.remove(id);
+        if (buffer == null) return;
 
-        if (buffer != null) {
-            buffer.freeData();
-            ExternalTerrainRenderBridge.onBufferDeleted(id);
-        }
-
+        GlVertexArray.onBufferDeleted(buffer);
         if (arrayBufferBound == buffer) arrayBufferBound = null;
-        if (elementArrayBufferBound == buffer) elementArrayBufferBound = null;
         if (pixelPackBufferBound == buffer) pixelPackBufferBound = null;
         if (pixelUnpackBufferBound == buffer) pixelUnpackBufferBound = null;
         if (copyReadBufferBound == buffer) copyReadBufferBound = null;
         if (copyWriteBufferBound == buffer) copyWriteBufferBound = null;
-        if (buffer != null) {
-            otherTargetBindings.values().removeIf(bound -> bound == buffer);
-        }
+        otherTargetBindings.values().removeIf(bound -> bound == buffer);
+        buffer.freeData();
+        ExternalTerrainRenderBridge.onBufferDeleted(id);
     }
 
     public static GlBuffer getPixelUnpackBufferBound() {
@@ -233,14 +228,19 @@ public class GlBuffer {
         return arrayBufferBound;
     }
 
+
+    public static GlBuffer getById(int id) {
+        return map.get(id);
+    }
+
     public static GlBuffer getElementArrayBufferBound() {
-        return elementArrayBufferBound;
+        return GlVertexArray.elementBuffer();
     }
 
     public static int getBoundId(int pname) {
         GlBuffer buffer = switch (pname) {
             case GL32.GL_ARRAY_BUFFER_BINDING -> arrayBufferBound;
-            case GL32.GL_ELEMENT_ARRAY_BUFFER_BINDING -> elementArrayBufferBound;
+            case GL32.GL_ELEMENT_ARRAY_BUFFER_BINDING -> GlVertexArray.elementBuffer();
             case GL32.GL_PIXEL_PACK_BUFFER_BINDING -> pixelPackBufferBound;
             case GL32.GL_PIXEL_UNPACK_BUFFER_BINDING -> pixelUnpackBufferBound;
             case GL_COPY_READ_BUFFER_BINDING -> copyReadBufferBound;
@@ -263,7 +263,7 @@ public class GlBuffer {
     private static GlBuffer getBoundBuffer(int target) {
         return switch (target) {
             case GL32.GL_ARRAY_BUFFER -> arrayBufferBound;
-            case GL32.GL_ELEMENT_ARRAY_BUFFER -> elementArrayBufferBound;
+            case GL32.GL_ELEMENT_ARRAY_BUFFER -> GlVertexArray.elementBuffer();
             case GL32.GL_PIXEL_PACK_BUFFER -> pixelPackBufferBound;
             case GL32.GL_PIXEL_UNPACK_BUFFER -> pixelUnpackBufferBound;
             case GL32.GL_COPY_READ_BUFFER -> copyReadBufferBound;

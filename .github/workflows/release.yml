@@ -24,20 +24,20 @@ jobs:
           java-version: |
             17
             21
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
       - name: Build
         run: |
           chmod +x gradlew
-          ./gradlew assemble --no-daemon --console=plain --max-workers=2
-      - name: Verify release and package corresponding source
+          ./gradlew assemble verifyBundledLwjgl --no-daemon --console=plain --max-workers=2
+      - name: Package release and corresponding source
         id: package
         run: |
-          python3 .github/scripts/verify_release.py
           mc=$(sed -n 's/^minecraft_version[[:space:]]*=[[:space:]]*//p' gradle.properties)
+          version=$(sed -n 's/^mod_version[[:space:]]*=[[:space:]]*//p' gradle.properties)
           echo "minecraft=$mc" >> "$GITHUB_OUTPUT"
-          git archive --format=zip HEAD -o "build/release/VulkanMod-Reforged_${mc}-source.zip"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          mkdir -p build/release
+          cp build/libs/*.jar build/release/
+          git archive --format=zip HEAD -o "build/release/VulkanMod-Reforged-${version}-source.zip"
           cd build/release
           sha256sum *.jar *.zip > SHA256SUMS.txt
       - uses: actions/upload-artifact@v7
@@ -50,6 +50,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           MC_VERSION: ${{ steps.package.outputs.minecraft }}
+          MOD_VERSION: ${{ steps.package.outputs.version }}
         run: |
           tag="mc-${MC_VERSION}-${GITHUB_SHA:0:7}"
-          gh release create "$tag" build/release/*             --target "$GITHUB_SHA"             --title "VulkanMod Reforged 0.2.0 Alpha - Minecraft ${MC_VERSION}"             --notes-file .github/release-notes.txt             --prerelease
+          gh release create "$tag" build/release/* \
+            --target "$GITHUB_SHA" \
+            --title "VulkanMod Reforged ${MOD_VERSION}" \
+            --notes-file .github/release-notes.txt \
+            --prerelease

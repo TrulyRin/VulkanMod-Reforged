@@ -2,7 +2,7 @@ package net.vulkanmod.compat.sable.veil;
 
 import java.util.Objects;
 
-                                                                                                
+
 final class ProgramDrawOrder<S, F, P, M> {
     interface Backend<S, F, P, M> {
         int owner(S shader);

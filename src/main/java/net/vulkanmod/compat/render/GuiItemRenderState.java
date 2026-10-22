@@ -56,7 +56,7 @@ public final class GuiItemRenderState {
 
         if (isTooltipOverlayActive()) {
             RenderSystem.disableDepthTest();
-            RenderSystem.depthMask(false);
+            RenderSystem.depthMask(true);
             RenderSystem.disableCull();
         } else {
             RenderSystem.enableDepthTest();

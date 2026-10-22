@@ -1,16 +1,20 @@
 package net.vulkanmod.vulkan.memory;
 
 import net.vulkanmod.vulkan.device.DeviceManager;
+import net.vulkanmod.vulkan.shader.UniformUploadBatch;
 
-import static net.vulkanmod.vulkan.util.VUtil.align;
 import static org.lwjgl.vulkan.VK10.VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
 
-public class UniformBuffer extends Buffer {
+public class UniformBuffer extends Buffer implements UniformUploadBatch.Destination {
 
     private final static int minOffset = (int) DeviceManager.deviceProperties.limits().minUniformBufferOffsetAlignment();
 
     public static int getAlignedSize(int uploadSize) {
-        return align(uploadSize, minOffset);
+        return UniformUploadBatch.alignedSize(uploadSize, minOffset);
+    }
+
+    public static int getAlignment() {
+        return minOffset;
     }
 
     public UniformBuffer(int size, MemoryType memoryType) {
@@ -19,12 +23,13 @@ public class UniformBuffer extends Buffer {
     }
 
     public void checkCapacity(int size) {
-        if (size > this.bufferSize - this.usedBytes) {
-            resizeBuffer((this.bufferSize + size) * 2);
-        }
+        int required = UniformUploadBatch.requiredCapacity(this.bufferSize, this.usedBytes, size);
+        if (required != this.bufferSize) resizeBuffer(required);
     }
 
     public void updateOffset(int alignedSize) {
+        if (alignedSize < 0 || alignedSize > this.bufferSize - this.usedBytes)
+            throw new IllegalArgumentException("Uniform upload exceeds reserved buffer capacity");
         usedBytes += alignedSize;
     }
 

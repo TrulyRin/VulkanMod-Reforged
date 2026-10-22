@@ -55,6 +55,13 @@ public class GlRenderbuffer {
         return map.get(id);
     }
 
+    static boolean hasImageAlias(VulkanImage image) {
+        for (GlRenderbuffer renderbuffer : map.values()) {
+            if (renderbuffer.vulkanImage == image) return true;
+        }
+        return false;
+    }
+
     public static void renderbufferStorage(int target, int internalFormat, int width, int height) {
         renderbufferStorage(target, 0, internalFormat, width, height);
     }

@@ -15,7 +15,7 @@ public abstract class Buffer {
     protected PointerBuffer data;
 
     protected Buffer(int usage, MemoryType type) {
-                           
+
         this.usage = usage;
         this.type = type;
 

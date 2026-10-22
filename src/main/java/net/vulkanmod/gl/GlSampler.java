@@ -22,7 +22,7 @@ public final class GlSampler {
     private static final int[] EMPTY_BINDINGS = new int[0];
     private static final GlSampler[] EMPTY_OWNERS = new GlSampler[0];
 
-                                                                                                
+
     public static BindingSnapshot captureBindings() {
         int count=boundByUnit.size();
         if(count==0) return new BindingSnapshot(EMPTY_BINDINGS,EMPTY_BINDINGS,EMPTY_OWNERS);
@@ -45,7 +45,7 @@ public final class GlSampler {
             this.units=units; this.names=names; this.owners=owners;
         }
 
-                                                                                                                         
+
         public void restore() {
             if(restored) return;
             restored=true;

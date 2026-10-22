@@ -14,8 +14,10 @@ public class MSpriteContents {
 
     @Inject(method = "upload", at = @At("HEAD"), cancellable = true)
     private void checkUpload(int i, int j, int k, int l, NativeImage[] nativeImages, CallbackInfo ci) {
-        if(!SpriteUtil.shouldUpload())
+        if(!SpriteUtil.shouldUpload()) {
             ci.cancel();
+            return;
+        }
 
         SpriteUtil.addTransitionedLayout(VTextureSelector.getBoundTexture(0));
     }

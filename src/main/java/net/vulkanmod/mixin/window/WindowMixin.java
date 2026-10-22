@@ -62,7 +62,8 @@ public abstract class WindowMixin {
 
     @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lorg/lwjgl/opengl/GL;createCapabilities()Lorg/lwjgl/opengl/GLCapabilities;"))
     private GLCapabilities redirect2() {
-        return null;
+        net.vulkanmod.compat.opengl.GlCapabilitiesFallback.install();
+        return org.lwjgl.opengl.GL.getCapabilities();
     }
 
     @Redirect(method = "<init>", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/systems/RenderSystem;maxSupportedTextureSize()I"))

@@ -123,10 +123,10 @@ public final class GlProgram {
         return owner != null ? owner.linkedProgram : null;
     }
 
-                                                                                                  
+
     public record ShaderSource(int shaderId, int type, String source, boolean compiled) {}
 
-                                                                                             
+
     public record LinkedProgram(long generation, List<ShaderSource> shaders,
                                 Map<String, Integer> attributeBindings) {
         public LinkedProgram {
@@ -198,7 +198,7 @@ public final class GlProgram {
         return "";
     }
 
-                                                                                       
+
     public record ActiveVariable(String name, int size, int type) {}
 
     public static ActiveVariable activeUniform(int program, int index) {
@@ -446,7 +446,7 @@ public final class GlProgram {
 
     private static void transposeMatrices(float[] values, int offset, int dimension, int floatCount) {
         int width = dimension * dimension;
-                                                                                        
+
         for (int base = offset; base < offset + floatCount; base += width) {
             for (int column = 0; column < dimension; column++) {
                 for (int row = column + 1; row < dimension; row++) {
@@ -497,8 +497,8 @@ public final class GlProgram {
             UniformLocation alias = ownedLocation(owner, name);
             if (alias != null) value = alias.value;
         }
-                                                                                 
-                                                                                   
+
+
         return value != null ? value.mappedBuffer() : null;
     }
 
@@ -692,8 +692,8 @@ public final class GlProgram {
 
         MappedBuffer mappedBuffer() {
             if (mapped == null) {
-                                                                                    
-                                                                                   
+
+
                 ByteBuffer storage = ByteBuffer.allocateDirect(Math.multiplyExact(floats.length, Float.BYTES))
                         .order(ByteOrder.nativeOrder());
                 mapped = MappedBuffer.createFromBuffer(storage);

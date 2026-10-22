@@ -79,7 +79,7 @@ public class BuildTask extends ChunkTask {
             }
 
             taskDispatcher.scheduleSectionUpdate(compileResult, this);
-                                                                                
+
             compileResult = null;
 
             float buildTime = (System.nanoTime() - startTime) * 0.000001f;

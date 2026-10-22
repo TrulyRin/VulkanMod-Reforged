@@ -10,52 +10,52 @@ import net.vulkanmod.render.chunk.build.light.LightPipeline;
 import net.vulkanmod.render.chunk.build.light.data.QuadLightData;
 import net.vulkanmod.render.model.quad.ModelQuadFlags;
 
-   
-                                            
-  
-                                                                                                           
-                                                                                                                     
-  
-                                                                                                                      
-                                                                                                                     
-                                                                                                                        
-                                               
-                                                              
-                                                                                                                      
-                                                                                                                     
-  
-                                                                           
-  
-                                                                                                                 
-                                                                 
-                                                                                                                  
-                                                                                                                   
-                                                                                                                        
-                                                              
-                                                                                                                         
-                           
-                                                                                                                     
-                            
-   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 public class SmoothLightPipeline implements LightPipeline {
-       
-                                                        
-       
+
+
+
     private final LightDataAccess lightCache;
 
-       
-                                                                           
-       
+
+
+
     private final AoFaceData[] cachedFaceData = new AoFaceData[6 * 2];
 
-       
-                                                               
-       
+
+
+
     private long cachedPos = Long.MIN_VALUE;
 
-       
-                                                                                                           
-       
+
+
+
     private final float[] weights = new float[4];
 
     public SmoothLightPipeline(LightDataAccess cache) {
@@ -76,10 +76,10 @@ public class SmoothLightPipeline implements LightPipeline {
 
         final AoNeighborInfo neighborInfo = AoNeighborInfo.get(lightFace);
 
-                                                                                                                        
-                                                                                                                     
-                             
-                                                                                                                         
+
+
+
+
         if ((flags & ModelQuadFlags.IS_ALIGNED) != 0 || ((flags & ModelQuadFlags.IS_PARALLEL) != 0 && LightDataAccess.unpackFC(this.lightCache.get(pos)))) {
             if ((flags & ModelQuadFlags.IS_PARTIAL) == 0) {
                 this.applyAlignedFullFace(neighborInfo, pos, lightFace, out);
@@ -95,24 +95,24 @@ public class SmoothLightPipeline implements LightPipeline {
         this.applySidedBrightness(out, lightFaceO, shade);
     }
 
-       
-                                                                                                                    
-                                                                                                                   
-                                   
-                                     
-       
+
+
+
+
+
+
     private void applyAlignedFullFace(AoNeighborInfo neighborInfo, BlockPos pos, SimpleDirection dir, QuadLightData out) {
         AoFaceData faceData = this.getCachedFaceData(pos, dir, true);
         neighborInfo.copyLightValues(faceData.lm, faceData.ao, out.lm, out.br);
     }
 
-       
-                                                                                                            
-                                    
-       
+
+
+
+
     private void applyAlignedPartialFace(AoNeighborInfo neighborInfo, QuadView quad, BlockPos pos, SimpleDirection dir, QuadLightData out) {
         for (int i = 0; i < 4; i++) {
-                                                                                                       
+
             float cx = clamp(quad.getX(i));
             float cy = clamp(quad.getY(i));
             float cz = clamp(quad.getZ(i));
@@ -123,16 +123,16 @@ public class SmoothLightPipeline implements LightPipeline {
         }
     }
 
-       
-                                                                                                                   
-                                                                                                                 
-                                                                                                                 
-                                                        
-                                      
-       
+
+
+
+
+
+
+
     private void applyParallelFace(AoNeighborInfo neighborInfo, QuadView quad, BlockPos pos, SimpleDirection dir, QuadLightData out) {
         for (int i = 0; i < 4; i++) {
-                                                                                                       
+
             float cx = clamp(quad.getX(i));
             float cy = clamp(quad.getY(i));
             float cz = clamp(quad.getZ(i));
@@ -142,24 +142,24 @@ public class SmoothLightPipeline implements LightPipeline {
 
             float depth = neighborInfo.getDepth(cx, cy, cz);
 
-                                                                                                                      
-                                                       
+
+
             if (Mth.equal(depth, 1.0F)) {
                 this.applyAlignedPartialFaceVertex(pos, dir, weights, i, out, false);
             } else {
-                                                                                                                  
-                                                                                                                  
+
+
                 this.applyInsetPartialFaceVertex(pos, dir, depth, 1.0f - depth, weights, i, out);
             }
         }
     }
 
-       
-                                       
-       
+
+
+
     private void applyNonParallelFace(AoNeighborInfo neighborInfo, QuadView quad, BlockPos pos, SimpleDirection dir, QuadLightData out) {
         for (int i = 0; i < 4; i++) {
-                                                                                                       
+
             float cx = clamp(quad.getX(i));
             float cy = clamp(quad.getY(i));
             float cz = clamp(quad.getZ(i));
@@ -169,14 +169,14 @@ public class SmoothLightPipeline implements LightPipeline {
 
             float depth = neighborInfo.getDepth(cx, cy, cz);
 
-                                                                                                                                
+
             if (Mth.equal(depth, 0.0F)) {
                 this.applyAlignedPartialFaceVertex(pos, dir, weights, i, out, true);
             } else if (Mth.equal(depth, 1.0F)) {
                 this.applyAlignedPartialFaceVertex(pos, dir, weights, i, out, false);
             } else {
-                                                                                                                  
-                                                                                                                  
+
+
                 this.applyInsetPartialFaceVertex(pos, dir, depth, 1.0f - depth, weights, i, out);
             }
         }
@@ -210,7 +210,7 @@ public class SmoothLightPipeline implements LightPipeline {
             n2.unpackLightData();
         }
 
-                                                                                   
+
         float ao = (n1.getBlendedShade(w) * n1d) + (n2.getBlendedShade(w) * n2d);
         float sl = (n1.getBlendedSkyLight(w) * n1d) + (n2.getBlendedSkyLight(w) * n2d);
         float bl = (n1.getBlendedBlockLight(w) * n1d) + (n2.getBlendedBlockLight(w) * n2d);

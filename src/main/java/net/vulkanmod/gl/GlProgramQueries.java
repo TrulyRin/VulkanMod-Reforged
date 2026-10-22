@@ -6,7 +6,7 @@ import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.nio.charset.StandardCharsets;
 
-                                                                                          
+
 public final class GlProgramQueries {
     private GlProgramQueries() {}
 

@@ -2,7 +2,7 @@ package net.vulkanmod.compat.gl;
 
 import static org.lwjgl.opengl.GL40C.GL_PATCH_VERTICES;
 
-                                                                                                  
+
 public final class GlPatchState {
     private static int patchVertices = 3;
     private static int maxPatchVertices;
@@ -13,7 +13,7 @@ public final class GlPatchState {
 
     public static int getMaxPatchVertices() { return maxPatchVertices; }
 
-                                                                                                 
+
     public static void configureLimit(int limit) {
         if (limit < 0 || limit > 0 && limit < 3) {
             throw new IllegalArgumentException("Patch limit must be zero or support the GL default of three vertices");

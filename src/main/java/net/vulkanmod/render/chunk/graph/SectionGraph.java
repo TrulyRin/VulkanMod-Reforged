@@ -243,8 +243,8 @@ public class SectionGraph {
 
     private boolean isUrgentRebuild(RenderSection section) {
         BlockPos camera=this.minecraft.gameRenderer.getMainCamera().getBlockPosition();
-                                                                                
-                                                                                            
+
+
         return SectionRebuildPolicy.isUrgent(section.isDirtyFromPlayer(),
                 section.xOffset(),section.yOffset(),section.zOffset(),camera.getX(),camera.getY(),camera.getZ());
     }

@@ -17,8 +17,6 @@ import net.vulkanmod.vulkan.texture.VulkanImage;
 import net.vulkanmod.vulkan.util.DrawUtil;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.vulkan.VkCommandBuffer;
-import org.lwjgl.vulkan.VkRect2D;
-import org.lwjgl.vulkan.VkViewport;
 
 import static org.lwjgl.vulkan.KHRSwapchain.VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 import static org.lwjgl.vulkan.VK10.*;
@@ -84,7 +82,7 @@ public class DefaultMainPass implements MainPass {
         }
     }
 
-                                                                                
+
     public boolean isMainRenderPass(RenderPass pass) {
         return pass != null && (pass == this.mainRenderPass || pass == this.auxRenderPass);
     }
@@ -93,7 +91,7 @@ public class DefaultMainPass implements MainPass {
         RenderPass.Builder builder = RenderPass.builder(this.swapChain);
         builder.getColorAttachmentInfo().setFinalLayout(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
         builder.getColorAttachmentInfo().setOps(VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE);
-        builder.getDepthAttachmentInfo().setOps(VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_DONT_CARE);
+        builder.getDepthAttachmentInfo().setOps(VK_ATTACHMENT_LOAD_OP_DONT_CARE, VK_ATTACHMENT_STORE_OP_STORE);
 
         return builder.build();
     }
@@ -107,6 +105,26 @@ public class DefaultMainPass implements MainPass {
         this.auxRenderPass = this.targets.passes().load();
     }
 
+    @Override
+    public RenderPass resumeRenderPass(RenderPass interrupted) {
+        Passes nativePasses = this.targets.swapchainPasses();
+        if (interrupted == this.presentRenderPass || interrupted == nativePasses.main()
+                || interrupted == nativePasses.load()) {
+            return nativePasses.load();
+        }
+        Passes worldPasses = this.targets.retainedScaledPasses();
+        if (worldPasses != null && (interrupted == worldPasses.main() || interrupted == worldPasses.load())) {
+            return worldPasses.load();
+        }
+        return interrupted;
+    }
+
+
+    public Framebuffer getRetainedWorldFramebuffer() {
+        Passes retained = this.targets != null ? this.targets.retainedScaledPasses() : null;
+        return retained != null ? retained.load().getFramebuffer() : null;
+    }
+
     private void ensureMainFramebuffer() {
         int scale = RenderScale.clamp(Initializer.CONFIG.renderScale);
         Minecraft minecraft = Minecraft.getInstance();
@@ -118,7 +136,7 @@ public class DefaultMainPass implements MainPass {
                     RenderScale.scaleDimension(this.swapChain.getWidth(), scale),
                     RenderScale.scaleDimension(this.swapChain.getHeight(), scale), scale);
         } finally {
-                                                                                           
+
             selectTarget();
         }
     }
@@ -130,7 +148,8 @@ public class DefaultMainPass implements MainPass {
         int depth = -1;
         try {
             colorImage = VulkanImage.builder(width, height).setFormat(Framebuffer.DEFAULT_FORMAT)
-                    .setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT)
+                    .setUsage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                            | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
                     .setLinearFiltering(true).setClamp(true).createVulkanImage();
             requireImage(colorImage);
             depthImage = VulkanImage.createDepthImage(Vulkan.getDefaultDepthFormat(), width, height,
@@ -168,7 +187,7 @@ public class DefaultMainPass implements MainPass {
                 () -> retireOwnedAlias(target.depthGlId()));
     }
 
-                                                                                              
+
     static void retireOwnedAlias(int id) {
         if (GlTexture.getTexture(id) == null) return;
         GlTexture.setVulkanImage(id, null);
@@ -193,7 +212,7 @@ public class DefaultMainPass implements MainPass {
         if (failure instanceof Error error) throw error;
     }
 
-                                                                                                
+
     @Override public void onResize() {
         if (this.targets == null) throw new IllegalStateException("Main pass is closed");
         MainPassTargets<Target, Passes> replacement = createTargets();
@@ -245,11 +264,8 @@ public class DefaultMainPass implements MainPass {
             Renderer.clearViewportScale();
         }
 
-        VkViewport.Buffer pViewport = this.mainFramebuffer.viewport(stack);
-        vkCmdSetViewport(commandBuffer, 0, pViewport);
-
-        VkRect2D.Buffer pScissor = this.mainFramebuffer.scissor(stack);
-        vkCmdSetScissor(commandBuffer, 0, pScissor);
+        Renderer.setViewport(0, 0, this.swapChain.getWidth(), this.swapChain.getHeight());
+        Renderer.applyScissor();
     }
 
     @Override
@@ -320,6 +336,7 @@ public class DefaultMainPass implements MainPass {
             } else {
                 Renderer.clearViewportScale();
             }
+            Renderer.setViewport(0, 0, this.swapChain.getWidth(), this.swapChain.getHeight());
         }
 
     }

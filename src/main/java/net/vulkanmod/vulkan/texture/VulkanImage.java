@@ -34,6 +34,10 @@ public class VulkanImage {
 
     private long[] levelImageViews;
 
+
+    private long sampledImageView;
+    private long[] sampledLevelImageViews;
+
     private long sampler;
 
     public final int format;
@@ -45,6 +49,35 @@ public class VulkanImage {
     private final int usage;
 
     private int currentLayout;
+
+
+
+    private boolean rowsBottomUp;
+
+
+
+
+    private int rasterMipLevels;
+    private int bottomUpMipLevels;
+
+    public boolean isRowsBottomUp() { return this.rowsBottomUp; }
+
+    public void recordRasterOrigin(boolean bottomUp) {
+        this.rowsBottomUp = bottomUp;
+        this.rasterMipLevels |= 1;
+        this.bottomUpMipLevels = bottomUp ? this.bottomUpMipLevels | 1 : this.bottomUpMipLevels & ~1;
+    }
+
+    public boolean requiresGlDownloadFlip(int mipLevel) {
+        int bit = 1 << mipLevel;
+        return (this.rasterMipLevels & bit) != 0 && (this.bottomUpMipLevels & bit) == 0;
+    }
+
+    void recordGeneratedMipmaps() {
+        int levels = this.mipLevels == 32 ? -1 : (1 << this.mipLevels) - 1;
+        this.rasterMipLevels = (this.rasterMipLevels & 1) != 0 ? levels : 0;
+        this.bottomUpMipLevels = this.rowsBottomUp ? levels : 0;
+    }
 
     public VulkanImage(long id, int format, int mipLevels, int width, int height, int formatSize, int usage, long imageView) {
         this.id = id;
@@ -101,7 +134,7 @@ public class VulkanImage {
         return image;
     }
 
-                                                                                                  
+
     public static VulkanImage createDepthSnapshot(int format, int width, int height) {
         if (!isDepthFormat(format) || width <= 0 || height <= 0) {
             throw new IllegalArgumentException("A depth snapshot requires a depth format and positive dimensions");
@@ -118,9 +151,10 @@ public class VulkanImage {
             if (image.mainImageView == 0) throw new IllegalStateException("Depth snapshot view returned a null handle");
             image.sampler = SamplerManager.getTextureSampler(builder.mipLevels, builder.samplerFlags);
             if (image.sampler == 0) throw new IllegalStateException("Depth snapshot sampler returned a null handle");
+            image.sampledImageView = image.mainImageView;
             return image;
         } catch (RuntimeException | Error failure) {
-                                                                                          
+
             try {
                 if (image.mainImageView != 0) vkDestroyImageView(Vulkan.getVkDevice(), image.mainImageView, null);
             } catch (RuntimeException | Error cleanup) {
@@ -246,6 +280,13 @@ public class VulkanImage {
 
         ImageUtil.copyBufferToImageCmd(commandBuffer.getHandle(), stagingBuffer.getId(), id, mipLevel, width, height, xOffset, yOffset,
                 (int) (stagingBuffer.getOffset() + (unpackRowLength * unpackSkipRows + unpackSkipPixels) * this.formatSize), unpackRowLength, height);
+        if (xOffset == 0 && yOffset == 0 && width == Math.max(1, this.width >> mipLevel)
+                && height == Math.max(1, this.height >> mipLevel)) {
+            int bit = 1 << mipLevel;
+            this.rasterMipLevels &= ~bit;
+            this.bottomUpMipLevels &= ~bit;
+            if (mipLevel == 0) this.rowsBottomUp = false;
+        }
 
         long fence = DeviceManager.getGraphicsQueue().endIfNeeded(commandBuffer);
         if (fence != VK_NULL_HANDLE)
@@ -324,7 +365,7 @@ public class VulkanImage {
             }
             case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL -> {
                 srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-                sourceStage = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+                sourceStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
             }
             default -> throw new RuntimeException("Unexpected value:" + image.currentLayout);
         }
@@ -348,7 +389,7 @@ public class VulkanImage {
             }
             case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL -> {
                 dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-                destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+                destinationStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
             }
             case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR -> {
                 destinationStage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
@@ -403,6 +444,7 @@ public class VulkanImage {
 
     public void free() {
         if (this.allocation == 0L) {
+            retireSampledImageViews();
             return;
         }
 
@@ -412,6 +454,11 @@ public class VulkanImage {
     public void doFree() {
         if (this.id == 0L)
             return;
+
+        destroySampledImageViews(this.sampledImageView == this.mainImageView ? 0L : this.sampledImageView,
+                this.sampledLevelImageViews);
+        this.sampledImageView = 0L;
+        this.sampledLevelImageViews = null;
 
         if (this.mainImageView != 0L) {
             vkDestroyImageView(Vulkan.getVkDevice(), this.mainImageView, null);
@@ -432,6 +479,31 @@ public class VulkanImage {
         this.allocation = 0L;
     }
 
+    private void retireSampledImageViews() {
+        long sampledView = this.sampledImageView == this.mainImageView ? 0L : this.sampledImageView;
+        long[] sampledLevels = this.sampledLevelImageViews;
+        boolean hasViews = sampledView != 0L;
+        if (sampledLevels != null) {
+            for (long view : sampledLevels) hasViews |= view != 0L;
+        }
+        if (!hasViews) return;
+
+
+
+        MemoryManager.getInstance().addFrameOp(() -> destroySampledImageViews(sampledView, sampledLevels));
+        this.sampledImageView = 0L;
+        this.sampledLevelImageViews = null;
+    }
+
+    private static void destroySampledImageViews(long sampledView, long[] sampledLevels) {
+        if (sampledView != 0L) vkDestroyImageView(Vulkan.getVkDevice(), sampledView, null);
+        if (sampledLevels != null) {
+            for (long view : sampledLevels) {
+                if (view != 0L) vkDestroyImageView(Vulkan.getVkDevice(), view, null);
+            }
+        }
+    }
+
     public int getCurrentLayout() {
         return currentLayout;
     }
@@ -444,12 +516,47 @@ public class VulkanImage {
         return id;
     }
 
+    public int getUsage() {
+        return usage;
+    }
+
     public long getAllocation() {
         return allocation;
     }
 
     public long getImageView() {
         return mainImageView;
+    }
+
+    public long getSampledImageView() {
+        if (!hasStencilComponent(this.format)) return this.mainImageView;
+        if (this.id == 0L || this.mainImageView == 0L) return 0L;
+        if (this.sampledImageView == 0L) {
+            this.sampledImageView = createSampledImageView(0, this.mipLevels);
+        }
+        return this.sampledImageView;
+    }
+
+    public long getSampledLevelImageView(int mipLevel) {
+        if (mipLevel < 0 || mipLevel >= this.mipLevels) {
+            throw new IndexOutOfBoundsException("Sampled image mip level " + mipLevel);
+        }
+        if (!hasStencilComponent(this.format)) return getLevelImageView(mipLevel);
+        if (this.id == 0L || this.mainImageView == 0L) return 0L;
+        if (this.mipLevels == 1) return getSampledImageView();
+        if (this.sampledLevelImageViews == null) this.sampledLevelImageViews = new long[this.mipLevels];
+        long view = this.sampledLevelImageViews[mipLevel];
+        if (view == 0L) {
+            view = createSampledImageView(mipLevel, 1);
+            this.sampledLevelImageViews[mipLevel] = view;
+        }
+        return view;
+    }
+
+    private long createSampledImageView(int baseMipLevel, int levelCount) {
+        long view = createImageView(this.id, this.format, VK_IMAGE_ASPECT_DEPTH_BIT, baseMipLevel, levelCount);
+        if (view == 0L) throw new IllegalStateException("Sampled depth image view returned a null handle");
+        return view;
     }
 
     public long getLevelImageView(int i) {

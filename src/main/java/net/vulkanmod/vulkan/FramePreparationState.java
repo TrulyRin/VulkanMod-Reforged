@@ -1,6 +1,6 @@
 package net.vulkanmod.vulkan;
 
-                                                                               
+
 final class FramePreparationState {
     private int preparedFrame = -1;
     private int lastResetFrame = -1;

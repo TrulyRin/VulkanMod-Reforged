@@ -20,7 +20,7 @@ import java.util.function.IntFunction;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-                                                                                                 
+
 record VeilProgramInputs(int owner, long generation, VertexFormat format,
                          LevititeShaderConverter.Result conversion, UBO uniforms,
                          List<ProgramImageDescriptor> samplers) {
@@ -58,8 +58,9 @@ record VeilProgramInputs(int owner, long generation, VertexFormat format,
             if (field.arrayLength() > 0) builder.addUniformArrayInfo(field.type(), field.name(), field.arrayLength());
             else builder.addUniformInfo(field.type(), field.name());
         }
-        UBO ubo = builder.buildUBO(0, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT
-                | VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+        int uniformStages = 0;
+        for (var stage : conversion.sources().keySet()) uniformStages |= stageMask(stage);
+        UBO ubo = builder.buildUBO(0, uniformStages);
         for (var uniform : ubo.getUniforms()) {
             MappedBuffer captured = views.get(uniform.getName());
             uniform.setSupplier(() -> captured);
@@ -68,12 +69,7 @@ record VeilProgramInputs(int owner, long generation, VertexFormat format,
         for (var sampler : conversion.samplers()) {
             int mask = 0;
             for (var stage : sampler.stages()) {
-                mask |= switch (stage) {
-                    case VERTEX -> VK_SHADER_STAGE_VERTEX_BIT;
-                    case TESSELLATION_CONTROL -> VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
-                    case TESSELLATION_EVALUATION -> VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
-                    case FRAGMENT -> VK_SHADER_STAGE_FRAGMENT_BIT;
-                };
+                mask |= stageMask(stage);
             }
             int samplingStages = mask;
             samplers.add(new ProgramImageDescriptor(sampler.binding(), sampler.type(), sampler.name(), owner,
@@ -86,6 +82,15 @@ record VeilProgramInputs(int owner, long generation, VertexFormat format,
             throw new IllegalStateException("Program relinked while capturing its uniform views");
         }
         return new VeilProgramInputs(owner, linked.generation(), actualFormat, conversion, ubo, samplers);
+    }
+
+    private static int stageMask(LevititeShaderConverter.Stage stage) {
+        return switch (stage) {
+            case VERTEX -> VK_SHADER_STAGE_VERTEX_BIT;
+            case TESSELLATION_CONTROL -> VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+            case TESSELLATION_EVALUATION -> VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+            case FRAGMENT -> VK_SHADER_STAGE_FRAGMENT_BIT;
+        };
     }
 
     private static int packedBytes(String type) {

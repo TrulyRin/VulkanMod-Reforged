@@ -8,7 +8,7 @@ import net.vulkanmod.interfaces.ShaderMixed;
 import net.vulkanmod.vulkan.shader.GraphicsPipeline;
 import org.joml.Matrix4f;
 
-                                                                                                              
+
 public final class VeilProgramDraws {
     private static final ProgramDrawOrder<ShaderInstance, VertexFormat, GraphicsPipeline, Matrix4f> ORDER =
             new ProgramDrawOrder<>(new ProgramDrawOrder.Backend<>() {
@@ -22,8 +22,8 @@ public final class VeilProgramDraws {
                     if (GlProgram.currentProgramId() != VeilShaderProgramAccess.programId(shader)) {
                         throw new IllegalStateException("Veil draw owner was not bound by its wrapper");
                     }
-                                                                                                        
-                                                                                                         
+
+
                     if (modelView != null) {
                         var uniform = shader.getUniform("ModelViewMat");
                         if (uniform == null) throw new IllegalStateException("Veil draw has no ModelViewMat uniform");
@@ -52,7 +52,7 @@ public final class VeilProgramDraws {
         return ORDER.prepare(shader, format, apply, modelView, projection);
     }
 
-                                                                      
+
     public static GraphicsPipeline prepare(ShaderInstance shader, VertexFormat format, boolean apply) {
         return prepare(shader, format, apply, null, null);
     }

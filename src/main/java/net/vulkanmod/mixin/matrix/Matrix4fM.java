@@ -11,37 +11,37 @@ public abstract class Matrix4fM {
     @Shadow public abstract Matrix4f perspective(float fovy, float aspect, float zNear, float zFar, boolean zZeroToOne);
     @Shadow public abstract Matrix4f ortho(float left, float right, float bottom, float top, float zNear, float zFar, boolean zZeroToOne);
 
-       
-              
-              
-       
+
+
+
+
     @Overwrite(remap = false)
     public Matrix4f setOrtho(float left, float right, float bottom, float top, float zNear, float zFar) {
         return new Matrix4f().setOrtho(left, right, bottom, top, zNear, zFar, true);
     }
 
-       
-              
-              
-       
+
+
+
+
     @Overwrite(remap = false)
     public Matrix4f ortho(float left, float right, float bottom, float top, float zNear, float zFar) {
         return this.ortho(left, right, bottom, top, zNear, zFar, true);
     }
 
-       
-              
-              
-       
+
+
+
+
     @Overwrite(remap = false)
     public Matrix4f perspective(float fovy, float aspect, float zNear, float zFar) {
         return this.perspective(fovy, aspect, zNear, zFar, true);
     }
 
-       
-              
-              
-       
+
+
+
+
     @Overwrite(remap = false)
     public Matrix4f setPerspective(float fovy, float aspect, float zNear, float zFar) {
         return new Matrix4f().setPerspective(fovy, aspect, zNear, zFar, true);

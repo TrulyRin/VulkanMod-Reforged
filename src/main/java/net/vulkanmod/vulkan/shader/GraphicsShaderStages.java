@@ -11,7 +11,7 @@ import java.util.Objects;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-                                                                                
+
 public final class GraphicsShaderStages implements AutoCloseable {
     public record Source(int stage, ByteBuffer bytecode) {}
 

@@ -17,7 +17,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 
-                                                                                                          
+
 public final class TdpFastDrawBridge {
     private TdpFastDrawBridge() {}
     private static Layout cached;
@@ -29,8 +29,8 @@ public final class TdpFastDrawBridge {
     public static synchronized Layout layout(VertexFormat source) {
         Objects.requireNonNull(source);
         if (cached != null && cached.sourceFormat() == source) return cached;
-                                                                                          
-                                                                                         
+
+
         if (source == CustomVertexFormat.COMPRESSED_TERRAIN)
             return cached = new Layout(source, source, source.getVertexSize(), source.getVertexSize());
         int stride = source.getVertexSize(), alignment = 1, end = 0;
@@ -165,7 +165,7 @@ public final class TdpFastDrawBridge {
         }
     }
 
-                                                                                                  
+
     private static final class ShaderFields {
         private static final Field SHARD = field(RenderType.CompositeState.class, "shaderState");
         private static final Field SUPPLIER = field(RenderStateShard.ShaderStateShard.class, "shader");

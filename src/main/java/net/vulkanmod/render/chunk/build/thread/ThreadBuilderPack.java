@@ -37,7 +37,7 @@ public class ThreadBuilderPack {
         return this.builders.get(renderType);
     }
 
-                                                                                            
+
     public TerrainBufferBuilder blockLayerBuilder() {
         if (this.closed) {
             throw new IllegalStateException("Builder pack has been closed");

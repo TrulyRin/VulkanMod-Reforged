@@ -123,8 +123,8 @@ public abstract class Queue {
             }
 
             if (indices.presentFamily == -1) {
-                                                                                            
-                                                
+
+
 
                 indices.presentFamily = indices.computeFamily;
                 Initializer.LOGGER.warn("Using compute queue as present fallback");

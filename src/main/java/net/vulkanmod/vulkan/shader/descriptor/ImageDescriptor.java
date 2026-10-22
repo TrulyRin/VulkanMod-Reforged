@@ -85,6 +85,12 @@ public class ImageDescriptor implements Descriptor {
     }
 
     public long getImageView(VulkanImage image) {
+        if (this.isStorageImage && VulkanImage.isDepthFormat(image.format)) {
+            throw new IllegalArgumentException("Depth images are not supported by storage image descriptors");
+        }
+        if (!this.isStorageImage && VulkanImage.hasStencilComponent(image.format)) {
+            return mipLevel == -1 ? image.getSampledImageView() : image.getSampledLevelImageView(mipLevel);
+        }
         long view;
 
         if(mipLevel == -1)

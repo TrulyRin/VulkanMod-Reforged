@@ -4,13 +4,13 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
 
-                                                                                             
+
 public final class IndexUploadState<B> implements AutoCloseable {
     public interface Backend<B> {
         B create(int bytes, QuadPatchIndices.IndexType type);
-                                                                                                                
+
         void upload(B buffer, ByteBuffer bytes);
-                                                                                          
+
         void retire(B buffer);
         ByteBuffer allocateStaging(int bytes);
         void freeStaging(ByteBuffer bytes);
@@ -26,15 +26,15 @@ public final class IndexUploadState<B> implements AutoCloseable {
 
     public IndexUploadState(Backend<B> backend) { this.backend = Objects.requireNonNull(backend, "backend"); }
 
-       
-                                                                                           
-                                                                                                       
-                                                                                                     
-       
+
+
+
+
+
     public void uploadCustom(ByteBuffer source, QuadPatchIndices.IndexType type,
                              int indexCount, int vertexCount, boolean quads) {
         requireOpen();
-                                                                                       
+
         B previousPatch = patches;
         patches = null;
         patchCount = 0;
@@ -66,7 +66,7 @@ public final class IndexUploadState<B> implements AutoCloseable {
                         companionCount = QuadPatchIndices.compact(source, type, indexCount, vertexCount, staging);
                         supported = true;
                     } catch (IllegalArgumentException unsupportedPattern) {
-                                                                                      
+
                         supported = false;
                         companionCount = 0;
                     }
@@ -89,7 +89,7 @@ public final class IndexUploadState<B> implements AutoCloseable {
         if (previous != null) backend.retire(previous);
     }
 
-                                                                                                
+
     public void useBorrowed(B buffer) {
         requireOpen();
         B previous = custom ? indices : null;

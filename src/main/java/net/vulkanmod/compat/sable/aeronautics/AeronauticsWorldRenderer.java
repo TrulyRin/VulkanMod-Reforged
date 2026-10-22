@@ -13,7 +13,7 @@ import net.vulkanmod.render.chunk.ChunkArea;
 import net.vulkanmod.render.chunk.util.StaticQueue;
 import org.joml.Matrix4f;
 
-                                                                                      
+
 public final class AeronauticsWorldRenderer {
     private AeronauticsWorldRenderer() {}
 
@@ -43,8 +43,8 @@ public final class AeronauticsWorldRenderer {
             if (RenderSystem.getShader() != shader || GlProgram.currentProgramId() != owner) {
                 throw new IllegalStateException("Aeronautics base layer selected a different material owner");
             }
-                                                                                                
-                                                                                                    
+
+
             shader.setDefaultUniforms(VertexFormat.Mode.QUADS, modelView, projection, client.getWindow());
             shader.safeGetUniform("layerIndex").set(0);
             shader.safeGetUniform("time").set((client.level.getGameTime() % 100000)

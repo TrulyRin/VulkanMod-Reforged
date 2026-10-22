@@ -1,13 +1,17 @@
 package net.vulkanmod.mixin.render;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.systems.TimerQuery;
 import net.minecraft.Util;
+import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.GraphicsStatus;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
 import net.minecraft.client.main.GameConfig;
+import net.minecraft.client.renderer.GameRenderer;
 import net.vulkanmod.compat.ExternalClientFaultBoundary;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.compat.opengl.GlCapabilitiesFallback;
@@ -70,6 +74,15 @@ public class MinecraftMixin {
         RenderSystem.clear(i, bl);
         MinecraftBenchmarkController.onFrameStart();
         Renderer.getInstance().beginFrame();
+    }
+
+    @WrapOperation(method = "runTick", at = @At(value = "INVOKE",
+            target = "Lnet/minecraft/client/renderer/GameRenderer;render(Lnet/minecraft/client/DeltaTracker;Z)V"), require = 1)
+    private void vulkanMod$renderAcquiredFrame(GameRenderer gameRenderer, DeltaTracker deltaTracker, boolean renderLevel,
+                                              Operation<Void> original) {
+        if (Renderer.isRecording() && !Renderer.skipRendering) {
+            original.call(gameRenderer, deltaTracker, renderLevel);
+        }
     }
 
     @Inject(method = "runTick", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/Window;updateDisplay()V", shift = At.Shift.BEFORE))
@@ -137,7 +150,10 @@ public class MinecraftMixin {
 
     @Inject(method = "resizeDisplay", at = @At("HEAD"))
     public void onResolutionChanged(CallbackInfo ci) {
-        Renderer.scheduleSwapChainUpdate();
+        Renderer renderer = Renderer.getInstance();
+        if (renderer == null || !renderer.consumeInternalResizeDisplayNotification()) {
+            Renderer.scheduleSwapChainUpdate();
+        }
     }
 
     @Redirect(method = "setScreen", at = @At(value = "FIELD", target = "Lnet/minecraft/client/Minecraft;noRender:Z", opcode = Opcodes.PUTFIELD))

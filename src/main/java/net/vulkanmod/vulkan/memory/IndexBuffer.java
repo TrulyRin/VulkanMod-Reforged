@@ -32,6 +32,12 @@ public class IndexBuffer extends Buffer {
         }
     }
 
+
+    public long getMappedAddress() {
+        if (this.data == null) throw new IllegalStateException("Index buffer is not mapped");
+        return this.data.get(0);
+    }
+
     public enum IndexType {
         SHORT(2, VK_INDEX_TYPE_UINT16),
         INT(4, VK_INDEX_TYPE_UINT32);

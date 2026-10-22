@@ -11,7 +11,7 @@ import org.lwjgl.system.MemoryUtil;
 import java.util.function.IntFunction;
 import java.util.function.IntToLongFunction;
 
-                                                                                                
+
 public final class ProgramImageDescriptor extends ImageDescriptor {
     @FunctionalInterface
     public interface SamplerLookup {
@@ -38,7 +38,7 @@ public final class ProgramImageDescriptor extends ImageDescriptor {
         }, VTextureSelector::getImage, GlSampler::resolveSampler);
     }
 
-                                                                                 
+
     public ProgramImageDescriptor(int binding, String type, String name, int program, long generation,
                                   MappedBuffer samplerValue, IntToLongFunction currentGeneration,
                                   IntFunction<VulkanImage> images, SamplerLookup samplers) {
@@ -62,9 +62,9 @@ public final class ProgramImageDescriptor extends ImageDescriptor {
         this.samplers = samplers;
     }
 
-                                                                                                  
+
     public void refreshForDraw() {
-                                                                                            
+
         this.prepared = false;
         this.resolvedUnit = -1;
         this.resolvedImage = null;
@@ -73,7 +73,7 @@ public final class ProgramImageDescriptor extends ImageDescriptor {
         if (this.currentGeneration.applyAsLong(this.program) != this.generation) {
             throw new IllegalStateException("Program sampler " + this.name + " belongs to a retired generation");
         }
-                                                                                                   
+
         int unit = MemoryUtil.memGetInt(this.samplerValue.ptr);
         if (!TextureUnitLimits.isValid(unit)) {
             throw new IllegalStateException("Program sampler " + this.name + " has an unavailable texture unit " + unit);

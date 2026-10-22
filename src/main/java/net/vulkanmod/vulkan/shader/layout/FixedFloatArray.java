@@ -3,7 +3,7 @@ package net.vulkanmod.vulkan.shader.layout;
 import net.vulkanmod.vulkan.util.MappedBuffer;
 import org.lwjgl.system.MemoryUtil;
 
-                                                                                  
+
 final class FixedFloatArray extends Uniform {
     FixedFloatArray(Info info) {
         super(info);
@@ -11,6 +11,7 @@ final class FixedFloatArray extends Uniform {
 
     @Override
     void update(long ptr) {
+        if (writeDefault(ptr)) return;
         MappedBuffer source = this.values == null ? null : this.values.get();
         int packedBytes = this.info.arrayLength * Float.BYTES;
         if (source == null || !source.buffer.isDirect() || source.buffer.capacity() < packedBytes) {

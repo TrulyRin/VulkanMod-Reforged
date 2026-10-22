@@ -4,11 +4,11 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-   
-                                                                                        
-                                                                                              
-                                                                                                 
-   
+
+
+
+
+
 final class BorrowedFramebufferCache<P> {
     private final Entry<P>[] entries;
     private final Function<Key, P> factory;
@@ -66,7 +66,7 @@ final class BorrowedFramebufferCache<P> {
                 depthIdentity, depthImage, depthView, depthWidth, depthHeight, depthFormat);
         P pair = Objects.requireNonNull(this.factory.apply(key), "Framebuffer pair factory returned null");
 
-                                                                                                  
+
         int slot = emptySlot != -1 ? emptySlot : this.nextEviction;
         Entry<P> previous = this.entries[slot];
         this.entries[slot] = new Entry<>(key, pair);
@@ -82,13 +82,21 @@ final class BorrowedFramebufferCache<P> {
         return false;
     }
 
+    boolean retainsAttachment(Object identity) {
+        for (Entry<P> entry : this.entries) {
+            if (entry != null && (entry.key.colorIdentity == identity || entry.key.depthIdentity == identity))
+                return true;
+        }
+        return false;
+    }
+
     void invalidate() {
         this.generationKnown = false;
         this.nextEviction = 0;
         Throwable firstFailure = null;
         for (int i = 0; i < this.entries.length; i++) {
             Entry<P> entry = this.entries[i];
-                                                                                          
+
             this.entries[i] = null;
             if (entry != null) {
                 try {
@@ -109,7 +117,7 @@ final class BorrowedFramebufferCache<P> {
     private record Entry<P>(Key key, P pair) {
     }
 
-                                                                                               
+
     record Key(long generation,
                Object colorIdentity, long colorImage, long colorView, int colorWidth, int colorHeight, int colorFormat,
                Object depthIdentity, long depthImage, long depthView, int depthWidth, int depthHeight, int depthFormat) {

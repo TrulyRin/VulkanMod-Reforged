@@ -403,7 +403,7 @@ public class TaskDispatcher {
         DrawBuffers drawBuffers = renderArea.getDrawBuffers();
 
         if(compileResult.fullUpdate) {
-                                                                                           
+
             if (this.activeRenderLayerIndex == 0 && compileResult.stageBlockLayer()) return false;
             while (this.activeRenderLayerIndex < TerrainRenderType.VALUES.length) {
                 TerrainRenderType renderType = TerrainRenderType.VALUES[this.activeRenderLayerIndex++];

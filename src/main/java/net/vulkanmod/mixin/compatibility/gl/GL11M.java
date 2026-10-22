@@ -6,17 +6,14 @@ import net.vulkanmod.compat.gl.GlIntegerState;
 import net.vulkanmod.compat.gl.GlPixelStore;
 import net.vulkanmod.compat.opengl.GlDrawContract;
 import net.vulkanmod.gl.GlBuffer;
-import net.vulkanmod.gl.GlEmulationLog;
-import net.vulkanmod.gl.GlFramebuffer;
 import net.vulkanmod.gl.GlProgram;
+import net.vulkanmod.gl.GlReadPixels;
 import net.vulkanmod.gl.GlTexture;
 import net.vulkanmod.gl.GlVertexArray;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.VRenderSystem;
-import net.vulkanmod.vulkan.texture.ImageUtil;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL11C;
-import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL14;
 import org.lwjgl.opengl.GL20;
 import org.lwjgl.opengl.GL30;
@@ -31,6 +28,7 @@ import java.nio.ByteBuffer;
 import java.nio.DoubleBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+
 
 @Mixin(GL11C.class)
 public class GL11M {
@@ -226,7 +224,7 @@ public class GL11M {
         viewport[1] = y;
         viewport[2] = width;
         viewport[3] = height;
-        net.vulkanmod.vulkan.Renderer.setViewport(x, y, width, height);
+        net.vulkanmod.vulkan.Renderer.setGlViewport(x, y, width, height);
     }
 
     @Overwrite(remap = false)
@@ -402,31 +400,22 @@ public class GL11M {
 
     @Overwrite(remap = false)
     public static void glReadPixels(@NativeType("GLint") int x, @NativeType("GLint") int y, @NativeType("GLsizei") int width, @NativeType("GLsizei") int height, @NativeType("GLenum") int format, @NativeType("GLenum") int type, @NativeType("void *") ByteBuffer pixels) {
-        if (!readPixelsFromFramebuffer(x, y, width, height, format, type, pixels)) {
-            zeroReadPixelsFallback(width, height, format, type, pixels);
-        }
+        GlReadPixels.readPixels(x, y, width, height, format, type, pixels);
     }
 
     @Overwrite(remap = false)
     public static void glReadPixels(@NativeType("GLint") int x, @NativeType("GLint") int y, @NativeType("GLsizei") int width, @NativeType("GLsizei") int height, @NativeType("GLenum") int format, @NativeType("GLenum") int type, @NativeType("void *") long pixels) {
-        if (!readPixelsFromFramebuffer(x, y, width, height, format, type, pixels)) {
-            int byteCount = readPixelsByteCount(width, height, format, type);
-            if (pixels != 0L && byteCount > 0) {
-                MemoryUtil.memSet(pixels, 0, byteCount);
-            }
-        }
+        GlReadPixels.readPixels(x, y, width, height, format, type, pixels);
     }
 
     @Overwrite(remap = false)
     public static void glReadPixels(@NativeType("GLint") int x, @NativeType("GLint") int y, @NativeType("GLsizei") int width, @NativeType("GLsizei") int height, @NativeType("GLenum") int format, @NativeType("GLenum") int type, @NativeType("void *") IntBuffer pixels) {
-        zeroReadPixelsFallback(width, height, format, type, pixels);
+        GlReadPixels.readPixels(x, y, width, height, format, type, pixels);
     }
 
     @Overwrite(remap = false)
     public static void glReadPixels(@NativeType("GLint") int x, @NativeType("GLint") int y, @NativeType("GLsizei") int width, @NativeType("GLsizei") int height, @NativeType("GLenum") int format, @NativeType("GLenum") int type, @NativeType("void *") FloatBuffer pixels) {
-        if (!readPixelsFromFramebuffer(x, y, width, height, format, type, pixels)) {
-            zeroReadPixelsFallback(width, height, format, type, pixels);
-        }
+        GlReadPixels.readPixels(x, y, width, height, format, type, pixels);
     }
 
     @Overwrite(remap = false)
@@ -570,7 +559,7 @@ public class GL11M {
     private static void ensureViewport() {
         if (Renderer.isViewportInitialized()) {
             for (int i = 0; i < 4; i++) {
-                viewport[i] = Renderer.getViewportBox(i);
+                viewport[i] = Renderer.getGlViewport(i);
             }
             return;
         }
@@ -581,154 +570,6 @@ public class GL11M {
             viewport[2] = window.getWidth();
             viewport[3] = window.getHeight();
         }
-    }
-
-    private static void zeroReadPixelsFallback(int width, int height, int format, int type, ByteBuffer pixels) {
-        GlEmulationLog.warnContractGap("framebuffer_readback", "glReadPixels",
-                "glReadPixels real Vulkan readback is not implemented yet; returning safe fallback data");
-        if (pixels == null) {
-            return;
-        }
-
-        int byteCount = Math.min(readPixelsByteCount(width, height, format, type), pixels.remaining());
-        for (int i = 0; i < byteCount; i++) {
-            pixels.put(pixels.position() + i, (byte) 0);
-        }
-    }
-
-    private static boolean readPixelsFromFramebuffer(int x, int y, int width, int height, int format, int type, ByteBuffer pixels) {
-        if (pixels == null) {
-            return true;
-        }
-        if (pixels.remaining() < readPixelsByteCount(width, height, format, type)) {
-            return false;
-        }
-
-        return readPixelsFromFramebuffer(x, y, width, height, format, type, MemoryUtil.memAddress(pixels));
-    }
-
-    private static boolean readPixelsFromFramebuffer(int x, int y, int width, int height, int format, int type, FloatBuffer pixels) {
-        if (pixels == null) {
-            return true;
-        }
-        if (pixels.remaining() < elementsForByteCount(readPixelsByteCount(width, height, format, type), Float.BYTES)) {
-            return false;
-        }
-
-        return readPixelsFromFramebuffer(x, y, width, height, format, type, MemoryUtil.memAddress(pixels));
-    }
-
-    private static boolean readPixelsFromFramebuffer(int x, int y, int width, int height, int format, int type, long pixels) {
-        if (pixels == 0L || width <= 0 || height <= 0) {
-            return true;
-        }
-        if (!isSupportedReadPixelsFormat(format, type)) {
-            return false;
-        }
-
-        GlFramebuffer.ReadPixelsImage readImage = GlFramebuffer.resolveReadPixelsImage(format);
-        if (readImage == null) {
-            return false;
-        }
-
-        try {
-            ImageUtil.downloadTextureRegion(readImage.image(), pixels, x, y, width, height, readImage.aspectMask(), bytesPerPixel(format, type));
-            return true;
-        } catch (RuntimeException e) {
-            GlEmulationLog.warnContractGap("framebuffer_readback", "glReadPixels.downloadFailed",
-                    "glReadPixels Vulkan readback failed for format 0x{} type 0x{}; returning safe fallback data",
-                    Integer.toHexString(format), Integer.toHexString(type));
-            return false;
-        }
-    }
-
-    private static boolean isSupportedReadPixelsFormat(int format, int type) {
-        return (format == GL11.GL_RGBA && type == GL11.GL_UNSIGNED_BYTE)
-                || (format == GL11.GL_DEPTH_COMPONENT && type == GL11.GL_FLOAT);
-    }
-
-    private static void zeroReadPixelsFallback(int width, int height, int format, int type, IntBuffer pixels) {
-        GlEmulationLog.warnContractGap("framebuffer_readback", "glReadPixels",
-                "glReadPixels real Vulkan readback is not implemented yet; returning safe fallback data");
-        if (pixels == null) {
-            return;
-        }
-
-        int elements = Math.min(elementsForByteCount(readPixelsByteCount(width, height, format, type), Integer.BYTES), pixels.remaining());
-        for (int i = 0; i < elements; i++) {
-            pixels.put(pixels.position() + i, 0);
-        }
-    }
-
-    private static void zeroReadPixelsFallback(int width, int height, int format, int type, FloatBuffer pixels) {
-        GlEmulationLog.warnContractGap("framebuffer_readback", "glReadPixels",
-                "glReadPixels real Vulkan readback is not implemented yet; returning safe fallback data");
-        if (pixels == null) {
-            return;
-        }
-
-        int elements = Math.min(elementsForByteCount(readPixelsByteCount(width, height, format, type), Float.BYTES), pixels.remaining());
-        for (int i = 0; i < elements; i++) {
-            pixels.put(pixels.position() + i, 0.0f);
-        }
-    }
-
-    private static int readPixelsByteCount(int width, int height, int format, int type) {
-        if (width <= 0 || height <= 0) {
-            return 0;
-        }
-
-        long byteCount = (long) width * height * bytesPerPixel(format, type);
-        return byteCount > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) byteCount;
-    }
-
-    private static int bytesPerPixel(int format, int type) {
-        int packedSize = packedTypeBytes(type);
-        if (packedSize > 0) {
-            return packedSize;
-        }
-
-        return componentsForFormat(format) * bytesPerComponent(type);
-    }
-
-    private static int componentsForFormat(int format) {
-        return switch (format) {
-            case GL11.GL_RED, GL11.GL_GREEN, GL11.GL_BLUE, GL11.GL_ALPHA,
-                 GL11.GL_LUMINANCE, GL11.GL_DEPTH_COMPONENT, GL11.GL_STENCIL_INDEX -> 1;
-            case GL11.GL_LUMINANCE_ALPHA -> 2;
-            case GL11.GL_RGB, GL12.GL_BGR -> 3;
-            case GL11.GL_RGBA, GL12.GL_BGRA -> 4;
-            default -> 4;
-        };
-    }
-
-    private static int bytesPerComponent(int type) {
-        return switch (type) {
-            case GL11.GL_BYTE, GL11.GL_UNSIGNED_BYTE -> 1;
-            case GL11.GL_SHORT, GL11.GL_UNSIGNED_SHORT, GL30.GL_HALF_FLOAT -> 2;
-            case GL11.GL_INT, GL11.GL_UNSIGNED_INT, GL11.GL_FLOAT -> 4;
-            default -> 1;
-        };
-    }
-
-    private static int packedTypeBytes(int type) {
-        return switch (type) {
-            case GL12.GL_UNSIGNED_BYTE_3_3_2, GL12.GL_UNSIGNED_BYTE_2_3_3_REV -> 1;
-            case GL12.GL_UNSIGNED_SHORT_5_6_5, GL12.GL_UNSIGNED_SHORT_5_6_5_REV,
-                 GL12.GL_UNSIGNED_SHORT_4_4_4_4, GL12.GL_UNSIGNED_SHORT_4_4_4_4_REV,
-                 GL12.GL_UNSIGNED_SHORT_5_5_5_1, GL12.GL_UNSIGNED_SHORT_1_5_5_5_REV -> 2;
-            case GL12.GL_UNSIGNED_INT_8_8_8_8, GL12.GL_UNSIGNED_INT_8_8_8_8_REV,
-                 GL12.GL_UNSIGNED_INT_10_10_10_2, GL12.GL_UNSIGNED_INT_2_10_10_10_REV -> 4;
-            default -> 0;
-        };
-    }
-
-    private static int elementsForByteCount(int byteCount, int elementSize) {
-        if (byteCount <= 0) {
-            return 0;
-        }
-
-        return (byteCount + elementSize - 1) / elementSize;
     }
 
     private static final int GL13_ACTIVE_TEXTURE = 0x84E0;

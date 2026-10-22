@@ -7,4 +7,6 @@ public interface ExtendedRenderTarget {
     boolean isBound();
 
     RenderPass getRenderPass();
+
+    void vulkanmod$prepareForDepthCopy();
 }

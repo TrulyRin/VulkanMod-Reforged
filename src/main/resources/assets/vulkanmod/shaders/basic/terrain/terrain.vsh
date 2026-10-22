@@ -18,13 +18,13 @@ layout (location = 0) out float vertexDistance;
 layout (location = 1) out vec4 vertexColor;
 layout (location = 2) out vec2 texCoord0;
 
-                   
+
 layout (location = 0) in ivec4 Position;
 layout (location = 1) in vec4 Color;
 layout (location = 2) in uvec2 UV0;
 
 const float UV_INV = 1.0 / 32768.0;
-                                               
+
 const vec3 POSITION_INV = vec3(1.0 / 2048.0);
 const vec3 POSITION_OFFSET = vec3(4.0);
 
@@ -38,20 +38,19 @@ void main() {
     texCoord0 = UV0 * UV_INV;
 }
 
-                  
-                                        
-                                     
-                                   
-                                    
-                                      
-  
-               
-                                                                                                
-                                                            
-                              
-  
-                                                        
-                                                                     
-                      
-                                             
-   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

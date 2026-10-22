@@ -82,10 +82,10 @@ public class SectionGrid {
         this.gridWidth = i;
     }
 
-       
-                                                                                              
-                                                                 
-       
+
+
+
+
     public void repositionCamera(double x, double z) {
         int secX = Mth.floor(x) >> 4;
         int secZ = Mth.floor(z) >> 4;
@@ -96,7 +96,7 @@ public class SectionGrid {
         int dz = Mth.clamp(secZ - this.prevSecZ, -this.gridWidth, this.gridWidth);
 
         int xAbsChunkIndex = secX - this.gridWidth / 2;
-        int xStart = Math.floorMod(xAbsChunkIndex, this.gridWidth);                         
+        int xStart = Math.floorMod(xAbsChunkIndex, this.gridWidth);
         int zAbsChunkIndex = secZ - this.gridWidth / 2;
         int zStart = Math.floorMod(zAbsChunkIndex, this.gridWidth);
 
@@ -229,7 +229,7 @@ public class SectionGrid {
     }
 
     private void unsetNeighbours(RenderSection section) {
-                                   
+
         section.adjDirs &= 0b11;
 
         for (int i = 2; i < 6; i++) {

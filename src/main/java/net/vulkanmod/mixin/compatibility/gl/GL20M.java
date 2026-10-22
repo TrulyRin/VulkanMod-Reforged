@@ -291,14 +291,17 @@ public class GL20M {
 
     @Overwrite(remap = false)
     public static void glEnableVertexAttribArray(@NativeType("GLuint") int index) {
+        GlVertexArray.enableVertexAttribArray(index);
     }
 
     @Overwrite(remap = false)
     public static void glDisableVertexAttribArray(@NativeType("GLuint") int index) {
+        GlVertexArray.disableVertexAttribArray(index);
     }
 
     @Overwrite(remap = false)
     public static void glVertexAttribPointer(@NativeType("GLuint") int index, @NativeType("GLint") int size, @NativeType("GLenum") int type, @NativeType("GLboolean") boolean normalized, @NativeType("GLsizei") int stride, @NativeType("void const *") long pointer) {
+        GlVertexArray.vertexAttribPointer(index, size, type, normalized, stride, pointer);
     }
 
     @Overwrite(remap = false)
@@ -519,13 +522,13 @@ public class GL20M {
     @Overwrite(remap = false)
     @NativeType("void *")
     public static long glGetVertexAttribPointer(@NativeType("GLuint") int index, @NativeType("GLenum") int pname) {
-        return 0L;
+        return GlVertexArray.getVertexAttribPointer(index, pname);
     }
 
     @Overwrite(remap = false)
     public static void glGetVertexAttribPointerv(@NativeType("GLuint") int index, @NativeType("GLenum") int pname, @NativeType("void **") PointerBuffer pointer) {
         if (pointer != null && pointer.remaining() > 0) {
-            pointer.put(pointer.position(), 0L);
+            pointer.put(pointer.position(), GlVertexArray.getVertexAttribPointer(index, pname));
         }
     }
 
@@ -845,17 +848,21 @@ public class GL20M {
 
     @Overwrite(remap = false)
     public static void glVertexAttribPointer(@NativeType("GLuint") int index, @NativeType("GLint") int size, @NativeType("GLenum") int type, @NativeType("GLboolean") boolean normalized, @NativeType("GLsizei") int stride, @NativeType("void const *") ByteBuffer pointer) {
+        GlVertexArray.unsupportedClientPointer();
     }
 
     @Overwrite(remap = false)
     public static void glVertexAttribPointer(@NativeType("GLuint") int index, @NativeType("GLint") int size, @NativeType("GLenum") int type, @NativeType("GLboolean") boolean normalized, @NativeType("GLsizei") int stride, @NativeType("void const *") ShortBuffer pointer) {
+        GlVertexArray.unsupportedClientPointer();
     }
 
     @Overwrite(remap = false)
     public static void glVertexAttribPointer(@NativeType("GLuint") int index, @NativeType("GLint") int size, @NativeType("GLenum") int type, @NativeType("GLboolean") boolean normalized, @NativeType("GLsizei") int stride, @NativeType("void const *") IntBuffer pointer) {
+        GlVertexArray.unsupportedClientPointer();
     }
 
     @Overwrite(remap = false)
     public static void glVertexAttribPointer(@NativeType("GLuint") int index, @NativeType("GLint") int size, @NativeType("GLenum") int type, @NativeType("GLboolean") boolean normalized, @NativeType("GLsizei") int stride, @NativeType("void const *") FloatBuffer pointer) {
+        GlVertexArray.unsupportedClientPointer();
     }
 }

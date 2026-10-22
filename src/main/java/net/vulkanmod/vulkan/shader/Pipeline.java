@@ -121,8 +121,8 @@ public abstract class Pipeline {
     public static void recreateDescriptorSets(int frames) {
         List<Pipeline> pipelines = new ArrayList<>(PIPELINES);
         DescriptorSets[][] previous = new DescriptorSets[pipelines.size()][];
-                                                                              
-                                                                          
+
+
         DescriptorSets[][] replacements = DescriptorResources.createFrames(pipelines.size(), DescriptorSets[][]::new,
                 index -> pipelines.get(index).buildDescriptorSets(frames),
                 sets -> DescriptorResources.closeFrames(sets, DescriptorSets::cleanUp));
@@ -337,24 +337,7 @@ public abstract class Pipeline {
         }
 
         private void updateUniforms(UniformBuffer globalUB) {
-            int i = 0;
-            for (UBO ubo : pipeline.buffers) {
-                boolean useOwnUB = ubo.getUniformBuffer() != null;
-                UniformBuffer ub = useOwnUB ? ubo.getUniformBuffer() : globalUB;
-
-                int currentOffset = (int) ub.getUsedBytes();
-                this.dynamicOffsets.put(i, currentOffset);
-
-                int alignedSize = UniformBuffer.getAlignedSize(ubo.getSize());
-                ub.checkCapacity(alignedSize);
-
-                if (!useOwnUB) {
-                    ubo.update(ub.getPointer());
-                    ub.updateOffset(alignedSize);
-                }
-
-                ++i;
-            }
+            UniformUploadBatch.update(pipeline.buffers, globalUB, this.dynamicOffsets, UniformBuffer.getAlignment());
         }
 
         private boolean needsUpdate(UniformBuffer uniformBuffer) {
@@ -489,13 +472,13 @@ public abstract class Pipeline {
                 int i;
                 for (i = 0; i < pipeline.buffers.size(); ++i) {
                     VkDescriptorPoolSize uniformBufferPoolSize = poolSizes.get(i);
-                    uniformBufferPoolSize.type(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC);
+                    uniformBufferPoolSize.type(pipeline.buffers.get(i).getType());
                     uniformBufferPoolSize.descriptorCount(capacity);
                 }
 
                 for (; i < pipeline.buffers.size() + pipeline.imageDescriptors.size(); ++i) {
                     VkDescriptorPoolSize textureSamplerPoolSize = poolSizes.get(i);
-                    textureSamplerPoolSize.type(VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+                    textureSamplerPoolSize.type(pipeline.imageDescriptors.get(i - pipeline.buffers.size()).getType());
                     textureSamplerPoolSize.descriptorCount(capacity);
                 }
 
@@ -573,6 +556,12 @@ public abstract class Pipeline {
         public void setUniforms(List<UBO> UBOs, List<ImageDescriptor> imageDescriptors) {
             this.UBOs = UBOs;
             this.imageDescriptors = imageDescriptors;
+        }
+
+        public List<UBO> uniformBuffers() { return List.copyOf(this.UBOs); }
+
+        public RawShaderBytecode snapshotGraphicsBytecode() {
+            return RawShaderBytecode.capture(this.vertShaderSPIRV, this.fragShaderSPIRV);
         }
 
         public void setSPIRVs(SPIRV vertShaderSPIRV, SPIRV fragShaderSPIRV) {

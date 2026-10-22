@@ -20,9 +20,9 @@ public class FaceBakeryM {
     private static final float DIV = 1.0f / 16.0f;
     private static final double DIV_2 = 1.0 / 90.0;
 
-       
-              
-       
+
+
+
     @Overwrite
     private float[] setupShape(Vector3f vector3f, Vector3f vector3f2) {
         float[] fs = new float[Direction.values().length];
@@ -35,9 +35,9 @@ public class FaceBakeryM {
         return fs;
     }
 
-       
-              
-       
+
+
+
     @Overwrite
     public static BlockFaceUV recomputeUVs(BlockFaceUV blockFaceUV, Direction direction, Transformation transformation) {
         Matrix4f matrix4f = BlockMath.getUVLockTransform(transformation, direction).getMatrix();

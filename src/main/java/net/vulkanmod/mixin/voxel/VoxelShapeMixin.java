@@ -20,8 +20,8 @@ public class VoxelShapeMixin implements VoxelShapeExtended {
     private void initCornerOcclusion(DiscreteVoxelShape discreteVoxelShape, CallbackInfo ci) {
         var disShape = this.shape;
 
-                                   
-                                                                  
+
+
         VoxelShape shape = (VoxelShape)((Object)this);
         if(!(shape instanceof CubeVoxelShape) || disShape == null) {
             this.co = 0;

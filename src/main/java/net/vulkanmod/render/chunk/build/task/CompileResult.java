@@ -65,7 +65,7 @@ public class CompileResult {
                 && this.renderSection.zOffset() == this.zOffset;
     }
 
-                                                                                              
+
     public boolean stageBlockLayer() {
         if (!this.fullUpdate || this.blockLayerMesh == null) return false;
         BlockLayerMesh cpu = this.blockLayerMesh;
@@ -85,7 +85,7 @@ public class CompileResult {
         return true;
     }
 
-                                                                                              
+
     public boolean commitBlockLayer() {
         if (!this.matchesCurrentSection()) {
             this.releaseBuffers();

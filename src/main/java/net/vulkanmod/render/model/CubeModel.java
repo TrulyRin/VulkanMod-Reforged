@@ -55,7 +55,7 @@ public class CubeModel {
         };
 
         for (int i1 = 0; i1 < 8; i1++) {
-                                          
+
             this.vertices[i1].div(16.0f);
             this.transformed[i1] = new Vector3f(0.0f);
         }
@@ -105,7 +105,7 @@ public class CubeModel {
     }
 
     public void transformVertices(Matrix4f matrix) {
-                                                    
+
         for(int i = 0; i < 8; ++i) {
             this.vertices[i].mulPosition(matrix, this.transformed[i]);
         }

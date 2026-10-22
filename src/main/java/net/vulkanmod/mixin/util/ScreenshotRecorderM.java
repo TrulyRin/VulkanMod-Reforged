@@ -12,28 +12,35 @@ import org.spongepowered.asm.mixin.Overwrite;
 @Mixin(Screenshot.class)
 public class ScreenshotRecorderM {
 
-       
-              
-       
+
+
+
     @Overwrite
     public static NativeImage takeScreenshot(RenderTarget target) {
-        GlTexture texture = GlTexture.getTexture(target.getColorTextureId());
+        int textureId = target.getColorTextureId();
+        GlTexture texture = GlTexture.getTexture(textureId);
         VulkanImage source = texture != null ? texture.getVulkanImage() : null;
         if (source == null) {
             throw new IllegalStateException("Screenshot target has no color image");
         }
 
-                                                                                                 
-                                                                                      
+
+
         NativeImage nativeimage = new NativeImage(source.width, source.height, false);
-                                                                                              
-        GlTexture.bindTextureUnit(0, target.getColorTextureId());
 
-                                                                   
-                                      
-        Renderer.getInstance().flushCmds();
+        try {
+            GlTexture.bindTextureUnit(0, textureId);
+            return Renderer.getInstance().flushCmds(() -> {
+                nativeimage.downloadTexture(0, true);
 
-        nativeimage.downloadTexture(0, true);
-        return nativeimage;
+
+                if (source.requiresGlDownloadFlip(0)) nativeimage.flipY();
+                return nativeimage;
+            });
+        } catch (RuntimeException | Error failure) {
+            try { nativeimage.close(); }
+            catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
+            throw failure;
+        }
     }
 }

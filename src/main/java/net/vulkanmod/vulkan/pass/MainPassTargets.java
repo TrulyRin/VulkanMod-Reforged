@@ -2,7 +2,7 @@ package net.vulkanmod.vulkan.pass;
 
 import java.util.Objects;
 
-                                                                                         
+
 final class MainPassTargets<T, P> implements AutoCloseable {
     interface Backend<T, P> {
         T createScaled(int width, int height, int scale);
@@ -113,6 +113,8 @@ final class MainPassTargets<T, P> implements AutoCloseable {
 
     T target() { return selected; }
     P passes() { return passes; }
+    P swapchainPasses() { return swapchainPasses; }
+    P retainedScaledPasses() { return scaledPasses; }
     boolean isScaled() { return scaled != null && selected == scaled; }
 
     private void requireOpen() {

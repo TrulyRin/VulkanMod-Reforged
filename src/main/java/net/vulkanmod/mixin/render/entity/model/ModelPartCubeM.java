@@ -20,7 +20,7 @@ public class ModelPartCubeM implements ModelPartCubeMixed {
             target = "Lnet/minecraft/client/model/geom/ModelPart$Cube;polygons:[Lnet/minecraft/client/model/geom/ModelPart$Polygon;",
             ordinal = 0, shift = At.Shift.AFTER))
     private void getVertices(int i, int j, float f, float g, float h, float k, float l, float m, float n, float o, float p, boolean bl, float q, float r, Set<Direction> set, CallbackInfo ci) {
-                                     
+
         CubeModel cube = new CubeModel();
         cube.setVertices(i, j, f, g, h, k, l, m, n, o, p, bl, q, r, set);
         this.cube = cube;

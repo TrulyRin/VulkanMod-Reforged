@@ -14,11 +14,11 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-   
-                                                                                 
-                                                                                    
-                                                                                      
-   
+
+
+
+
+
 public final class LevititeShaderConverter {
     private LevititeShaderConverter() {}
 
@@ -26,7 +26,7 @@ public final class LevititeShaderConverter {
 
     public record UniformField(String type, String name, int arrayLength) {}
 
-                                                                             
+
     public record Attribute(String type, String name, int location) {}
 
     public record Sampler(String name, String type, int binding, Set<Stage> stages) {
@@ -67,7 +67,10 @@ public final class LevititeShaderConverter {
             if (stages.containsKey(stage)) throw failure("Multiple compilation units for " + stage + " are unsupported");
             stages.put(stage, new Source(stage, shader.source()));
         }
-        if (stages.size() != Stage.values().length) throw failure("Exactly VERTEX, TCS, TES and FRAGMENT are required");
+        boolean tessellated = stages.keySet().equals(EnumSet.allOf(Stage.class));
+        if (!tessellated && !stages.keySet().equals(EnumSet.of(Stage.VERTEX, Stage.FRAGMENT))) {
+            throw failure("Exactly VERTEX and FRAGMENT, or VERTEX, TCS, TES and FRAGMENT are required");
+        }
 
         LinkedHashMap<String, UniformField> uniforms = new LinkedHashMap<>();
         LinkedHashMap<String, SamplerBuilder> samplers = new LinkedHashMap<>();
@@ -91,15 +94,20 @@ public final class LevititeShaderConverter {
         Source vertex = stages.get(Stage.VERTEX), control = stages.get(Stage.TESSELLATION_CONTROL);
         Source evaluation = stages.get(Stage.TESSELLATION_EVALUATION), fragment = stages.get(Stage.FRAGMENT);
         List<Attribute> attributes = bindVertexInputs(vertex, linked.attributeBindings());
-        matchBoundary(vertex, control);
-        matchBoundary(control, evaluation);
-        matchBoundary(evaluation, fragment);
+        if (tessellated) {
+            matchBoundary(vertex, control);
+            matchBoundary(control, evaluation);
+            matchBoundary(evaluation, fragment);
+        } else {
+            matchBoundary(vertex, fragment);
+        }
         if (fragment.outputs.size() != 1 || !fragment.outputs.containsKey("fragColor")
                 || !fragment.outputs.get("fragColor").type.equals("vec4")) {
-            throw failure("The Levitite fragment stage requires one vec4 fragColor output");
+            throw failure("The fragment stage requires one vec4 fragColor output");
         }
         fragment.locate(fragment.outputs.get("fragColor"), 0);
-        evaluation.remapFinalClip();
+        if (tessellated) evaluation.remapFinalClip();
+        else vertex.remapVertexClip();
 
         StringBuilder block = new StringBuilder("layout(std140, set = 0, binding = 0) uniform UniformBufferObject {\n");
         for (UniformField field : uniforms.values()) {
@@ -163,7 +171,7 @@ public final class LevititeShaderConverter {
     private record Declaration(int start, int end, String storage, String type, String name,
                                int arrayLength, Integer location) {}
 
-                                                                                               
+
     private static final class Source {
         final Stage stage;
         final String text;
@@ -213,7 +221,7 @@ public final class LevititeShaderConverter {
                             }
                             start = close + 1;
                         } else {
-                                                                                                    
+
                             if (!words(start, i).equals(List.of("in", "gl_PerVertex"))
                                     && !words(start, i).equals(List.of("out", "gl_PerVertex"))) {
                                 throw failure(stage + ": unsupported user interface/uniform block");
@@ -297,7 +305,7 @@ public final class LevititeShaderConverter {
                     }
                 }
                 if (!layout.isEmpty()) throw failure(stage + ": unsupported layout declaration");
-                return;                                                                
+                return;
             }
             if (cursor == end) {
                 boolean control = stage == Stage.TESSELLATION_CONTROL && storage.equals("out")
@@ -367,9 +375,29 @@ public final class LevititeShaderConverter {
                     + (declaration.arrayLength == -1 ? "[]" : "") + ";"));
         }
 
+        void remapVertexClip() {
+            int position = -1, braces = 0;
+            for (int i = mainOpen + 1; i < mainClose; i++) {
+                String token = at(i);
+                if (token.equals("return")) throw failure("Vertex early return prevents final clip conversion");
+                if (token.equals("{")) braces++;
+                if (token.equals("}")) braces--;
+                if (!token.equals("gl_Position")) continue;
+                String preceding = at(i - 1);
+                if (position >= 0 || braces != 0 || !at(i + 1).equals("=")
+                        || !(preceding.equals(";") || preceding.equals("}") || preceding.equals("{"))) {
+                    throw failure("Vertex projection requires one unconditional gl_Position assignment");
+                }
+                position = i;
+            }
+            if (position < 0) throw failure("Vertex main lacks a gl_Position assignment");
+
+            edits.add(new Edit(tokens.get(mainClose).start, tokens.get(mainClose).start, REMAP));
+        }
+
         void remapFinalClip() {
-                                                                                                         
-                                                                                                         
+
+
             List<List<String>> expectedForms = List.of(
                     List.of("gl_Position", "=", "ProjMat", "*", "ModelViewMat", "*", "vec4", "(",
                             "pos", ",", "1", ")", ";", "gl_Position", ".", "z", "-", "=", "0.00001", ";",
@@ -382,8 +410,8 @@ public final class LevititeShaderConverter {
             int positionReferences = 0;
             for (int i = mainOpen + 1; i < mainClose; i++) {
                 if (at(i).equals("return")) throw failure("TES early return prevents final clip conversion");
-                                                                                 
-                                                                               
+
+
                 if (at(i).equals("gl_Position") && !at(i - 1).equals(".")) positionReferences++;
             }
             if (positionReferences != 3) throw failure("TES has unsupported extra gl_Position operations");
@@ -401,7 +429,7 @@ public final class LevititeShaderConverter {
                 if (matches) { first = candidate; break; }
             }
             if (first < 0) throw failure("TES final projection/bias/depth contract changed");
-                                                                                            
+
             int depth = 0;
             for (int i = mainOpen + 1; i < first; i++) {
                 if (at(i).equals("{")) depth++;

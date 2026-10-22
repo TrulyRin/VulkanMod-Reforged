@@ -112,7 +112,7 @@ public abstract class RenderSystemMixin {
 
     @Overwrite(remap = false)
     public static void viewport(int x, int y, int width, int height) {
-        Renderer.setViewport(x, y, width, height);
+        Renderer.setGlViewport(x, y, width, height);
     }
 
     @Overwrite(remap = false)
@@ -176,17 +176,20 @@ public abstract class RenderSystemMixin {
 
     @Overwrite(remap = false)
     public static void blendFunc(GlStateManager.SourceFactor sourceFactor, GlStateManager.DestFactor destFactor) {
-        VRenderSystem.blendFunc(sourceFactor, destFactor);
+        assertOnRenderThread();
+        GlStateManager._blendFunc(sourceFactor.value, destFactor.value);
     }
 
     @Overwrite(remap = false)
     public static void blendFunc(int srcFactor, int dstFactor) {
-        VRenderSystem.blendFunc(srcFactor, dstFactor);
+        assertOnRenderThread();
+        GlStateManager._blendFunc(srcFactor, dstFactor);
     }
 
     @Overwrite(remap = false)
     public static void blendFuncSeparate(GlStateManager.SourceFactor p_69417_, GlStateManager.DestFactor p_69418_, GlStateManager.SourceFactor p_69419_, GlStateManager.DestFactor p_69420_) {
-        VRenderSystem.blendFuncSeparate(p_69417_, p_69418_, p_69419_, p_69420_);
+        assertOnRenderThread();
+        GlStateManager._blendFuncSeparate(p_69417_.value, p_69418_.value, p_69419_.value, p_69420_.value);
         if (GLCallObserver.shouldObserve()) {
             GLCallObserver.observeCall("blendFuncSeparate", "srcRgb=" + p_69417_.value + " dstRgb=" + p_69418_.value
                     + " srcAlpha=" + p_69419_.value + " dstAlpha=" + p_69420_.value);
@@ -195,7 +198,8 @@ public abstract class RenderSystemMixin {
 
     @Overwrite(remap = false)
     public static void blendFuncSeparate(int srcFactorRGB, int dstFactorRGB, int srcFactorAlpha, int dstFactorAlpha) {
-        VRenderSystem.blendFuncSeparate(srcFactorRGB, dstFactorRGB, srcFactorAlpha, dstFactorAlpha);
+        assertOnRenderThread();
+        GlStateManager._blendFuncSeparate(srcFactorRGB, dstFactorRGB, srcFactorAlpha, dstFactorAlpha);
         if (GLCallObserver.shouldObserve()) {
             GLCallObserver.observeCall("blendFuncSeparate", "srcRgb=" + srcFactorRGB + " dstRgb=" + dstFactorRGB
                     + " srcAlpha=" + srcFactorAlpha + " dstAlpha=" + dstFactorAlpha);

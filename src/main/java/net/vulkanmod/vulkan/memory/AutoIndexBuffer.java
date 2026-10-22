@@ -9,7 +9,7 @@ import java.nio.ShortBuffer;
 
 public class AutoIndexBuffer {
     public static final int U16_MAX_INDEX_COUNT = 65536;
-    public static final int QUAD_U16_MAX_VERTEX_COUNT = U16_MAX_INDEX_COUNT * 3 / 2;
+    public static final int QUAD_U16_MAX_VERTEX_COUNT = U16_MAX_INDEX_COUNT;
 
     int vertexCount;
     DrawType drawType;
@@ -22,41 +22,92 @@ public class AutoIndexBuffer {
     }
 
     private void createIndexBuffer(int vertexCount) {
-        this.vertexCount = vertexCount;
-        ByteBuffer buffer;
-
-        IndexBuffer.IndexType indexType = IndexBuffer.IndexType.SHORT;
-
-        switch (this.drawType) {
-            case QUADS -> {
-                if (vertexCount <= QUAD_U16_MAX_VERTEX_COUNT)
-                    buffer = genQuadIndices(vertexCount);
-                else {
-                    indexType = IndexBuffer.IndexType.INT;
-                    buffer = genIntQuadIndices(vertexCount);
-                }
+        IndexBuffer.IndexType indexType = vertexCount <= U16_MAX_INDEX_COUNT
+                ? IndexBuffer.IndexType.SHORT : IndexBuffer.IndexType.INT;
+        int bytes = checkedIndexBytes(vertexCount, indexType.size);
+        ByteBuffer buffer = bytes == 0 ? MemoryUtil.memAlloc(0)
+                : indexType == IndexBuffer.IndexType.INT ? genIntIndices(vertexCount)
+                : switch (this.drawType) {
+                    case QUADS -> genQuadIndices(vertexCount);
+                    case TRIANGLE_FAN -> genTriangleFanIndices(vertexCount);
+                    case TRIANGLE_STRIP -> genTriangleStripIndices(vertexCount);
+                    case LINES -> genLinesIndices(vertexCount);
+                    case DEBUG_LINE_STRIP -> genDebugLineStripIndices(vertexCount);
+                    default -> throw new IllegalArgumentException("Unsupported drawType: %s".formatted(this.drawType));
+                };
+        IndexBuffer replacement = null;
+        try {
+            replacement = new IndexBuffer(bytes, MemoryTypes.GPU_MEM, indexType);
+            replacement.copyBuffer(buffer);
+        } catch (RuntimeException | Error failure) {
+            if (replacement != null) {
+                try { replacement.freeBuffer(); }
+                catch (RuntimeException | Error cleanup) { if (cleanup != failure) failure.addSuppressed(cleanup); }
             }
-            case TRIANGLE_FAN -> buffer = genTriangleFanIndices(vertexCount);
-            case TRIANGLE_STRIP -> buffer = genTriangleStripIndices(vertexCount);
-            case LINES -> buffer = genLinesIndices(vertexCount);
-            case DEBUG_LINE_STRIP -> buffer = genDebugLineStripIndices(vertexCount);
-            default -> throw new IllegalArgumentException("Unsupported drawType: %s".formatted(this.drawType));
+            throw failure;
+        } finally {
+            MemoryUtil.memFree(buffer);
         }
-
-        int size = buffer.capacity();
-        this.indexBuffer = new IndexBuffer(size, MemoryTypes.GPU_MEM, indexType);
-        this.indexBuffer.copyBuffer(buffer);
-
-        MemoryUtil.memFree(buffer);
+        IndexBuffer previous = this.indexBuffer;
+        this.indexBuffer = replacement;
+        this.vertexCount = vertexCount;
+        if (previous != null) previous.freeBuffer();
     }
 
     public void checkCapacity(int vertexCount) {
+        if (vertexCount < 0) throw new IllegalArgumentException("Negative automatic vertex capacity");
         if(vertexCount > this.vertexCount) {
-            int newVertexCount = this.vertexCount * 2;
+            long growth = Math.max((long) vertexCount, (long) this.vertexCount * 2);
+            if (growth > Integer.MAX_VALUE) throw new IllegalArgumentException("Automatic vertex capacity exceeds supported integer range");
+            int newVertexCount = (int) growth;
             Initializer.LOGGER.info("Reallocating AutoIndexBuffer from {} to {}", this.vertexCount, newVertexCount);
 
-            this.indexBuffer.freeBuffer();
             createIndexBuffer(newVertexCount);
+        }
+    }
+
+    private int checkedIndexBytes(int vertices, int width) {
+        if (vertices < 0) throw new IllegalArgumentException("Negative automatic vertex capacity");
+        long indices = switch (this.drawType) {
+            case QUADS, LINES -> ((long) vertices + 3) / 4 * 6;
+            case TRIANGLE_FAN, TRIANGLE_STRIP -> Math.max(0L, (long) vertices - 2) * 3;
+            case DEBUG_LINE_STRIP -> Math.max(0L, (long) vertices - 1) * 2;
+            default -> throw new IllegalArgumentException("Unsupported drawType: %s".formatted(this.drawType));
+        };
+        long bytes = indices * width;
+        if (bytes > Integer.MAX_VALUE) throw new IllegalArgumentException("Automatic index storage exceeds supported integer range");
+        return (int) bytes;
+    }
+
+    private ByteBuffer genIntIndices(int vertexCount) {
+        if (this.drawType == DrawType.QUADS) return genIntQuadIndices(vertexCount);
+        ByteBuffer buffer = MemoryUtil.memAlloc(checkedIndexBytes(vertexCount, Integer.BYTES));
+        try {
+            IntBuffer indices = buffer.asIntBuffer();
+            switch (this.drawType) {
+                case LINES -> {
+                    for (int i = 0; i < vertexCount; i += 4)
+                        indices.put(i).put(i + 1).put(i + 2).put(i + 3).put(i + 2).put(i + 1);
+                }
+                case TRIANGLE_FAN -> {
+                    for (int i = 1; i + 1 < vertexCount; i++) indices.put(0).put(i).put(i + 1);
+                }
+                case TRIANGLE_STRIP -> {
+                    for (int i = 0; i + 2 < vertexCount; i++) {
+                        indices.put((i & 1) == 0 ? i : i + 1);
+                        indices.put((i & 1) == 0 ? i + 1 : i);
+                        indices.put(i + 2);
+                    }
+                }
+                case DEBUG_LINE_STRIP -> {
+                    for (int i = 0; i + 1 < vertexCount; i++) indices.put(i).put(i + 1);
+                }
+                default -> throw new IllegalArgumentException("Unsupported drawType: %s".formatted(this.drawType));
+            }
+            return buffer;
+        } catch (RuntimeException | Error failure) {
+            MemoryUtil.memFree(buffer);
+            throw failure;
         }
     }
 

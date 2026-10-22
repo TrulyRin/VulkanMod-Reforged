@@ -4,7 +4,7 @@ import org.lwjgl.system.MemoryUtil;
 
 import java.nio.ByteBuffer;
 
-                                                                                     
+
 public final class QuadPatchIndices {
     private QuadPatchIndices() {}
 
@@ -28,17 +28,17 @@ public final class QuadPatchIndices {
         return byteCount(compactedIndexCount(triangleIndexCount), type);
     }
 
-       
-                                                                                  
-                                                                               
-                                                                       
-      
-                                                                               
-                                                                               
-                                                                                
-                                                                           
-                                                                               
-       
+
+
+
+
+
+
+
+
+
+
+
     public static int compact(ByteBuffer source, IndexType type, int triangleIndexCount,
                               int vertexCount, ByteBuffer destination) {
         if (source == null || destination == null) throw invalid("Source and destination are required");
@@ -55,8 +55,8 @@ public final class QuadPatchIndices {
 
         int width = type.bytes;
         int sourcePosition = source.position();
-                                                                             
-                                                                             
+
+
         for (int quad = 0; quad < triangleIndexCount / 6; quad++) {
             int offset = sourcePosition + quad * 6 * width;
             long a = read(source, type, offset);
@@ -72,7 +72,7 @@ public final class QuadPatchIndices {
             if (c != repeatedC || a != repeatedA) {
                 throw invalid("Expected each quad's triangle pattern (a,b,c,c,d,a)");
             }
-                                                                                      
+
         }
 
         int destinationPosition = destination.position();

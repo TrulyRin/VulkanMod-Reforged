@@ -14,6 +14,7 @@ import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceProvider;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.shader.GraphicsPipeline;
+import net.vulkanmod.vulkan.shader.LegacyUniformSupplier;
 import net.vulkanmod.vulkan.shader.Pipeline;
 import net.vulkanmod.vulkan.shader.layout.Uniform;
 import net.vulkanmod.vulkan.shader.descriptor.UBO;
@@ -40,7 +41,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.IntSupplier;
-import java.util.function.Supplier;
 
 @Mixin(value = EffectInstance.class, priority = 900)
 public class EffectInstanceM {
@@ -104,11 +104,13 @@ public class EffectInstanceM {
             String fshSrc = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
 
             GlslConverter converter = new GlslConverter();
+            converter.enableEffectSamplerOrigins();
             converter.reserveUniformNames(this.uniformMap.keySet());
 
             converter.process(vshSrc, fshSrc);
             UBO ubo = converter.getUBO();
             this.setUniformSuppliers(ubo);
+            converter.bindEffectSamplerOrigins();
 
             Pipeline.Builder builder = new Pipeline.Builder(DefaultVertexFormat.POSITION);
             builder.setUniforms(Collections.singletonList(ubo), converter.getSamplerList());
@@ -132,23 +134,16 @@ public class EffectInstanceM {
                 continue;
             }
 
-            Supplier<MappedBuffer> supplier;
-            ByteBuffer byteBuffer;
-
-            if (uniform.getType() <= 3) {
-                byteBuffer = MemoryUtil.memByteBuffer(uniform.getIntBuffer());
-            }
-            else if (uniform.getType() <= 10) {
-                byteBuffer = MemoryUtil.memByteBuffer(uniform.getFloatBuffer());
-            }
-            else {
-                throw new RuntimeException("out of bounds value for uniform " + uniform);
-            }
-
-            MappedBuffer mappedBuffer = MappedBuffer.createFromBuffer(byteBuffer);
-            supplier = () -> mappedBuffer;
-
-            v_uniform.setSupplier(supplier);
+            String uniformName = v_uniform.getName();
+            v_uniform.setSupplier(new LegacyUniformSupplier(v_uniform, () -> this.uniformMap.get(uniformName), () -> {
+                com.mojang.blaze3d.shaders.Uniform owner = this.uniformMap.get(uniformName);
+                if (owner == null) return null;
+                ByteBuffer bytes;
+                if (owner.getType() >= 0 && owner.getType() <= 3) bytes = MemoryUtil.memByteBuffer(owner.getIntBuffer());
+                else if (owner.getType() >= 4 && owner.getType() <= 10) bytes = MemoryUtil.memByteBuffer(owner.getFloatBuffer());
+                else throw new IllegalArgumentException("Unsupported effect uniform owner " + uniformName + ": " + owner.getType());
+                return MappedBuffer.createFromBuffer(bytes);
+            }));
         }
 
     }

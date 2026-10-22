@@ -89,7 +89,7 @@ public class GlStateManagerM {
 
     @Overwrite(remap = false)
     public static void _viewport(int x, int y, int width, int height) {
-        Renderer.setViewport(x, y, width, height);
+        Renderer.setGlViewport(x, y, width, height);
     }
 
     @Overwrite(remap = false)

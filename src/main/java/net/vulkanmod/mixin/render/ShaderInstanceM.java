@@ -1,5 +1,6 @@
 package net.vulkanmod.mixin.render;
 
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.Window;
 import com.mojang.blaze3d.shaders.Program;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -8,22 +9,30 @@ import com.mojang.blaze3d.vertex.VertexFormat;
 import com.google.gson.JsonObject;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.ShaderInstance;
+import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.Resource;
 import net.minecraft.server.packs.resources.ResourceProvider;
 import net.minecraft.util.GsonHelper;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.interfaces.ShaderMixed;
+import net.vulkanmod.render.CanonicalBlitResources;
+import net.vulkanmod.render.CanonicalParticleResources;
+import net.vulkanmod.render.ProviderShaderResources;
 import net.vulkanmod.gl.GlEmulationLog;
 import net.vulkanmod.gl.GlProgram;
 import net.vulkanmod.compat.sable.veil.VeilShaderProgramAccess;
 import net.vulkanmod.compat.sable.veil.VeilProgramPipelines;
 import net.vulkanmod.vulkan.shader.GraphicsPipeline;
 import net.vulkanmod.vulkan.shader.LegacyProjectionSupplier;
+import net.vulkanmod.vulkan.shader.CustomUniformSource;
+import net.vulkanmod.vulkan.shader.LegacyUniformSupplier;
 import net.vulkanmod.vulkan.shader.Pipeline;
+import net.vulkanmod.vulkan.shader.SPIRVUtils;
 import net.vulkanmod.vulkan.shader.descriptor.UBO;
 import net.vulkanmod.vulkan.shader.layout.Uniform;
 import net.vulkanmod.vulkan.shader.parser.GlslConverter;
+import net.vulkanmod.vulkan.shader.parser.LegacyUniformDefaults;
 import net.vulkanmod.vulkan.util.MappedBuffer;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.system.MemoryUtil;
@@ -50,7 +59,9 @@ import java.util.function.Supplier;
 public class ShaderInstanceM implements ShaderMixed {
 
     @Shadow @Final private Map<String, com.mojang.blaze3d.shaders.Uniform> uniformMap;
+    @Shadow @Final private Map<String, Object> samplerMap;
     @Shadow @Final private String name;
+    @Shadow @Final private int programId;
 
     @Shadow @Final @Nullable public com.mojang.blaze3d.shaders.Uniform MODEL_VIEW_MATRIX;
     @Shadow @Final @Nullable public com.mojang.blaze3d.shaders.Uniform PROJECTION_MATRIX;
@@ -70,14 +81,31 @@ public class ShaderInstanceM implements ShaderMixed {
     private String fsName;
     private String vulkanBindPath;
     private VertexFormat pipelineFormat;
+    private String legacyVertexSource;
+    private String legacyFragmentSource;
 
     private GraphicsPipeline pipeline;
     private final Map<VertexFormat, GraphicsPipeline> variantPipelines = new HashMap<>();
+    private final Map<VertexFormat, GraphicsPipeline> rawPipelines = new HashMap<>();
+    private net.vulkanmod.vulkan.shader.RawShaderBytecode rawBytecode;
+    private String rawBindingPath;
+    private boolean rawOriginsPrepared;
     private final Map<VertexFormat, GraphicsPipeline> sablePipelines = new HashMap<>();
     private final Map<String, UniformBufferView> uniformBuffers = new HashMap<>();
 
     private record UniformBufferView(com.mojang.blaze3d.shaders.Uniform owner, MappedBuffer buffer) {}
     boolean isLegacy = false;
+    private GraphicsPipeline admittedBlitCopy;
+    private GraphicsPipeline admittedBlitLegacy;
+    private int admittedBlitProgram;
+    private boolean blitClosed;
+
+    @Override
+    public BlitContract blitContract() {
+        if (this.blitClosed || this.pipeline == null || VeilShaderProgramAccess.isWrapper(this)) return BlitContract.UNSUPPORTED;
+        if (this.pipeline == this.admittedBlitCopy && this.programId == this.admittedBlitProgram) return BlitContract.CANONICAL_COPY;
+        return this.isLegacy && this.pipeline == this.admittedBlitLegacy ? BlitContract.LEGACY : BlitContract.UNSUPPORTED;
+    }
 
     public GraphicsPipeline getPipeline() {
         if (VeilShaderProgramAccess.isWrapper(this)) return VeilProgramPipelines.getPipeline(this, null);
@@ -90,7 +118,7 @@ public class ShaderInstanceM implements ShaderMixed {
             return this.pipeline;
         }
 
-        if (this.isLegacy || this.vulkanBindPath == null) {
+        if (!this.isLegacy && this.vulkanBindPath == null) {
             return this.pipeline;
         }
 
@@ -98,9 +126,55 @@ public class ShaderInstanceM implements ShaderMixed {
     }
 
     @Override
+    public GraphicsPipeline getRawPipeline(VertexFormat drawFormat) {
+        if (this.blitClosed || this.pipeline == null) return null;
+        if (VeilShaderProgramAccess.isWrapper(this)) return getPipeline(drawFormat);
+        if (this.isLegacy) {
+            if (this.pipeline.getImageDescriptors().isEmpty()) return getPipeline(drawFormat);
+            VertexFormat format = drawFormat == null ? this.pipelineFormat : drawFormat;
+            if (format == null) return null;
+            return this.rawPipelines.computeIfAbsent(format,
+                    actual -> createLegacyPipeline(actual, this.legacyVertexSource, this.legacyFragmentSource, true));
+        }
+        VertexFormat format = drawFormat == null ? this.pipelineFormat : drawFormat;
+        if (format == null || this.rawBytecode == null || this.rawBindingPath == null) return null;
+        return this.rawPipelines.computeIfAbsent(format, actual -> {
+            Pipeline.Builder builder = new Pipeline.Builder(actual, this.rawBindingPath);
+            builder.parseBindingsJSON();
+            net.vulkanmod.vulkan.shader.RawShaderUniforms.bind(builder.uniformBuffers(), this.uniformMap);
+            if (!this.rawOriginsPrepared) {
+                this.rawBytecode = this.rawBytecode.withSamplerOrigins(builder, this.uniformMap.keySet());
+                this.rawOriginsPrepared = true;
+            }
+            return this.rawBytecode.create(builder);
+        });
+    }
+
+    @Override
+    public int samplerTextureId(Pipeline drawPipeline, String samplerName) {
+        if (drawPipeline == null || (drawPipeline != this.pipeline
+                && !this.variantPipelines.containsValue(drawPipeline)
+                && !this.rawPipelines.containsValue(drawPipeline))) {
+            return -1;
+        }
+
+        Object sampler = this.samplerMap.get(samplerName);
+        if (sampler instanceof RenderTarget target) {
+            return target.getColorTextureId();
+        }
+        if (sampler instanceof AbstractTexture texture) {
+            return texture.getId();
+        }
+        if (sampler instanceof Integer textureId) {
+            return textureId;
+        }
+        return -1;
+    }
+
+    @Override
     public MappedBuffer uniformBuffer(String uniformName) {
         if (VeilShaderProgramAccess.isWrapper(this)) {
-                                                                                     
+
             return GlProgram.uniformBuffer(VeilShaderProgramAccess.programId(this), uniformName);
         }
         com.mojang.blaze3d.shaders.Uniform uniform = this.uniformMap.get(uniformName);
@@ -108,16 +182,20 @@ public class ShaderInstanceM implements ShaderMixed {
             this.uniformBuffers.remove(uniformName);
             return null;
         }
+        if (uniform instanceof CustomUniformSource source) {
+            this.uniformBuffers.remove(uniformName);
+            return source.view();
+        }
         UniformBufferView cached = this.uniformBuffers.get(uniformName);
         if (cached != null && cached.owner() == uniform) {
             return cached.buffer();
         }
 
-                                                                                             
+
         ByteBuffer buffer;
-        if (uniform.getType() <= 3) {
+        if (uniform.getType() >= 0 && uniform.getType() <= 3) {
             buffer = MemoryUtil.memByteBuffer(uniform.getIntBuffer());
-        } else if (uniform.getType() <= 10) {
+        } else if (uniform.getType() >= 4 && uniform.getType() <= 10) {
             buffer = MemoryUtil.memByteBuffer(uniform.getFloatBuffer());
         } else {
             this.uniformBuffers.remove(uniformName);
@@ -126,6 +204,26 @@ public class ShaderInstanceM implements ShaderMixed {
         MappedBuffer mapped = MappedBuffer.createFromBuffer(buffer);
         this.uniformBuffers.put(uniformName, new UniformBufferView(uniform, mapped));
         return mapped;
+    }
+
+    @Override
+    public MappedBuffer uploadUniformBuffer(String uniformName) {
+        com.mojang.blaze3d.shaders.Uniform uniform = this.uniformMap.get(uniformName);
+        if (uniform instanceof CustomUniformSource source) {
+            LegacyUniformSupplier.requireSupported(source.descriptor(), uniformName);
+            return source.uploadBuffer();
+        }
+        return uniformBuffer(uniformName);
+    }
+
+    @Override
+    public MappedBuffer uploadUniformBuffer(String uniformName, String type) {
+        com.mojang.blaze3d.shaders.Uniform uniform = this.uniformMap.get(uniformName);
+        if (uniform instanceof CustomUniformSource source) {
+            LegacyUniformSupplier.requireMatches(source.descriptor(), type, 0, uniformName);
+            return source.uploadBuffer();
+        }
+        return uploadUniformBuffer(uniformName);
     }
 
     @Override
@@ -159,6 +257,12 @@ public class ShaderInstanceM implements ShaderMixed {
     }
 
     private void create(ResourceProvider resourceProvider, String name, VertexFormat format) {
+        this.admittedBlitCopy = null;
+        this.admittedBlitLegacy = null;
+        this.blitClosed = false;
+        this.rawBytecode = null;
+        this.rawBindingPath = null;
+        this.rawOriginsPrepared = false;
         String path;
         String namespace = "minecraft";
         String namePath = name;
@@ -183,10 +287,26 @@ public class ShaderInstanceM implements ShaderMixed {
         this.fsName = path;
         this.pipelineFormat = format;
 
+        ProviderShaderResources selectedParticle = null;
+        if ("minecraft".equals(namespace) && "particle".equals(namePath)) {
+            try {
+                selectedParticle = ProviderShaderResources.load(resourceProvider, ResourceLocation.parse(path + ".json"));
+            } catch (Exception failure) {
+                throw new IllegalStateException("Unable to load selected particle shader resources", failure);
+            }
+            if (!CanonicalParticleResources.matches(selectedParticle)) {
+                createLegacyShader(resourceProvider, format, selectedParticle);
+                return;
+            }
+        }
+
         try {
             String bindPath = String.format("%s/core/%s/%s", namespace, namePath, namePath);
-            if (!hasVulkanShader(bindPath)) {
-                createLegacyShader(resourceProvider, format);
+            boolean blitCandidate = "minecraft".equals(namespace) && "blit_screen".equals(namePath);
+            boolean canonicalBlit = blitCandidate && DefaultVertexFormat.BLIT_SCREEN.equals(format)
+                    && CanonicalBlitResources.matches(resourceProvider);
+            if ((blitCandidate && !canonicalBlit) || !hasVulkanShader(bindPath)) {
+                createLegacyShader(resourceProvider, format, selectedParticle);
                 return;
             }
 
@@ -194,11 +314,19 @@ public class ShaderInstanceM implements ShaderMixed {
             Pipeline.Builder pipelineBuilder = new Pipeline.Builder(format, bindPath);
             pipelineBuilder.parseBindingsJSON();
             pipelineBuilder.compileShaders();
+            var compiledRaw = pipelineBuilder.snapshotGraphicsBytecode();
             this.pipeline = pipelineBuilder.createGraphicsPipeline();
+            this.rawBytecode = compiledRaw;
+            this.rawBindingPath = bindPath;
+            this.isLegacy = false;
+            if (canonicalBlit && this.pipeline != null) {
+                this.admittedBlitCopy = this.pipeline;
+                this.admittedBlitProgram = this.programId;
+            }
         } catch (Exception e) {
 
             Initializer.LOGGER.error("Error on shader {} creation, attempting conversion fallback", name, e);
-            createLegacyShader(resourceProvider, format);
+            createLegacyShader(resourceProvider, format, selectedParticle);
         }
     }
 
@@ -212,6 +340,15 @@ public class ShaderInstanceM implements ShaderMixed {
     }
 
     private GraphicsPipeline createPipelineVariant(VertexFormat drawFormat) {
+        if (this.isLegacy) {
+            try {
+                return createLegacyPipeline(drawFormat, this.legacyVertexSource, this.legacyFragmentSource);
+            } catch (Exception failure) {
+
+                throw new IllegalStateException("Unable to create legacy shader " + this.name
+                        + " for draw format " + drawFormat, failure);
+            }
+        }
         try {
             Pipeline.Builder pipelineBuilder = new Pipeline.Builder(drawFormat, this.vulkanBindPath);
             pipelineBuilder.parseBindingsJSON();
@@ -232,6 +369,14 @@ public class ShaderInstanceM implements ShaderMixed {
 
     @Inject(method = "close", at = @At("HEAD"), cancellable = true)
     public void close(CallbackInfo ci) {
+        this.blitClosed = true;
+        this.rawPipelines.values().forEach(raw -> { if (raw != null) raw.cleanUp(); });
+        this.rawPipelines.clear();
+        this.rawBytecode = null;
+        this.rawBindingPath = null;
+        this.rawOriginsPrepared = false;
+        this.admittedBlitCopy = null;
+        this.admittedBlitLegacy = null;
         if (this.pipeline != null)
             this.pipeline.cleanUp();
         this.variantPipelines.values().forEach(variantPipeline -> {
@@ -240,6 +385,8 @@ public class ShaderInstanceM implements ShaderMixed {
             }
         });
         this.variantPipelines.clear();
+        this.legacyVertexSource = null;
+        this.legacyFragmentSource = null;
         this.sablePipelines.values().forEach(sablePipeline -> {
             if (sablePipeline != null && sablePipeline != this.pipeline) {
                 sablePipeline.cleanUp();
@@ -253,57 +400,7 @@ public class ShaderInstanceM implements ShaderMixed {
     @Inject(method = "apply", at = @At("HEAD"), cancellable = true)
     public void apply(CallbackInfo ci) {
         ci.cancel();
-        if (!this.isLegacy)
-            return;
 
-        if (this.MODEL_VIEW_MATRIX != null) {
-            this.MODEL_VIEW_MATRIX.set(RenderSystem.getModelViewMatrix());
-        }
-
-        if (this.PROJECTION_MATRIX != null) {
-            this.PROJECTION_MATRIX.set(RenderSystem.getProjectionMatrix());
-        }
-
-        if (this.COLOR_MODULATOR != null) {
-            this.COLOR_MODULATOR.set(RenderSystem.getShaderColor());
-        }
-
-        if (this.GLINT_ALPHA != null) {
-            this.GLINT_ALPHA.set(RenderSystem.getShaderGlintAlpha());
-        }
-
-        if (this.FOG_START != null) {
-            this.FOG_START.set(RenderSystem.getShaderFogStart());
-        }
-
-        if (this.FOG_END != null) {
-            this.FOG_END.set(RenderSystem.getShaderFogEnd());
-        }
-
-        if (this.FOG_COLOR != null) {
-            this.FOG_COLOR.set(RenderSystem.getShaderFogColor());
-        }
-
-        if (this.FOG_SHAPE != null) {
-            this.FOG_SHAPE.set(RenderSystem.getShaderFogShape().getIndex());
-        }
-
-        if (this.TEXTURE_MATRIX != null) {
-            this.TEXTURE_MATRIX.set(RenderSystem.getTextureMatrix());
-        }
-
-        if (this.GAME_TIME != null) {
-            this.GAME_TIME.set(RenderSystem.getShaderGameTime());
-        }
-
-        if (this.SCREEN_SIZE != null) {
-            Window window = Minecraft.getInstance().getWindow();
-            this.SCREEN_SIZE.set((float) window.getWidth(), (float) window.getHeight());
-        }
-
-        if (this.LINE_WIDTH != null) {
-            this.LINE_WIDTH.set(RenderSystem.getShaderLineWidth());
-        }
     }
 
     @Inject(method = "clear", at = @At("HEAD"), cancellable = true)
@@ -318,67 +415,91 @@ public class ShaderInstanceM implements ShaderMixed {
 
             if (uniform == null) {
                 if (vUniform.hasSupplier()) {
-                    Initializer.LOGGER.debug("Continuing with global shader uniform supplier for {}", vUniform.getName());
+                    Initializer.LOGGER.debug("Continuing with resolved legacy shader uniform supplier for {}", vUniform.getName());
                     continue;
                 }
-                Initializer.LOGGER.error(String.format("Error: field %s not present in uniform map", vUniform.getName()));
-                continue;
+                throw new IllegalArgumentException("No owner or default for legacy shader uniform " + vUniform.getName());
             }
 
-            MappedBuffer mappedBuffer = uniformBuffer(vUniform.getName());
-            if (mappedBuffer == null) {
-                throw new RuntimeException("out of bounds value for uniform " + uniform);
-            }
-            if ("ProjMat".equals(vUniform.getName()) && vUniform.getSize() == 16 && uniform.getType() == 10) {
-                vUniform.setSupplier(new LegacyProjectionSupplier(mappedBuffer));
+            String uniformName = vUniform.getName();
+            Supplier<MappedBuffer> supplier = new LegacyUniformSupplier(vUniform,
+                    () -> this.uniformMap.get(uniformName), () -> uniformBuffer(uniformName));
+            if ("ProjMat".equals(uniformName) && vUniform.getSize() == 16 && "mat4".equals(vUniform.getType())) {
+                vUniform.setSupplier(LegacyProjectionSupplier.fromSource(supplier));
             } else {
-                vUniform.setSupplier(() -> mappedBuffer);
+                vUniform.setSupplier(supplier);
             }
         }
 
     }
 
-    private void createLegacyShader(ResourceProvider resourceProvider, VertexFormat format) {
+    private void createLegacyShader(ResourceProvider resourceProvider, VertexFormat format, @Nullable ProviderShaderResources selected) {
         try {
-            ResourceLocation jsonLocation = ResourceLocation.tryParse(this.vsPath + ".json");
-            Resource resource = resourceProvider.getResourceOrThrow(jsonLocation);
-            JsonObject jsonObject;
-            try (InputStream inputStream = resource.open()) {
-                jsonObject = GsonHelper.parse(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
+            String vshSrc;
+            String fshSrc;
+            if (selected != null) {
+                vshSrc = selected.vertexSource();
+                fshSrc = selected.fragmentSource();
+            } else {
+                ResourceLocation jsonLocation = ResourceLocation.tryParse(this.vsPath + ".json");
+                Resource resource = resourceProvider.getResourceOrThrow(jsonLocation);
+                JsonObject jsonObject;
+                try (InputStream inputStream = resource.open()) {
+                    jsonObject = GsonHelper.parse(new InputStreamReader(inputStream, StandardCharsets.UTF_8));
+                }
+
+                ResourceLocation vertLocation = resolveShaderStageLocation(GsonHelper.getAsString(jsonObject, "vertex"), "vsh");
+                ResourceLocation fragLocation = resolveShaderStageLocation(GsonHelper.getAsString(jsonObject, "fragment"), "fsh");
+
+                try (InputStream input = resourceProvider.getResourceOrThrow(vertLocation).open()) {
+                    vshSrc = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                }
+                try (InputStream input = resourceProvider.getResourceOrThrow(fragLocation).open()) {
+                    fshSrc = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+                }
             }
 
-            ResourceLocation vertLocation = resolveShaderStageLocation(GsonHelper.getAsString(jsonObject, "vertex"), "vsh");
-            ResourceLocation fragLocation = resolveShaderStageLocation(GsonHelper.getAsString(jsonObject, "fragment"), "fsh");
-
-            resource = resourceProvider.getResourceOrThrow(vertLocation);
-            InputStream inputStream = resource.open();
-            String vshSrc = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-
-            resource = resourceProvider.getResourceOrThrow(fragLocation);
-            inputStream = resource.open();
-            String fshSrc = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-
-            GlslConverter converter = new GlslConverter();
-            converter.setFormat(format);
-            converter.reserveUniformNames(this.uniformMap.keySet());
-            Pipeline.Builder builder = new Pipeline.Builder(format, this.name);
-
-            converter.process(vshSrc, fshSrc);
-            UBO ubo = converter.getUBO();
-            this.setUniformSuppliers(ubo);
-
-            builder.setUniforms(Collections.singletonList(ubo), converter.getSamplerList());
-            builder.compileShaders(this.name, converter.getVshConverted(), converter.getFshConverted());
-
-            this.pipeline = builder.createGraphicsPipeline();
+            this.pipeline = createLegacyPipeline(format, vshSrc, fshSrc);
+            this.legacyVertexSource = vshSrc;
+            this.legacyFragmentSource = fshSrc;
             this.isLegacy = true;
+            this.admittedBlitLegacy = this.pipeline;
 
         } catch (Exception e) {
+            if (selected != null) {
+                throw new IllegalStateException("Unable to convert selected particle shader contract", e);
+            }
             Initializer.LOGGER.error("Error on shader {} conversion/compilation", this.name, e);
             GlEmulationLog.warnContractGap("shader_conversion", "fallbackShader",
                     "Using generic fallback shader for unsupported GLSL contract {}; shader={}",
                     classifyShaderFailure(e), this.name);
             createExternalFallbackShader(format);
+        }
+    }
+
+    private GraphicsPipeline createLegacyPipeline(VertexFormat format, String vertex, String fragment) {
+        return createLegacyPipeline(format, vertex, fragment, false);
+    }
+
+    private GraphicsPipeline createLegacyPipeline(VertexFormat format, String vertex, String fragment, boolean raw) {
+        if (vertex == null || fragment == null) throw new IllegalStateException("Legacy shader sources are unavailable");
+        GlslConverter converter = new GlslConverter();
+        converter.setFormat(format);
+        converter.reserveUniformNames(this.uniformMap.keySet());
+        if (raw) converter.enableEffectSamplerOrigins();
+        converter.process(vertex, fragment);
+        UBO ubo = converter.getUBO();
+        LegacyUniformDefaults.bind(ubo, converter.getUniformDeclarations(), this.uniformMap.keySet());
+        this.setUniformSuppliers(ubo);
+        if (raw) converter.bindEffectSamplerOrigins();
+        Pipeline.Builder builder = new Pipeline.Builder(format, this.name);
+        builder.setUniforms(Collections.singletonList(ubo), converter.getSamplerList());
+
+
+        try (var vertexBinary = SPIRVUtils.compileShader(this.name + ".vsh", converter.getVshConverted(), SPIRVUtils.ShaderKind.VERTEX_SHADER);
+             var fragmentBinary = SPIRVUtils.compileShader(this.name + ".fsh", converter.getFshConverted(), SPIRVUtils.ShaderKind.FRAGMENT_SHADER)) {
+            builder.setSPIRVs(vertexBinary, fragmentBinary);
+            return builder.createGraphicsPipeline();
         }
     }
 
@@ -403,7 +524,10 @@ public class ShaderInstanceM implements ShaderMixed {
             Pipeline.Builder builder = new Pipeline.Builder(format, fallbackPath);
             builder.parseBindingsJSON();
             builder.compileShaders();
+            var compiledRaw = builder.snapshotGraphicsBytecode();
             this.pipeline = builder.createGraphicsPipeline();
+            this.rawBytecode = compiledRaw;
+            this.rawBindingPath = fallbackPath;
             this.vulkanBindPath = fallbackPath;
             this.pipelineFormat = format;
             this.isLegacy = false;

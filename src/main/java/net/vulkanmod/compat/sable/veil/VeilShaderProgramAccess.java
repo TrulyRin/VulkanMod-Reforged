@@ -6,7 +6,7 @@ import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
-                                                                            
+
 public final class VeilShaderProgramAccess {
     private static final String WRAPPER = "foundry.veil.impl.client.render.shader.program.ShaderProgramImpl$Wrapper";
     private static final Access ORDINARY = new Access(false, null);
@@ -66,14 +66,14 @@ public final class VeilShaderProgramAccess {
         }
     }
 
-                                                                                         
+
     private static Class<?> programInterface(Class<?> type) {
         if (type.isInterface() && Modifier.isPublic(type.getModifiers())) {
             try {
                 Method getter = type.getMethod("getProgram");
                 if (getter.getReturnType() == int.class && !Modifier.isStatic(getter.getModifiers())) return type;
             } catch (NoSuchMethodException ignored) {
-                                                                                                 
+
             }
         }
         for (Class<?> parent : type.getInterfaces()) {

@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.Window;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.EntityRenderDispatcher;
+import net.vulkanmod.gl.GlFramebuffer;
 import net.vulkanmod.compat.render.GuiEntityRenderState;
 import net.vulkanmod.compat.render.RenderStateSnapshot;
 import net.vulkanmod.mixin.render.entity.EntityRenderDispatcherAccessor;
@@ -60,12 +61,17 @@ public class EssentialUI3DPlayerMixin {
 
     @Unique
     private void vulkanMod$beginComponentScissor() {
-        vulkanMod$essentialPlayerScissorState.set(new ScissorState(
+        ScissorState parent = new ScissorState(
                 Renderer.isScissorEnabled(),
                 Renderer.getScissorBox(0),
                 Renderer.getScissorBox(1),
                 Renderer.getScissorBox(2),
-                Renderer.getScissorBox(3)));
+                Renderer.getScissorBox(3));
+        vulkanMod$essentialPlayerScissorState.set(parent);
+
+
+
+        if (vulkanMod$usesLocalPreviewTarget()) return;
 
         Window window = Minecraft.getInstance().getWindow();
         double scale = window.getGuiScale();
@@ -75,9 +81,33 @@ public class EssentialUI3DPlayerMixin {
         float heightGui = vulkanMod$componentFloat("getHeight");
         int x = (int) Math.floor(left * scale);
         int y = (int) Math.floor(window.getHeight() - (top + heightGui) * scale);
-        int width = (int) Math.ceil(widthGui * scale);
-        int height = (int) Math.ceil(heightGui * scale);
-        RenderSystem.enableScissor(x, y, Math.max(0, width), Math.max(0, height));
+        int width = Math.max(0, (int) Math.ceil(widthGui * scale));
+        int height = Math.max(0, (int) Math.ceil(heightGui * scale));
+        if (parent.enabled()) {
+            long right = Math.min((long) x + width, (long) parent.x() + Math.max(0, parent.width()));
+            long topEdge = Math.min((long) y + height, (long) parent.y() + Math.max(0, parent.height()));
+            x = Math.max(x, parent.x());
+            y = Math.max(y, parent.y());
+            width = (int) Math.max(0L, right - x);
+            height = (int) Math.max(0L, topEdge - y);
+        }
+        RenderSystem.enableScissor(x, y, width, height);
+    }
+
+    @Unique
+    private static boolean vulkanMod$usesLocalPreviewTarget() {
+        Renderer renderer = Renderer.getInstance();
+        if (renderer == null || renderer.getMainPass() == null)
+            return false;
+        if (renderer.getBoundRenderPass() == null) {
+
+            GlFramebuffer selected = GlFramebuffer.getBoundFramebuffer();
+            return selected != null && !selected.usesMainTargetOrientation();
+        }
+        var target = renderer.getBoundRenderPass().getFramebuffer();
+        var mainColor = renderer.getMainPass().getColorAttachment();
+
+        return target != null && mainColor != null && target.getColorAttachment() != mainColor;
     }
 
     @Unique
@@ -105,6 +135,7 @@ public class EssentialUI3DPlayerMixin {
             return;
         }
 
+        Renderer.setScissor(scissorState.x(), scissorState.y(), scissorState.width(), scissorState.height());
         Renderer.setScissorEnabled(false);
     }
 

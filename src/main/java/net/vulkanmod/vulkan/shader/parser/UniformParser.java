@@ -9,6 +9,8 @@ import net.vulkanmod.vulkan.shader.descriptor.UBO;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public class UniformParser {
 
@@ -16,6 +18,7 @@ public class UniformParser {
     private final StageUniforms[] stageUniforms = new StageUniforms[GlslConverter.ShaderStage.values().length];
     private StageUniforms currentUniforms;
     List<Uniform> globalUniforms = new ArrayList<>();
+    private final Map<String, Declaration> declarations = new LinkedHashMap<>();
 
     private String type;
     private String name;
@@ -43,20 +46,50 @@ public class UniformParser {
 
             this.name = token;
 
-            Uniform uniform = new Uniform(this.type, this.name);
-            if (isSamplerType(this.type)) {
-                if (!this.currentUniforms.samplers.contains(uniform))
-                    this.currentUniforms.samplers.add(uniform);
-            } else {
-                if (!this.globalUniforms.contains(uniform))
-                    this.globalUniforms.add(uniform);
-            }
+            parseDeclaration(this.type, this.name, null);
 
             this.resetSate();
             return true;
         }
 
         return false;
+    }
+
+    public void parseDeclaration(String type, String name, String initializer) {
+        parseDeclaration(type, name, initializer, 0);
+    }
+
+    public void parseDeclaration(String type, String name, String initializer, int arrayLength) {
+        if (arrayLength < 0 || arrayLength > LegacyArrayExtent.MAX_EXTENT) {
+            throw new IllegalArgumentException("Invalid legacy uniform array extent for " + name + ": " + arrayLength);
+        }
+        if (arrayLength > 0 && !"float".equals(type)) {
+            throw new IllegalArgumentException("Unsupported legacy uniform array type: " + type + " " + name);
+        }
+        if (arrayLength > 0 && initializer != null) {
+            throw new IllegalArgumentException("Unsupported legacy uniform array initializer for " + name);
+        }
+        Declaration previous = this.declarations.get(name);
+        if (previous != null && !previous.type().equals(type)) {
+            throw new IllegalArgumentException("Conflicting legacy uniform types for " + name);
+        }
+        if (previous != null && previous.arrayLength() != arrayLength) {
+            throw new IllegalArgumentException("Conflicting legacy uniform array extents for " + name);
+        }
+        List<String> initializers = new ArrayList<>(previous == null ? List.of() : previous.initializers());
+        if (initializer != null) initializers.add(initializer);
+        this.declarations.put(name, new Declaration(type, name, List.copyOf(initializers), arrayLength));
+
+        Uniform uniform = new Uniform(type, name, arrayLength);
+        if (isSamplerType(type)) {
+            if (!this.currentUniforms.samplers.contains(uniform)) this.currentUniforms.samplers.add(uniform);
+        } else if (!this.globalUniforms.contains(uniform)) {
+            this.globalUniforms.add(uniform);
+        }
+    }
+
+    public Map<String, Declaration> getDeclarations() {
+        return Map.copyOf(this.declarations);
     }
 
     public void setCurrentUniforms(GlslConverter.ShaderStage shaderStage) {
@@ -80,7 +113,9 @@ public class UniformParser {
 
         builder.append(String.format("layout(binding = %d) uniform UniformBufferObject {\n", 0));
         for (Uniform uniform : this.globalUniforms) {
-            builder.append(String.format("%s %s;\n", uniform.type, uniform.name));
+            builder.append(uniform.type).append(' ').append(uniform.name);
+            if (uniform.arrayLength > 0) builder.append('[').append(uniform.arrayLength).append(']');
+            builder.append(";\n");
         }
         builder.append("};\n\n");
 
@@ -105,7 +140,8 @@ public class UniformParser {
         AlignedStruct.Builder builder = new AlignedStruct.Builder();
 
         for (Uniform uniform : this.globalUniforms) {
-            builder.addUniformInfo(uniform.type, uniform.name);
+            if (uniform.arrayLength > 0) builder.addUniformArrayInfo(uniform.type, uniform.name, uniform.arrayLength);
+            else builder.addUniformInfo(uniform.type, uniform.name);
         }
 
         return builder.buildUBO(0, Pipeline.Builder.getStageFromString("all"));
@@ -147,7 +183,16 @@ public class UniformParser {
         return this.imageDescriptors;
     }
 
-    public record Uniform(String type, String name) {
+    public record Uniform(String type, String name, int arrayLength) {
+        public Uniform(String type, String name) {
+            this(type, name, 0);
+        }
+    }
+
+    public record Declaration(String type, String name, List<String> initializers, int arrayLength) {
+        public Declaration(String type, String name, List<String> initializers) {
+            this(type, name, initializers, 0);
+        }
     }
 
     private static class StageUniforms {

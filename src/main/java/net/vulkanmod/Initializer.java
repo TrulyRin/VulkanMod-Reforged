@@ -25,7 +25,7 @@ import java.nio.file.Path;
 public class Initializer {
 	public static final Logger LOGGER = LogManager.getLogger("VulkanMod");
 
-	private static String VERSION = "0.4.9-dev";
+	private static String VERSION = "0.3.5-ALPHA+1.21.1";
 	public static Config CONFIG;
 
 	static {
@@ -42,6 +42,8 @@ public class Initializer {
 
 	public Initializer(IEventBus modEventBus, ModContainer modContainer) {
 		VERSION = modContainer.getModInfo().getVersion().toString();
+
+		VulkanFlywheelBootstrap.registerIfPresent();
 		modEventBus.addListener(this::onInitializeClient);
 		modContainer.registerExtensionPoint(IConfigScreenFactory.class,
 				(java.util.function.Supplier<IConfigScreenFactory>) () ->
@@ -50,7 +52,6 @@ public class Initializer {
 
 	private void onInitializeClient(FMLClientSetupEvent event) {
 		LOGGER.info("== VulkanMod ==");
-		VulkanFlywheelBootstrap.registerIfPresent();
 		UpdateChecker.checkForUpdates();
 		event.enqueueWork(() -> {
 			CompatBootstrap.init();

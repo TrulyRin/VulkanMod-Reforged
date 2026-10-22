@@ -23,9 +23,9 @@ public class Uniforms {
 
     public static void setupDefaultUniforms() {
 
-        mat4f_uniformMap.put("ModelViewMat", () -> ScopedUniformResolver.buffer("ModelViewMat", VRenderSystem::getModelViewMatrix));
+        mat4f_uniformMap.put("ModelViewMat", () -> ScopedUniformResolver.buffer("ModelViewMat", "mat4", VRenderSystem::getModelViewMatrix));
         mat4f_uniformMap.put("ProjMat", VRenderSystem::getProjectionMatrix);
-        mat4f_uniformMap.put("MVP", VRenderSystem::getMVP);
+        mat4f_uniformMap.put("MVP", () -> ScopedUniformResolver.mvp(VRenderSystem::getMVP));
         mat4f_uniformMap.put("TextureMat", VRenderSystem::getTextureMatrix);
         if (ExternalRenderPathSupport.isExternalLodBridgeEnabled()) {
             mat4f_uniformMap.put("ExternalLodCombinedMatrix", ExternalTerrainRenderBridge::getCombinedMatrix);
@@ -48,10 +48,10 @@ public class Uniforms {
 
         vec3f_uniformMap.put("Light0_Direction", () -> VRenderSystem.lightDirection0);
         vec3f_uniformMap.put("Light1_Direction", () -> VRenderSystem.lightDirection1);
-        vec3f_uniformMap.put("ChunkOffset", () -> ScopedUniformResolver.buffer("ChunkOffset", () -> VRenderSystem.ChunkOffset));
+        vec3f_uniformMap.put("ChunkOffset", () -> ScopedUniformResolver.buffer("ChunkOffset", "vec3", () -> VRenderSystem.ChunkOffset));
 
         vec4f_uniformMap.put("ColorModulator", VRenderSystem::getShaderColor);
-        vec4f_uniformMap.put("FogColor", () -> ScopedUniformResolver.buffer("FogColor", VRenderSystem::getShaderFogColor));
+        vec4f_uniformMap.put("FogColor", () -> ScopedUniformResolver.buffer("FogColor", "vec4", VRenderSystem::getShaderFogColor));
         if (ExternalRenderPathSupport.isExternalLodBridgeEnabled()) {
             vec4f_uniformMap.put("ExternalLodModelOffsetAndYOffset", ExternalTerrainRenderBridge::getModelOffsetAndYOffset);
             vec4f_uniformMap.put("ExternalLodRenderParams", ExternalTerrainRenderBridge::getRenderParams);

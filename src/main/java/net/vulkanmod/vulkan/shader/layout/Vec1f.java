@@ -25,6 +25,7 @@ public class Vec1f extends Uniform {
 
     @Override
     public void setSupplier(Supplier<MappedBuffer> supplier) {
+        clearDefault();
         this.floatSupplier = () -> supplier.get().getFloat(0);
     }
 
@@ -33,7 +34,13 @@ public class Vec1f extends Uniform {
         return this.floatSupplier != null;
     }
 
+    @Override
+    public boolean hasExplicitSupplier() {
+        return this.floatSupplier != null && this.floatSupplier != ZERO_SUPPLIER;
+    }
+
     void update(long ptr) {
+        if (writeDefault(ptr)) return;
         float f = this.floatSupplier.get();
         MemoryUtil.memPutFloat(ptr + this.offset, f);
     }

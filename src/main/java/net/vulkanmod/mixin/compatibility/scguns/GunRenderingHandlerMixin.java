@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-                                                                                      
+
 @Pseudo
 @Mixin(targets = "top.ribs.scguns.client.handler.GunRenderingHandler", remap = false)
 public class GunRenderingHandlerMixin implements ScgunsCooldownRenderer {
@@ -36,7 +36,7 @@ public class GunRenderingHandlerMixin implements ScgunsCooldownRenderer {
 
     @Override
     public void vulkanMod$renderCooldownHud() {
-                                                                                
+
         this.handleRenderTick();
     }
 }

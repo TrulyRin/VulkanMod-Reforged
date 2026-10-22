@@ -11,6 +11,7 @@ import net.vulkanmod.vulkan.memory.MemoryTypes;
 import net.vulkanmod.vulkan.memory.StagingBuffer;
 import net.vulkanmod.vulkan.queue.Queue;
 import net.vulkanmod.vulkan.shader.Pipeline;
+import net.vulkanmod.vulkan.texture.ImageUtil;
 import net.vulkanmod.vulkan.texture.SamplerManager;
 import net.vulkanmod.vulkan.util.VUtil;
 import net.vulkanmod.vulkan.util.VkResult;
@@ -190,7 +191,8 @@ public class Vulkan {
     }
 
     public static void cleanUp() {
-        vkDeviceWaitIdle(DeviceManager.vkDevice);
+        int deviceIdleResult = vkDeviceWaitIdle(DeviceManager.vkDevice);
+        ImageUtil.cleanupTerminalReadback(deviceIdleResult);
         net.vulkanmod.compat.sable.veil.VeilProgramPipelines.cleanUp();
         vkDestroyCommandPool(DeviceManager.vkDevice, commandPool, null);
         vkDestroyFence(DeviceManager.vkDevice, immediateFence, null);

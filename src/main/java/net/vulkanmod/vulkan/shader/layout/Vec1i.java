@@ -25,6 +25,7 @@ public class Vec1i extends Uniform {
 
     @Override
     public void setSupplier(Supplier<MappedBuffer> supplier) {
+        clearDefault();
         this.intSupplier = () -> supplier.get().getInt(0);
     }
 
@@ -33,7 +34,13 @@ public class Vec1i extends Uniform {
         return this.intSupplier != null;
     }
 
+    @Override
+    public boolean hasExplicitSupplier() {
+        return this.intSupplier != null && this.intSupplier != ZERO_SUPPLIER;
+    }
+
     void update(long ptr) {
+        if (writeDefault(ptr)) return;
         int i = this.intSupplier.get();
         MemoryUtil.memPutInt(ptr + this.offset, i);
     }

@@ -14,14 +14,14 @@ import java.util.Arrays;
 
 import static net.vulkanmod.render.chunk.build.light.data.LightDataAccess.*;
 
-   
-                                                                                                                  
-                   
-   
+
+
+
+
 public class FlatLightPipeline implements LightPipeline {
-       
-                                                        
-       
+
+
+
     private final LightDataAccess lightCache;
 
     public FlatLightPipeline(LightDataAccess lightCache) {
@@ -32,13 +32,13 @@ public class FlatLightPipeline implements LightPipeline {
     public void calculate(QuadView quad, BlockPos pos, QuadLightData out, Direction cullFace, Direction lightFace, boolean shade) {
         int lightmap;
 
-                                                                                 
+
         if (cullFace != null) {
             lightmap = getLightmap(pos, cullFace);
         } else {
             int flags = quad.getFlags();
-                                                                  
-                                                                                                                             
+
+
             if ((flags & ModelQuadFlags.IS_ALIGNED) != 0 || ((flags & ModelQuadFlags.IS_PARALLEL) != 0 && unpackFC(this.lightCache.get(pos)))) {
                 lightmap = getLightmap(pos, lightFace);
             } else {
@@ -53,7 +53,7 @@ public class FlatLightPipeline implements LightPipeline {
     private int getLightmap(BlockPos pos, Direction face) {
         int word = this.lightCache.get(pos);
 
-                                               
+
         if (unpackEM(word)) {
             return LightTexture.FULL_BRIGHT;
         }

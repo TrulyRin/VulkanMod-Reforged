@@ -148,6 +148,7 @@ public class GL30M {
 
     @Overwrite(remap = false)
     public static void glVertexAttribIPointer(@NativeType("GLuint") int index, @NativeType("GLint") int size, @NativeType("GLenum") int type, @NativeType("GLsizei") int stride, @NativeType("void const *") long pointer) {
+        GlVertexArray.vertexAttribIPointer(index, size, type, stride, pointer);
     }
 
     @Overwrite(remap = false)
@@ -782,13 +783,16 @@ public class GL30M {
 
     @Overwrite(remap = false)
     public static void glVertexAttribIPointer(@NativeType("GLuint") int index, @NativeType("GLint") int size, @NativeType("GLenum") int type, @NativeType("GLsizei") int stride, @NativeType("void const *") ByteBuffer pointer) {
+        GlVertexArray.unsupportedClientPointer();
     }
 
     @Overwrite(remap = false)
     public static void glVertexAttribIPointer(@NativeType("GLuint") int index, @NativeType("GLint") int size, @NativeType("GLenum") int type, @NativeType("GLsizei") int stride, @NativeType("void const *") ShortBuffer pointer) {
+        GlVertexArray.unsupportedClientPointer();
     }
 
     @Overwrite(remap = false)
     public static void glVertexAttribIPointer(@NativeType("GLuint") int index, @NativeType("GLint") int size, @NativeType("GLenum") int type, @NativeType("GLsizei") int stride, @NativeType("void const *") IntBuffer pointer) {
+        GlVertexArray.unsupportedClientPointer();
     }
 }

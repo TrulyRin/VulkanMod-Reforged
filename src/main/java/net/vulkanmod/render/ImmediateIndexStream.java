@@ -3,7 +3,7 @@ package net.vulkanmod.render;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
-                                                                                                
+
 public final class ImmediateIndexStream<B> implements AutoCloseable {
     public enum Type {
         U16(2), U32(4);
@@ -15,7 +15,7 @@ public final class ImmediateIndexStream<B> implements AutoCloseable {
         B create(int capacity, Type type);
         void append(B buffer, ByteBuffer selectedBytes);
         void reset(B buffer);
-                                                                                                        
+
         void retire(B buffer);
     }
     private static final class Slot<B> { B buffer; int capacity, used; }
@@ -42,7 +42,7 @@ public final class ImmediateIndexStream<B> implements AutoCloseable {
         }
         int bytes = (int) required;
         if (bytes == 0) return;
-                                                                                                           
+
         ByteBuffer selected = source.slice(); selected.limit(bytes);
         Slot<B> slot = type == Type.U16 ? shorts : ints;
         if (slot.buffer == null || bytes > slot.capacity - slot.used) {
@@ -53,14 +53,14 @@ public final class ImmediateIndexStream<B> implements AutoCloseable {
             catch (RuntimeException | Error failure) { retire(replacement, failure); throw failure; }
             B previous = slot.buffer;
             slot.buffer = replacement; slot.capacity = capacity; slot.used = bytes;
-                                                                                                   
+
             if (previous != null) backend.retire(previous);
             offset = 0;
         } else {
             int start = slot.used;
             try { backend.append(slot.buffer, selected); }
             catch (RuntimeException | Error failure) {
-                                                                                                     
+
                 B poisoned = slot.buffer; slot.buffer = null; slot.capacity = slot.used = 0;
                 retire(poisoned, failure); throw failure;
             }
@@ -71,7 +71,7 @@ public final class ImmediateIndexStream<B> implements AutoCloseable {
     public B buffer() { requireOpen(); return prepared; }
     public int indexCount() { requireOpen(); return count; }
     public int offset() { requireOpen(); return offset; }
-                                                                  
+
     public void reset() {
         requireOpen(); clearPrepared();
         Throwable failure = reset(shorts, null);

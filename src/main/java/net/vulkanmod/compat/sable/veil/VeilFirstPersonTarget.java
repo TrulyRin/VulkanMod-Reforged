@@ -12,7 +12,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 
-                                                                                  
+
 public final class VeilFirstPersonTarget {
     private static boolean disabled;
     private static boolean warned;
@@ -72,7 +72,7 @@ public final class VeilFirstPersonTarget {
                 warn("Veil first-person borrowed attachment refresh was rejected; original wrapper metadata retained.",null);
                 return;
             }
-                                                                                                        
+
             Linkage.SET_TEXTURE.invokeExact(colorAttachment,colorTextureId,-1);
         } catch(Throwable failure) {
             disabled=true;
@@ -87,7 +87,7 @@ public final class VeilFirstPersonTarget {
         else Initializer.LOGGER.warn(message,failure);
     }
 
-                                                                                             
+
     private static final class Linkage {
         static final Class<?> MUTABLE_TEXTURE;
         static final MethodHandle FIRST_PERSON;

@@ -15,6 +15,7 @@ import net.minecraft.server.level.BlockDestructionProgress;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 import net.vulkanmod.render.chunk.TerrainRenderState;
+import net.vulkanmod.render.chunk.VanillaSectionInvalidation;
 import net.vulkanmod.render.chunk.WorldRenderer;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.compat.sable.render.SublevelRenderScope;
@@ -37,6 +38,8 @@ public abstract class LevelRendererMixin {
     @Shadow @Final
     private Long2ObjectMap<SortedSet<BlockDestructionProgress>> destructionProgress;
 
+    @Shadow private ViewArea viewArea;
+
     private WorldRenderer worldRenderer;
 
     @Inject(method = "<init>", at = @At("RETURN"))
@@ -47,11 +50,16 @@ public abstract class LevelRendererMixin {
     @Inject(method = "setLevel", at = @At("RETURN"))
     private void setLevel(ClientLevel clientLevel, CallbackInfo ci) {
         this.worldRenderer.setLevel(clientLevel);
+        if (clientLevel == null) {
+            VanillaSectionInvalidation.INSTANCE.updateOwner(this, Minecraft.getInstance().levelRenderer, null, null);
+        }
     }
 
     @Inject(method = "allChanged", at = @At("RETURN"))
     private void onAllChanged(CallbackInfo ci) {
         this.worldRenderer.allChanged();
+        VanillaSectionInvalidation.INSTANCE.updateOwner(this, Minecraft.getInstance().levelRenderer,
+                this.viewArea, this.viewArea == null ? null : this.viewArea.sections);
     }
 
     @Inject(method = "renderLevel", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/LevelRenderer;checkPoseStack(Lcom/mojang/blaze3d/vertex/PoseStack;)V", ordinal = 1, shift = At.Shift.BEFORE))
@@ -129,11 +137,6 @@ public abstract class LevelRendererMixin {
     @Inject(method = "onChunkLoaded", at = @At("HEAD"), cancellable = true)
     public void onChunkLoaded(ChunkPos chunkPos, CallbackInfo ci) {
         ci.cancel();
-    }
-
-    @Inject(method = "setSectionDirty(IIIZ)V", at = @At("HEAD"))
-    private void setSectionDirty(int x, int y, int z, boolean flag, CallbackInfo ci) {
-        this.worldRenderer.setSectionDirty(x, y, z, flag);
     }
 
     @Inject(method = "blockChanged", at = @At("HEAD"), cancellable = true)

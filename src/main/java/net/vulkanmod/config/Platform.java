@@ -22,21 +22,21 @@ public abstract class Platform {
         GLFW.glfwInit();
     }
 
-                                                                                                                                                     
+
     private static int determineDisplayServer() {
 
-                                                                       
+
         String xdgSessionType = System.getenv("XDG_SESSION_TYPE");
-        if (xdgSessionType == null) return GLFW_ANY_PLATFORM;                 
+        if (xdgSessionType == null) return GLFW_ANY_PLATFORM;
         return switch (xdgSessionType) {
-            case "wayland" -> GLFW_PLATFORM_WAYLAND;          
-            case "x11" -> GLFW_PLATFORM_X11;      
-            default -> GLFW_ANY_PLATFORM;                                            
+            case "wayland" -> GLFW_PLATFORM_WAYLAND;
+            case "x11" -> GLFW_PLATFORM_X11;
+            default -> GLFW_ANY_PLATFORM;
         };
     }
 
     private static int getSupportedPlat(boolean forceWayland) {
-                                                                                                                                        
+
         if (SystemUtils.IS_OS_WINDOWS) return GLFW_PLATFORM_WIN32;
         if (SystemUtils.IS_OS_MAC_OSX) return GLFW_PLATFORM_COCOA;
         if (SystemUtils.IS_OS_LINUX) {
@@ -47,10 +47,10 @@ public abstract class Platform {
                 LOGGER.warn("Native Wayland was requested, but this GLFW build does not support it; "
                         + "falling back to display-server detection");
             }
-            return determineDisplayServer();                   
+            return determineDisplayServer();
         }
 
-        return GLFW_ANY_PLATFORM;                   
+        return GLFW_ANY_PLATFORM;
     }
 
     private static String getStringFromPlat(int plat) {
@@ -78,7 +78,7 @@ public abstract class Platform {
         return activePlat;
     }
 
-                                                   
+
     public static boolean isWayLand() {
         return activePlat == GLFW_PLATFORM_WAYLAND;
     }
@@ -115,7 +115,7 @@ public abstract class Platform {
                 + "(e.g. mesa-vulkan-drivers, nvidia driver, or vulkan-icd-loader / vulkan-loader).";
     }
 
-                                                                                 
+
     public static boolean isGnome() {
         return activeDE.contains("gnome");
     }

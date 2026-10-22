@@ -1,9 +1,51 @@
-VulkanMod Reforged for Minecraft 1.21.1 (NeoForge).
+# VulkanMod Reforged 0.3.5-ALPHA
+-# Minecraft 1.21.1 | NeoForge
 
-Alpha build. Recent compatibility checks cover specific mod versions, not every modpack.
+This update restores Essential's interface and previews, fixes upside-down loading backgrounds, and addresses several mod compatibility crashes.
 
-Install only the production JAR in the matching loader/version. The source JAR and source ZIP are for development. SHA256SUMS.txt lists download checksums.
+## Compatibility Changes
 
-The source ZIP contains the corresponding source and build scripts for this commit. LGPL-3.0-only; preserve applicable notices and identify modified versions. See LICENSE, COPYING, and NOTICE.
+### Essential
+- Added support for Essential 1.5.1's updated interface renderer
+- Fixed missing or corrupted menu text and interface elements
+- Fixed upside-down buttons and overlays
+- Fixed blank Wardrobe player previews and bundle previews
+- Corrected clipping when rendering players into offscreen textures
+- Fixed texture-size checks attempting unnecessary GPU allocations
 
-Includes the recent FancyMenu and Gnetum/Ixeris HUD fixes. The prior development tree passed 1,174 automated checks, with one opt-in skip; Gnetum 3.3.2 and Ixeris 4.2.0 were checked at 100% and 50% render scale with caching enabled. This publication rebuild also changes branding and removes ordinary source comments and private tooling. No new FPS claim.
+### Veil and Sable
+- Fixed a crash caused by unavailable shader matrix uniforms
+- Corrected shader-stage handling for supported Veil rendering paths
+- Checked powered Aeronautics burner rendering with Sable and Veil
+
+### Simply Swords and SimplyTooltips
+- Fixed tooltips leaving other inventory items greyed out
+- Restored rendering state after tooltip and item-preview drawing
+
+### Scorched Guns
+- Fixed a startup compatibility crash with the Scorched Guns 1.0.2 port
+- Updated rendering-hook detection to handle differences between versions
+
+## Rendering Changes
+- Unified viewport orientation handling across screen and offscreen targets
+- Corrected positioning for partial viewports
+- Preserved viewport state when switching or restoring render targets
+- Fixed framebuffer activation when a mod attaches its textures after binding the framebuffer
+- Preserved the screen's orientation when another framebuffer shares its color texture
+
+## Bugs Fixed
+- Blurred world-loading panoramas appearing upside down
+- Offscreen previews being clipped using window coordinates
+- Crashes involving missing texture uploads
+- Repeated resize callbacks causing rendering re-entry
+- Incorrect viewport dimensions being returned to mods
+
+## Known Issues
+- Tutorial notifications may flicker in the Essential Wardrobe
+- Further performance optimization is still in progress
+- Moving Sable assemblies require additional testing
+- Full compatibility with every modpack has not been verified
+
+Install the production JAR for Minecraft 1.21.1 with NeoForge. Source archives are provided separately. See SHA256SUMS.txt for download checksums.
+
+Licensed under LGPL-3.0-only. Corresponding source and build scripts accompany this release. See LICENSE, COPYING, and NOTICE.

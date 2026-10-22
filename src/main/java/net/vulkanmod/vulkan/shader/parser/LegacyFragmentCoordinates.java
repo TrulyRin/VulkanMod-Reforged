@@ -7,23 +7,33 @@ import net.vulkanmod.vulkan.util.MappedBuffer;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Set;
 import java.util.regex.Pattern;
 
-                                                                                                  
+
 final class LegacyFragmentCoordinates {
     private static final String HEIGHT_NAME = "vulkanModLegacyFramebufferHeight";
     private static final Pattern UPPER_LEFT = Pattern.compile(
             "\\blayout\\s*\\([^)]*\\borigin_upper_left\\b[^)]*\\)\\s*in\\s+(?:(?:lowp|mediump|highp)\\s+)?vec4\\s+gl_FragCoord\\b");
+    private static final Pattern HARMLESS_DIRECTIVE = Pattern.compile(
+            "[\\t ]*#[\\t ]*(?:version[\\t ]+[0-9]+(?:[\\t ]+(?:core|compatibility|es))?"
+                    + "|line[\\t ]+[0-9]+(?:[\\t ]+(?:[0-9]+|\"(?:[^\"\\\\]|\\\\.)*\"))?)[\\t \\r]*");
 
     private LegacyFragmentCoordinates() {}
 
     static Lowered lower(String code, String occupied) {
+        boolean fullyPreprocessed = false;
+        Set<String> importedIdentifiers = Set.of();
         if (Pattern.compile("(?m)^[\\t ]*#").matcher(code).find()) {
-            code = SPIRVUtils.preprocessShader("legacy-fragment-coordinates", "#version 450\n" + code,
+            var preprocessed = SPIRVUtils.preprocessShaderWithMetadata("legacy-fragment-coordinates", "#version 450\n" + code,
                     SPIRVUtils.ShaderKind.FRAGMENT_SHADER);
+            code = preprocessed.source();
+            importedIdentifiers = preprocessed.importedIdentifiers();
             code = code.replaceFirst("(?m)^[\\t ]*#[\\t ]*version\\b[^\\r\\n]*", "");
+            fullyPreprocessed = hasOnlyHarmlessDirectives(code);
         }
-        if (UPPER_LEFT.matcher(withoutQuotedTextAndDirectives(code)).find()) return new Lowered(code, null);
+        if (UPPER_LEFT.matcher(withoutQuotedTextAndDirectives(code)).find())
+            return new Lowered(code, null, fullyPreprocessed, importedIdentifiers);
         String height = HEIGHT_NAME;
         for (int suffix = 1; containsIdentifier(occupied + "\n" + code, height); suffix++) height = HEIGHT_NAME + suffix;
 
@@ -49,7 +59,16 @@ final class LegacyFragmentCoordinates {
                 i++;
             }
         }
-        return new Lowered(result.toString(), changed ? height : null);
+        return new Lowered(result.toString(), changed ? height : null, fullyPreprocessed, importedIdentifiers);
+    }
+
+
+    static boolean hasOnlyHarmlessDirectives(String code) {
+        for (String line : code.split("\\n", -1)) {
+            if (line.stripTrailing().endsWith("\\")) return false;
+            if (line.indexOf('#') >= 0 && !HARMLESS_DIRECTIVE.matcher(line).matches()) return false;
+        }
+        return true;
     }
 
     private static int quotedEnd(String source, int start) {
@@ -99,7 +118,7 @@ final class LegacyFragmentCoordinates {
         while (end < source.length() && identifierPart(source.charAt(end))) end++;
         String swizzle = source.substring(start, end);
         if (swizzle.isEmpty()) return true;
-                                                                                               
+
         return swizzle.indexOf('y') >= 0 || swizzle.indexOf('g') >= 0 || swizzle.indexOf('t') >= 0;
     }
 
@@ -121,12 +140,24 @@ final class LegacyFragmentCoordinates {
     }
 
     private static final class HeightBuffer {
-                                                                                                       
+
         private static final MappedBuffer VALUE = MappedBuffer.createFromBuffer(
                 ByteBuffer.allocateDirect(Float.BYTES).order(ByteOrder.nativeOrder()));
     }
 
-    record Lowered(String code, String heightName) {
+    record Lowered(String code, String heightName, boolean fullyPreprocessed, Set<String> importedIdentifiers) {
+        Lowered {
+            importedIdentifiers = Set.copyOf(importedIdentifiers);
+        }
+
+        Lowered(String code, String heightName) {
+            this(code, heightName, false, Set.of());
+        }
+
+        Lowered(String code, String heightName, boolean fullyPreprocessed) {
+            this(code, heightName, fullyPreprocessed, Set.of());
+        }
+
         void bindHeight(UBO ubo) {
             if (heightName == null) return;
             ubo.getUniforms().stream().filter(field -> field.getName().equals(heightName))

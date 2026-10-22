@@ -110,7 +110,7 @@ public abstract class Options {
             RefreshRate.setNewValue(newRefreshRates[newRefreshRates.length - 1]);
         });
 
-                                                                                                 
+
         var windowModeOption = new CyclingOption<>(Component.translatable("vulkanmod.options.windowMode"),
                 WindowMode.values(),
                 value -> {

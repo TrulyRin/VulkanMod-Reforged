@@ -6,11 +6,11 @@ import net.minecraft.world.level.BlockAndTintGetter;
 
 import java.util.Arrays;
 
-   
-                                                                                                                    
-                                                                                                                 
-                                       
-   
+
+
+
+
+
 public class ArrayLightDataCache extends LightDataAccess {
     private static final int NEIGHBOR_BLOCK_RADIUS = 2;
     private static final int BLOCK_LENGTH = 16 + (NEIGHBOR_BLOCK_RADIUS * 2);

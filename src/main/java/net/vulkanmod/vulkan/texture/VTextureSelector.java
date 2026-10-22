@@ -5,6 +5,7 @@ import net.minecraft.client.renderer.texture.MissingTextureAtlasSprite;
 import net.vulkanmod.Initializer;
 import net.vulkanmod.compat.gl.TextureUnitLimits;
 import net.vulkanmod.gl.GlTexture;
+import net.vulkanmod.interfaces.ShaderMixed;
 import net.vulkanmod.vulkan.shader.Pipeline;
 import net.vulkanmod.vulkan.shader.SamplerTextureSlot;
 import net.vulkanmod.vulkan.shader.descriptor.ImageDescriptor;
@@ -27,7 +28,7 @@ public abstract class VTextureSelector {
     private static int activeTexture = 0;
     private static final Set<Integer> missingTextureWarnings = ConcurrentHashMap.newKeySet();
 
-                                                                                                  
+
     public static BindingSnapshot captureBindings(long unitMask) {
         long validMask=(1L<<SIZE)-1L;
         if((unitMask&~validMask)!=0L) throw new IllegalArgumentException("Texture binding mask exceeds available units");
@@ -56,7 +57,7 @@ public abstract class VTextureSelector {
             this.unitMask=unitMask; this.images=images; this.owners=owners; this.imageLevels=imageLevels; this.glOwners=glOwners;
         }
 
-                                                                                                     
+
         public void restore() {
             if(restored) return;
             restored=true;
@@ -92,7 +93,7 @@ public abstract class VTextureSelector {
         levels[i] = -1;
     }
 
-                                                                                        
+
     public static void bindGlTexture(int unit, int textureId, VulkanImage texture) {
         if (!TextureUnitLimits.isValid(unit)) return;
         boundTextures[unit] = texture;
@@ -142,19 +143,35 @@ public abstract class VTextureSelector {
     }
 
     public static void bindShaderTextures(Pipeline pipeline) {
-        bindShaderTextures(pipeline.getImageDescriptors(), VTextureSelector::bindShaderTexture);
+        var descriptors = pipeline.getImageDescriptors();
+        for (int i = 0; i < descriptors.size(); i++) {
+            ImageDescriptor descriptor = descriptors.get(i);
+            if (descriptor.usesVanillaTextureBinding()) {
+                Object shader = RenderSystem.getShader();
+                bindShaderTexture(pipeline, descriptor, shader instanceof ShaderMixed owner ? owner : null);
+            }
+        }
     }
 
-                                                                                       
+    public static void bindShaderTextures(Pipeline pipeline, ShaderMixed owner) {
+        var descriptors = pipeline.getImageDescriptors();
+        for (int i = 0; i < descriptors.size(); i++) {
+            ImageDescriptor descriptor = descriptors.get(i);
+            if (descriptor.usesVanillaTextureBinding()) bindShaderTexture(pipeline, descriptor, owner);
+        }
+    }
+
+
     public static void bindShaderTextures(Iterable<ImageDescriptor> descriptors, Consumer<ImageDescriptor> bind) {
         for (ImageDescriptor descriptor : descriptors) {
             if (descriptor.usesVanillaTextureBinding()) bind.accept(descriptor);
         }
     }
 
-    private static void bindShaderTexture(ImageDescriptor state) {
+    private static void bindShaderTexture(Pipeline pipeline, ImageDescriptor state, ShaderMixed owner) {
         int unit = state.getTextureUnit();
-        final int shaderTexture = RenderSystem.getShaderTexture(unit);
+        int namedTexture = owner == null ? -1 : owner.samplerTextureId(pipeline, state.name);
+        final int shaderTexture = namedTexture != -1 ? namedTexture : RenderSystem.getShaderTexture(unit);
         GlTexture texture = GlTexture.getTexture(shaderTexture);
 
         if (texture != null && texture.getVulkanImage() != null) {

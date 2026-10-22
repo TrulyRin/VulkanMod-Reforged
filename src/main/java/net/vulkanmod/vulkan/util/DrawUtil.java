@@ -26,6 +26,11 @@ public class DrawUtil {
         blit(PipelineManager.getFastBlitPipeline());
     }
 
+    public static void blitToScreen(boolean sourceBottomUp) {
+        blit(sourceBottomUp ? PipelineManager.getGlFramebufferBlitPipeline()
+                : PipelineManager.getFastBlitPipeline());
+    }
+
     public static void blitRenderScaleToScreen() {
         blit(PipelineManager.getRenderScaleBlitPipeline());
     }
@@ -39,6 +44,7 @@ public class DrawUtil {
         renderer.uploadAndBindUBOs(blitPipeline);
 
         VkCommandBuffer commandBuffer = Renderer.getCommandBuffer();
+        Renderer.recordRasterWrite();
         VK11.vkCmdDraw(commandBuffer, 3, 1, 0, 0);
 
         RenderSystem.enableCull();

@@ -1,6 +1,6 @@
 package net.vulkanmod.render.chunk.graph;
 
-                                                                                    
+
 public final class SectionRebuildPolicy {
     private static final double NEARBY_DISTANCE_SQUARED=768.0;
 

@@ -10,7 +10,7 @@ import org.lwjgl.system.MemoryUtil;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
-                                                                              
+
 public final class BlockLayerMesh implements AutoCloseable {
     private final ByteBufferBuilder storage;
     private final CopiedMesh mesh;
@@ -21,7 +21,7 @@ public final class BlockLayerMesh implements AutoCloseable {
         this.mesh = mesh;
     }
 
-                                                                                          
+
     public static BlockLayerMesh copyOf(TerrainBufferBuilder.RenderedBuffer source) {
         Objects.requireNonNull(source, "source");
         TerrainBufferBuilder.DrawState state = Objects.requireNonNull(source.drawState(), "drawState");
@@ -50,7 +50,7 @@ public final class BlockLayerMesh implements AutoCloseable {
             throw new IllegalArgumentException("Block geometry byte extent overflows", overflow);
         }
 
-                                                                                    
+
         ByteBuffer sourceVertices = source.vertexBuffer();
         requireExtent(sourceVertices, vertexBytes, "vertex");
         ByteBuffer sourceIndices = state.sequentialIndex() ? null : source.indexBuffer();
@@ -116,7 +116,7 @@ public final class BlockLayerMesh implements AutoCloseable {
         }
     }
 
-                                                                                                   
+
     private static final class CopiedMesh extends MeshData {
         private final ByteBufferBuilder.Result copiedIndices;
         private boolean closed;

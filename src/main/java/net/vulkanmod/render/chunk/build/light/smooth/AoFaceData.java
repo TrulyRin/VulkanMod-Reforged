@@ -26,7 +26,7 @@ class AoFaceData {
         final int z;
 
         if (offset) {
-                                                                                      
+
             x = oX + direction.getStepX();
             y = oY + direction.getStepY();
             z = oZ + direction.getStepZ();
@@ -54,7 +54,7 @@ class AoFaceData {
 
         SimpleDirection[] faces = AoNeighborInfo.get(direction).faces;
 
-                
+
         final int e0 = cache.get(x, y, z, faces[0]);
         final int e0lm = getLightmap(e0);
         final float e0ao = unpackAO(e0);
@@ -79,8 +79,8 @@ class AoFaceData {
         final boolean e3op = unpackOP(e3);
         final boolean e3em = unpackEM(e3);
 
-                                                                 
-                                                                                  
+
+
         final int c0lm;
         final float c0ao;
         final boolean c0em;
@@ -209,21 +209,21 @@ class AoFaceData {
     }
 
     static int calculateCornerBrightness(int a, int b, int c, int d, boolean aem, boolean bem, boolean cem, boolean dem) {
-                                                                                                            
-                         
+
+
         if ((a == 0) || (b == 0) || (c == 0) || (d == 0)) {
-                                                         
+
             final int min = minNonZero(minNonZero(a, b), minNonZero(c, d));
 
-                                          
+
             a = Math.max(a, min);
             b = Math.max(b, min);
             c = Math.max(c, min);
             d = Math.max(d, min);
         }
 
-                                                                                                         
-                                                                                                         
+
+
         if (aem) {
             a = LightTexture.FULL_BRIGHT;
         }

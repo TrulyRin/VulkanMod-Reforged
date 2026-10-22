@@ -245,6 +245,7 @@ public class DrawBuffers {
 
             indirectBuffer.recordCopyCmd(byteBuffer.position(0));
 
+            Renderer.recordRasterWrite();
             vkCmdDrawIndexedIndirect(Renderer.getCommandBuffer(), indirectBuffer.getId(), indirectBuffer.getOffset(), drawCount, 20);
         }
 
@@ -263,6 +264,7 @@ public class DrawBuffers {
                 continue;
 
             final int firstIndex = drawParameters.firstIndex == -1 ? 0 : drawParameters.firstIndex;
+            Renderer.recordRasterWrite();
             vkCmdDrawIndexed(commandBuffer, drawParameters.indexCount, 1, firstIndex, drawParameters.vertexOffset, drawParameters.baseInstance);
         }
     }

@@ -11,7 +11,7 @@ import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.MethodType;
 
-                                                                                              
+
 public final class AeronauticsWorldLayers {
     public static final ResourceLocation PROGRAM = ResourceLocation.fromNamespaceAndPath("aeronautics", "levitite/levitite");
     private static final Snapshot<RenderType> EMPTY = new Snapshot<>(null, null, false);
@@ -20,7 +20,7 @@ public final class AeronauticsWorldLayers {
 
     private AeronauticsWorldLayers() {}
 
-                                                                            
+
     public static void initialize() {
         if (initialized) return;
         try {
@@ -45,7 +45,7 @@ public final class AeronauticsWorldLayers {
                     double.class, double.class, double.class));
             resolved = new Resolved(new Snapshot<>(base, ghost, false), new Snapshot<>(base, ghost, true), program, wrapper, prepare);
         } catch (ClassNotFoundException absent) {
-                                                                                 
+
         } catch (Throwable failure) {
             if (failure instanceof VirtualMachineError fatal) throw fatal;
             LogUtils.getLogger().warn("Aeronautics world-layer integration unavailable; retaining ordinary terrain", failure);
@@ -53,7 +53,7 @@ public final class AeronauticsWorldLayers {
         initialized = true;
     }
 
-                                                                                          
+
     public static Snapshot<RenderType> captureBuildLayers() {
         Resolved current = resolved;
         return current == null ? EMPTY : isEnabled() ? current.enabled : current.disabled;
@@ -66,7 +66,7 @@ public final class AeronauticsWorldLayers {
     public static boolean isBase(RenderType type) { return captureBuildLayers().isBase(type); }
     public static boolean isGhost(RenderType type) { return captureBuildLayers().isGhost(type); }
 
-                                                                                                      
+
     public static ShaderInstance shader() {
         Resolved current = resolved;
         if (current == null) return null;

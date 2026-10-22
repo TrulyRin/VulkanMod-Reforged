@@ -77,7 +77,7 @@ public class GuiRenderStateBoundaryMixin {
             return;
         }
 
-                                                                                     
+
         RenderStateSnapshot snapshot = new RenderStateSnapshot();
         try {
             ScgunsCooldownHud.render(safeFrame, minecraft.options.hideGui);

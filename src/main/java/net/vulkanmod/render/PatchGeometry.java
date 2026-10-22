@@ -2,7 +2,7 @@ package net.vulkanmod.render;
 
 import com.mojang.blaze3d.vertex.VertexFormat;
 
-                                                                                        
+
 public final class PatchGeometry {
     private PatchGeometry() {}
     public static void requireQuads(VertexFormat.Mode mode, int vertices, int triangleIndices, int patchVertices) {

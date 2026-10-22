@@ -1,6 +1,7 @@
 package net.vulkanmod.vulkan.shader.descriptor;
 
 import net.vulkanmod.vulkan.memory.UniformBuffer;
+import net.vulkanmod.vulkan.shader.UniformUploadBatch;
 import net.vulkanmod.vulkan.shader.layout.AlignedStruct;
 import net.vulkanmod.vulkan.shader.layout.Uniform;
 
@@ -8,7 +9,7 @@ import java.util.List;
 
 import static org.lwjgl.vulkan.VK10.VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 
-public class UBO extends AlignedStruct implements Descriptor {
+public class UBO extends AlignedStruct implements Descriptor, UniformUploadBatch.Block {
     private final int binding;
     private final int stages;
 

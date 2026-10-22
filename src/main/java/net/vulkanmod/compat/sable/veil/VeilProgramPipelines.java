@@ -16,7 +16,7 @@ import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.List;
 
-                                                                                           
+
 public final class VeilProgramPipelines {
     private static Bridge active;
 
@@ -43,7 +43,7 @@ public final class VeilProgramPipelines {
         return entry.resource() == null ? null : entry.resource().pipeline;
     }
 
-                                                                                                                     
+
     public static boolean prepareForDraw(Object shader, GraphicsPipeline pipeline) {
         if (!VeilShaderProgramAccess.isWrapper(shader)) return true;
         RenderSystem.assertOnRenderThread();
@@ -65,7 +65,7 @@ public final class VeilProgramPipelines {
         }
     }
 
-                                                                                           
+
     public static void cleanUp() {
         Bridge previous = active;
         active = null;
@@ -103,7 +103,7 @@ public final class VeilProgramPipelines {
                                     "veil/program/" + inputs.owner() + "/" + inputs.generation());
                             builder.setUniforms(List.of(inputs.uniforms()), new ArrayList<>(inputs.samplers()));
                             builder.setSPIRVs(v, f);
-                            builder.setTessellationSPIRVs(c, e, 4);
+                            if (c != null || e != null) builder.setTessellationSPIRVs(c, e, 4);
                             return new Resource(inputs, builder.createGraphicsPipeline());
                         }
                         @Override public void discard(Resource resource) { resource.pipeline.cleanUp(); }

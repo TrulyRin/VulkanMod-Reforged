@@ -8,24 +8,24 @@ import net.vulkanmod.gl.GlProgram;
 
 import java.util.Objects;
 
-                                                                                                         
+
 public final class AeronauticsAssemblyRenderer {
     private AeronauticsAssemblyRenderer() {}
 
-       
-                                                                                        
-                                                                                            
-                                                                                              
-                                                                                           
-       
+
+
+
+
+
+
     public static void renderBaseLayer(ShaderInstance shader, Runnable original, Runnable layerCleanup) {
-                                                                                                     
+
         render(shader, 0.0, 0.0, 0.0, 0.0f, false, original, layerCleanup);
     }
 
     public static void renderGhostLayer(ShaderInstance shader,
             double cameraX, double cameraY, double cameraZ, float time, Runnable original, Runnable layerCleanup) {
-                                                                                                    
+
         render(shader, cameraX, cameraY, cameraZ, time, true, original, layerCleanup);
     }
 

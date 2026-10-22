@@ -8,15 +8,16 @@ import java.util.StringTokenizer;
 
 public abstract class CodeParser {
 
-                                                                                               
-                                                             
-                                                       
-       
+
+
+
+
     public static String parseCodeLine(String line) {
         return parseCodeLine(line, null);
     }
 
     public static String parseCodeLine(String line, GlslConverter.ShaderStage shaderStage) {
+        boolean directive = line.stripLeading().startsWith("#");
         line = rewriteLegacyFixedFunction(line, shaderStage);
 
         LinkedList<String> tokens = new LinkedList<>();
@@ -39,7 +40,7 @@ public abstract class CodeParser {
         while (i < tokens.size()) {
             token = tokens.get(i);
 
-            if (token.equals("%")) {
+            if (token.equals("%") && !directive) {
                 processed.removeLast();
 
                 String prevToken = tokens.get(i - 1);

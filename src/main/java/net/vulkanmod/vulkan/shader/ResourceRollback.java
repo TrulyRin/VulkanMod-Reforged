@@ -3,7 +3,7 @@ package net.vulkanmod.vulkan.shader;
 import java.util.ArrayDeque;
 import java.util.Objects;
 
-                                                                                 
+
 final class ResourceRollback implements AutoCloseable {
     private final ArrayDeque<Runnable> releases = new ArrayDeque<>();
     private boolean closed;

@@ -15,7 +15,7 @@ import net.vulkanmod.vulkan.shader.PipelineState;
 import net.vulkanmod.vulkan.texture.VTextureSelector;
 import org.lwjgl.opengl.GL13;
 
-                                                                                                   
+
 public final class AeronauticsMaterialState implements AutoCloseable {
     private final Thread owner = Thread.currentThread();
     private boolean restored;
@@ -56,7 +56,7 @@ public final class AeronauticsMaterialState implements AutoCloseable {
         samplers = GlSampler.captureBindings();
     }
 
-                                                                                              
+
     public static AeronauticsMaterialState capture(int samplerCount) {
         if (samplerCount < 0 || samplerCount > TextureUnitLimits.COMBINED) {
             throw new IllegalArgumentException("Invalid Aeronautics sampler count");
@@ -65,7 +65,7 @@ public final class AeronauticsMaterialState implements AutoCloseable {
         return new AeronauticsMaterialState(samplerCount);
     }
 
-                                                                                                            
+
     public Throwable restore(Throwable failure) {
         if (Thread.currentThread() != owner) {
             throw new IllegalStateException("Aeronautics material state belongs to a different thread");
@@ -90,7 +90,7 @@ public final class AeronauticsMaterialState implements AutoCloseable {
         catch (RuntimeException | Error error) { failure = append(failure, error); }
         try { GlTexture.activeTexture(textureActive); }
         catch (RuntimeException | Error error) { failure = append(failure, error); }
-                                                                                                
+
         try { selectors.restore(); }
         catch (RuntimeException | Error error) { failure = append(failure, error); }
         VRenderSystem.topology = topology;
@@ -108,6 +108,7 @@ public final class AeronauticsMaterialState implements AutoCloseable {
         blend.blendOp = blendOp;
         blend.blendOpRgb = blendOpRgb;
         blend.blendOpAlpha = blendOpAlpha;
+        VRenderSystem.syncGlStateCache();
         try { renderer.restoreGraphicsPipeline(pipeline); }
         catch (RuntimeException | Error error) { failure = append(failure, error); }
         return failure;

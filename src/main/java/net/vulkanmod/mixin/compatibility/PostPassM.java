@@ -80,7 +80,7 @@ public class PostPassM {
             VRenderSystem.depthFunc(519);
             VRenderSystem.setPrimitiveTopologyGL(GL11.GL_TRIANGLES);
 
-            Renderer.setInvertedViewport(0, 0, this.outTarget.width, this.outTarget.height);
+            Renderer.setGlViewport(0, 0, this.outTarget.width, this.outTarget.height);
             Renderer.resetScissor();
 
             this.effect.apply();

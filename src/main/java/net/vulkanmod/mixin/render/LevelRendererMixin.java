@@ -27,30 +27,30 @@ public abstract class LevelRendererMixin {
 
     @Shadow @Final private static Logger LOGGER;
 
-         
-                
-         
-                
-                                 
-                                          
-                                        
-           
-  
-                                                                                                         
-    
-                 
-                                                                                                                                                                                   
-                                                                                                                        
-                                                                             
-                                        
-                                                                                 
-                                         
-                                         
-                                                
-                                                                                  
-                                         
-                                         
-             
-       
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 }

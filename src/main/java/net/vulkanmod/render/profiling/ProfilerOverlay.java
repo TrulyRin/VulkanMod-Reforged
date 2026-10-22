@@ -28,7 +28,7 @@ public class ProfilerOverlay {
     private static float frametime;
 
     private static String buildStats;
-                                   
+
 
     private final Minecraft minecraft;
     private final Font font;
@@ -48,8 +48,8 @@ public class ProfilerOverlay {
     }
 
     public static void onKeyPress(int key) {
-                                             
-                                                
+
+
     }
 
     public void render(GuiGraphics guiGraphics) {
@@ -114,7 +114,7 @@ public class ProfilerOverlay {
         list.add("");
         list.add(MemoryManager.getInstance().getHeapStats());
 
-                              
+
         list.add("");
         list.add("");
         list.add(String.format("Build time: %.0fms", BuildTimeProfiler.getDeltaTime()));

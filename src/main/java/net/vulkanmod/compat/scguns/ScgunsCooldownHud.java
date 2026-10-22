@@ -1,9 +1,9 @@
 package net.vulkanmod.compat.scguns;
 
-   
-                                                                             
-                                                                                      
-   
+
+
+
+
 public final class ScgunsCooldownHud {
     private static ScgunsCooldownRenderer renderer;
     private static boolean hudScope;
@@ -31,7 +31,7 @@ public final class ScgunsCooldownHud {
 
         hudScope = true;
         try {
-                                                                                              
+
             current.vulkanMod$renderCooldownHud();
         } finally {
             hudScope = false;

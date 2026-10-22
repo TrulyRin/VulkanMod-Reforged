@@ -23,6 +23,7 @@ public abstract class PipelineManager {
     }
 
     static GraphicsPipeline terrainShaderEarlyZ, terrainShader, fastBlitPipeline, renderScaleBlitPipeline, externalLodPipeline;
+    private static GraphicsPipeline glFramebufferBlitPipeline;
 
     private static Function<TerrainRenderType, GraphicsPipeline> shaderGetter;
 
@@ -41,6 +42,7 @@ public abstract class PipelineManager {
         terrainShaderEarlyZ = createPipeline("terrain","terrain", "terrain_z", TERRAIN_VERTEX_FORMAT);
         terrainShader = createPipeline("terrain", "terrain", "terrain", TERRAIN_VERTEX_FORMAT);
         fastBlitPipeline = createPipeline("blit", "blit", "blit", CustomVertexFormat.NONE);
+        glFramebufferBlitPipeline = createPipeline("blit", "blit_gl", "blit", CustomVertexFormat.NONE);
         renderScaleBlitPipeline = createPipeline("render_scale_blit", "render_scale_blit", "render_scale_blit", CustomVertexFormat.NONE);
         if (ExternalRenderPathSupport.shouldCreateExternalLodPipeline()) {
             externalLodPipeline = createPipeline("external_lod", "lod", "lod", CustomVertexFormat.EXTERNAL_LOD);
@@ -80,6 +82,8 @@ public abstract class PipelineManager {
 
     public static GraphicsPipeline getFastBlitPipeline() { return fastBlitPipeline; }
 
+    public static GraphicsPipeline getGlFramebufferBlitPipeline() { return glFramebufferBlitPipeline; }
+
     public static GraphicsPipeline getRenderScaleBlitPipeline() { return renderScaleBlitPipeline; }
 
     public static GraphicsPipeline getExternalLodPipeline() { return externalLodPipeline; }
@@ -88,6 +92,7 @@ public abstract class PipelineManager {
         terrainShaderEarlyZ.cleanUp();
         terrainShader.cleanUp();
         fastBlitPipeline.cleanUp();
+        glFramebufferBlitPipeline.cleanUp();
         renderScaleBlitPipeline.cleanUp();
         if (externalLodPipeline != null) {
             externalLodPipeline.cleanUp();

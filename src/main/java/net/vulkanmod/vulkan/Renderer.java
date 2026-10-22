@@ -35,8 +35,11 @@ import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.nio.LongBuffer;
 import java.util.ArrayList;
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Set;
+import java.util.Objects;
+import java.util.function.Supplier;
 
 import static com.mojang.blaze3d.platform.GlConst.GL_COLOR_BUFFER_BIT;
 import static com.mojang.blaze3d.platform.GlConst.GL_DEPTH_BUFFER_BIT;
@@ -87,6 +90,9 @@ public class Renderer {
     private int appliedStencilCompareMask;
     private int appliedStencilWriteMask;
     private boolean stencilStateApplied;
+    private float appliedLineWidth = 1.0F;
+    private float appliedDepthBiasUnits;
+    private float appliedDepthBiasFactor;
 
     private Drawer drawer;
 
@@ -107,6 +113,10 @@ public class Renderer {
     private final FramePreparationState framePreparation = new FramePreparationState();
     private VkCommandBuffer currentCmdBuffer;
     private boolean recordingCmds = false;
+    private boolean acquiredImageWaitPending;
+    private boolean recreatingSwapChain;
+    private boolean internalResizeDisplayNotification;
+    private ArrayDeque<ResizeClear> resizeClears;
 
     MainPass mainPass = DefaultMainPass.create();
 
@@ -116,7 +126,13 @@ public class Renderer {
         device = Vulkan.getVkDevice();
         framesNum = net.vulkanmod.config.Config.clampFrameQueueSize(Initializer.CONFIG.frameQueueSize);
         Initializer.CONFIG.frameQueueSize = framesNum;
-        imagesNum = getSwapChain().getImagesNum();
+        var swapChain = getSwapChain();
+        imagesNum = swapChain.getImagesNum();
+        SCISSOR_BOX[0] = 0;
+        SCISSOR_BOX[1] = 0;
+        SCISSOR_BOX[2] = swapChain.getWidth();
+        SCISSOR_BOX[3] = swapChain.getHeight();
+        scissorEnabled = false;
     }
 
     public static void setLineWidth(float width) {
@@ -124,6 +140,7 @@ public class Renderer {
             return;
         }
         vkCmdSetLineWidth(INSTANCE.currentCmdBuffer, width);
+        INSTANCE.appliedLineWidth = width;
     }
 
     private void init() {
@@ -208,10 +225,26 @@ public class Renderer {
     public void beginFrame() {
         if (recordingCmds)
             return;
+        if (recreatingSwapChain)
+            return;
 
         if (swapChainUpdate) {
-            recreateSwapChain();
+            recreatingSwapChain = true;
             swapChainUpdate = false;
+            try {
+                recreateSwapChain();
+            } catch (RuntimeException | Error failure) {
+                swapChainUpdate = true;
+                throw failure;
+            } finally {
+                recreatingSwapChain = false;
+            }
+
+
+            if (swapChainUpdate) {
+                skipRendering = true;
+                return;
+            }
 
             if (getSwapChain().getWidth() == 0 && getSwapChain().getHeight() == 0) {
                 skipRendering = true;
@@ -225,8 +258,8 @@ public class Renderer {
         if (skipRendering)
             return;
 
-                                                                                   
-                                                                                       
+
+
         preInitFrame();
         currentCmdBuffer = commandBuffers.get(currentFrame);
         vkResetCommandBuffer(currentCmdBuffer, 0);
@@ -251,12 +284,82 @@ public class Renderer {
             }
 
             imageIndex = pImageIndex.get(0);
+            this.acquiredImageWaitPending = true;
 
             this.beginRenderPass(stack);
+            replayResizeClears();
         }
     }
 
+    public boolean isRecreatingSwapChain() {
+        return this.recreatingSwapChain;
+    }
+
+
+    public boolean consumeInternalResizeDisplayNotification() {
+        boolean internal = this.internalResizeDisplayNotification;
+        this.internalResizeDisplayNotification = false;
+        return internal;
+    }
+
+    public boolean isResizeFrameDeferred() {
+        return !this.recordingCmds && (this.recreatingSwapChain || swapChainUpdate);
+    }
+
+    private boolean deferResizeClear(int mask, int width, int height) {
+        if (!isResizeFrameDeferred()) return false;
+        GlFramebuffer target = GlFramebuffer.getBoundFramebuffer();
+        Framebuffer nativeTarget = target == null ? null : target.getFramebuffer();
+        if (this.resizeClears == null) this.resizeClears = new ArrayDeque<>();
+        this.resizeClears.addLast(new ResizeClear(target, GlFramebuffer.getBoundId(), nativeTarget, mask, width, height,
+                VRenderSystem.clearColor.get(0), VRenderSystem.clearColor.get(1),
+                VRenderSystem.clearColor.get(2), VRenderSystem.clearColor.get(3),
+                VRenderSystem.clearDepthValue, VRenderSystem.clearStencilValue));
+        return true;
+    }
+
+    private void replayResizeClears() {
+        if (this.resizeClears == null || this.resizeClears.isEmpty()) return;
+        float red = VRenderSystem.clearColor.get(0), green = VRenderSystem.clearColor.get(1);
+        float blue = VRenderSystem.clearColor.get(2), alpha = VRenderSystem.clearColor.get(3);
+        float depth = VRenderSystem.clearDepthValue;
+        int stencil = VRenderSystem.clearStencilValue;
+        try (RenderTargetScope ignored = temporaryRenderTarget()) {
+            while (!this.resizeClears.isEmpty()) {
+                ResizeClear clear = this.resizeClears.getFirst();
+                if (clear.target != null && (GlFramebuffer.getFramebuffer(clear.framebuffer) != clear.target
+                        || clear.target.getFramebuffer() != clear.nativeTarget)) {
+                    this.resizeClears.removeFirst();
+                    continue;
+                }
+                GlFramebuffer.bindFramebuffer(org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER, clear.framebuffer);
+                VRenderSystem.setClearColor(clear.red, clear.green, clear.blue, clear.alpha);
+                VRenderSystem.clearDepthValue = clear.depth;
+                VRenderSystem.clearStencilValue = clear.stencil;
+                Framebuffer target = this.boundFramebuffer;
+                if (target == null) throw new IllegalStateException("Deferred resize clear requires a live draw target");
+                clearAttachments(clear.mask, clear.width < 0 ? target.getWidth() : clear.width,
+                        clear.height < 0 ? target.getHeight() : clear.height);
+                this.resizeClears.removeFirst();
+            }
+        } finally {
+            VRenderSystem.setClearColor(red, green, blue, alpha);
+            VRenderSystem.clearDepthValue = depth;
+            VRenderSystem.clearStencilValue = stencil;
+        }
+    }
+
+    private record ResizeClear(GlFramebuffer target, int framebuffer, Framebuffer nativeTarget,
+                               int mask, int width, int height, float red, float green, float blue, float alpha,
+                               float depth, int stencil) {}
+
     private void beginRenderPass(MemoryStack stack) {
+        beginCommandBuffer(stack);
+        mainPass.begin(currentCmdBuffer, stack);
+        resetDynamicState(currentCmdBuffer);
+    }
+
+    private void beginCommandBuffer(MemoryStack stack) {
         VkCommandBufferBeginInfo beginInfo = VkCommandBufferBeginInfo.calloc(stack);
         beginInfo.sType(VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO);
         beginInfo.flags(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
@@ -269,9 +372,9 @@ public class Renderer {
         }
 
         recordingCmds = true;
-        mainPass.begin(commandBuffer, stack);
-
-        resetDynamicState(commandBuffer);
+        boundPipelineHandle = 0;
+        blendConstantsApplied = false;
+        stencilStateApplied = false;
     }
 
     public boolean endFrame() {
@@ -306,9 +409,7 @@ public class Renderer {
             VkSubmitInfo submitInfo = VkSubmitInfo.calloc(stack);
             submitInfo.sType(VK_STRUCTURE_TYPE_SUBMIT_INFO);
 
-            submitInfo.waitSemaphoreCount(1);
-            submitInfo.pWaitSemaphores(stack.longs(imageAvailableSemaphores.get(currentFrame)));
-            submitInfo.pWaitDstStageMask(stack.ints(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT));
+            attachAcquireWait(submitInfo, stack, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
             submitInfo.pSignalSemaphores(stack.longs(renderFinishedSemaphores.get(currentFrame)));
 
@@ -328,9 +429,10 @@ public class Renderer {
                 vkResetFences(device, inFlightFences.get(currentFrame));
                 throw new RuntimeException("Failed to submit draw command buffer: %s".formatted(VkResult.decode(vkResult)));
             }
+            this.acquiredImageWaitPending = false;
 
-                                                                                    
-                                                                                    
+
+
             framePreparation.submitted();
 
             VkPresentInfoKHR presentInfo = VkPresentInfoKHR.calloc(stack);
@@ -360,19 +462,28 @@ public class Renderer {
     }
 
     public void flushCmds() {
-        if (!this.recordingCmds)
-            return;
+        flushCmds(() -> null);
+    }
+
+
+    public <T> T flushCmds(Supplier<T> readback) {
+        Objects.requireNonNull(readback, "readback");
+        if (!this.recordingCmds) return readback.get();
+
+        RenderingState saved = captureRenderingState();
 
         try (MemoryStack stack = stackPush()) {
             int vkResult;
 
             this.endRenderPass(currentCmdBuffer);
             vkEndCommandBuffer(currentCmdBuffer);
+            this.recordingCmds = false;
 
             VkSubmitInfo submitInfo = VkSubmitInfo.calloc(stack);
             submitInfo.sType(VK_STRUCTURE_TYPE_SUBMIT_INFO);
 
             submitInfo.pCommandBuffers(stack.pointers(currentCmdBuffer));
+            attachAcquireWait(submitInfo, stack, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
 
             vkResetFences(device, inFlightFences.get(currentFrame));
 
@@ -382,10 +493,143 @@ public class Renderer {
                 vkResetFences(device, inFlightFences.get(currentFrame));
                 throw new RuntimeException("Failed to submit draw command buffer: %s".formatted(VkResult.decode(vkResult)));
             }
+            this.acquiredImageWaitPending = false;
 
             vkWaitForFences(device, inFlightFences.get(currentFrame), true, VUtil.UINT64_MAX);
 
-            this.beginRenderPass(stack);
+            Throwable failure = null;
+            try {
+                return readback.get();
+            } catch (RuntimeException | Error error) {
+                failure = error;
+                throw error;
+            } finally {
+                try {
+                    beginCommandBuffer(stack);
+                    saved.resume(this, stack);
+                } catch (RuntimeException | Error resumeFailure) {
+                    if (failure == null) throw resumeFailure;
+                    if (failure != resumeFailure) failure.addSuppressed(resumeFailure);
+                }
+            }
+        }
+    }
+
+    private void attachAcquireWait(VkSubmitInfo submitInfo, MemoryStack stack, int stageMask) {
+        if (!this.acquiredImageWaitPending) return;
+        submitInfo.waitSemaphoreCount(1);
+        submitInfo.pWaitSemaphores(stack.longs(imageAvailableSemaphores.get(currentFrame)));
+        submitInfo.pWaitDstStageMask(stack.ints(stageMask));
+    }
+
+
+    public RenderTargetScope temporaryRenderTarget() {
+        GlFramebuffer.BindingSnapshot bindings = GlFramebuffer.captureBindings();
+        GlFramebuffer coldDraw = !this.recordingCmds ? GlFramebuffer.getBoundFramebuffer() : null;
+        RenderingState coldRaster = coldDraw != null ? captureRenderingState() : null;
+        try {
+
+            if (!this.recordingCmds) beginFrame();
+            if (skipRendering || !this.recordingCmds)
+                throw new IllegalStateException("Temporary framebuffer rendering requires an active renderer frame");
+            if (coldDraw != null) {
+
+                if (coldDraw.getFramebuffer() == null || coldDraw.getRenderPass() == null)
+                    throw new IllegalStateException("Selected framebuffer attachments are unavailable after frame entry");
+                bindings.restore();
+                GlFramebuffer.beginRendering(coldDraw);
+                try (MemoryStack stack = stackPush()) {
+                    coldRaster.restoreRasterSelection(this);
+                    coldRaster.restoreViewportState(stack);
+                }
+            }
+            if (this.boundRenderPass == null) {
+                if (GlFramebuffer.getBoundFramebuffer() != null) GlFramebuffer.ensureDrawFramebufferRendering();
+                else this.mainPass.rebindMainTarget();
+            }
+            if (this.boundFramebuffer == null || this.boundRenderPass == null)
+                throw new IllegalStateException("Temporary framebuffer rendering requires an available draw target");
+
+            return new RenderTargetScope(captureRenderingState(), bindings);
+        } catch (RuntimeException | Error failure) {
+            bindings.restore();
+            throw failure;
+        }
+    }
+
+    public final class RenderTargetScope implements AutoCloseable {
+        private final RenderingState saved;
+        private final GlFramebuffer.BindingSnapshot bindings;
+        private boolean closed;
+
+        private RenderTargetScope(RenderingState saved, GlFramebuffer.BindingSnapshot bindings) {
+            this.saved = saved;
+            this.bindings = bindings;
+        }
+
+        @Override public void close() {
+            if (closed) return;
+            closed = true;
+            try (MemoryStack stack = stackPush()) {
+                endRenderPass(currentCmdBuffer);
+                saved.resume(Renderer.this, stack);
+            } finally {
+                bindings.restore();
+            }
+        }
+    }
+
+    private RenderingState captureRenderingState() {
+        return new RenderingState(this.boundFramebuffer,
+                this.mainPass.resumeRenderPass(this.boundRenderPass), this.boundPipeline,
+                VIEWPORT_BOX.clone(), viewportInitialized, rasterRowsBottomUp, viewportRevision, glViewportSelection,
+                this.viewportLogicalWidth, this.viewportLogicalHeight, SCISSOR_BOX.clone(), scissorEnabled,
+                GlFramebuffer.captureBindings(), this.appliedLineWidth,
+                this.appliedDepthBiasUnits, this.appliedDepthBiasFactor);
+    }
+
+    private record RenderingState(Framebuffer framebuffer, RenderPass renderPass, Pipeline pipeline,
+                                 int[] viewport, boolean viewportWasInitialized, boolean rowsBottomUp,
+                                 long savedViewportRevision, boolean savedGlViewportSelection,
+                                 int logicalWidth, int logicalHeight, int[] scissor, boolean scissorWasEnabled,
+                                 GlFramebuffer.BindingSnapshot bindings, float lineWidth,
+                                 float depthBiasUnits, float depthBiasFactor) {
+        void resume(Renderer renderer, MemoryStack stack) {
+            try {
+                restoreRasterSelection(renderer);
+                if (framebuffer != null && renderPass != null) {
+                    framebuffer.beginRenderPass(renderer.currentCmdBuffer, renderPass, stack);
+                }
+                restoreViewportState(stack);
+                vkCmdSetLineWidth(renderer.currentCmdBuffer, lineWidth);
+                vkCmdSetDepthBias(renderer.currentCmdBuffer, depthBiasUnits, 0.0F, depthBiasFactor);
+                renderer.appliedLineWidth = lineWidth;
+                renderer.appliedDepthBiasUnits = depthBiasUnits;
+                renderer.appliedDepthBiasFactor = depthBiasFactor;
+                renderer.boundPipeline = pipeline;
+                if (renderPass != null) renderer.restoreGraphicsPipeline(pipeline);
+            } finally {
+                bindings.restore();
+            }
+        }
+
+        void restoreRasterSelection(Renderer renderer) {
+            renderer.viewportLogicalWidth = logicalWidth;
+            renderer.viewportLogicalHeight = logicalHeight;
+            System.arraycopy(scissor, 0, SCISSOR_BOX, 0, 4);
+            scissorEnabled = scissorWasEnabled;
+        }
+
+        void restoreViewportState(MemoryStack stack) {
+            if (viewportWasInitialized) {
+                setViewport(viewport[0], viewport[1], viewport[2], viewport[3], stack);
+            } else {
+                System.arraycopy(viewport, 0, VIEWPORT_BOX, 0, 4);
+            }
+            viewportInitialized = viewportWasInitialized;
+            rasterRowsBottomUp = rowsBottomUp;
+            restoreViewportRevision(savedViewportRevision, savedGlViewportSelection);
+            applyScissor();
         }
     }
 
@@ -422,6 +666,61 @@ public class Renderer {
 
             this.boundFramebuffer = framebuffer;
         }
+        return true;
+    }
+
+
+    public boolean beginMainRenderingPreservingRasterState() {
+        if (skipRendering || !recordingCmds || this.boundRenderPass != null) return false;
+
+        RenderingState saved = captureRenderingState();
+        try {
+            this.mainPass.rebindMainTarget();
+            if (this.boundFramebuffer == null || this.boundRenderPass == null)
+                throw new IllegalStateException("Default framebuffer continuation requires an available main LOAD pass");
+            int policyWidth = this.viewportLogicalWidth, policyHeight = this.viewportLogicalHeight;
+            try (MemoryStack stack = stackPush()) {
+                saved.restoreRasterSelection(this);
+
+                if (saved.logicalWidth == 0 || saved.logicalHeight == 0) {
+                    this.viewportLogicalWidth = policyWidth;
+                    this.viewportLogicalHeight = policyHeight;
+                }
+                saved.restoreViewportState(stack);
+            }
+            return true;
+        } finally {
+            saved.bindings.restore();
+        }
+    }
+
+
+    public boolean beginRenderingPreservingRasterState(RenderPass renderPass, Framebuffer framebuffer) {
+        if (skipRendering || !recordingCmds || this.boundRenderPass != null) return false;
+
+        int x = VIEWPORT_BOX[0], y = VIEWPORT_BOX[1];
+        int width = VIEWPORT_BOX[2], height = VIEWPORT_BOX[3];
+        int logicalWidth = this.viewportLogicalWidth, logicalHeight = this.viewportLogicalHeight;
+        boolean initialized = viewportInitialized, bottomUp = rasterRowsBottomUp;
+        long revision = viewportRevision;
+        boolean glSelection = glViewportSelection;
+        try (MemoryStack stack = stackPush()) {
+            framebuffer.beginRenderPass(currentCmdBuffer, renderPass, stack);
+            this.viewportLogicalWidth = logicalWidth;
+            this.viewportLogicalHeight = logicalHeight;
+            if (initialized) setViewport(x, y, width, height, stack);
+        } finally {
+            VIEWPORT_BOX[0] = x;
+            VIEWPORT_BOX[1] = y;
+            VIEWPORT_BOX[2] = width;
+            VIEWPORT_BOX[3] = height;
+            viewportInitialized = initialized;
+            rasterRowsBottomUp = bottomUp;
+            restoreViewportRevision(revision, glSelection);
+            this.viewportLogicalWidth = logicalWidth;
+            this.viewportLogicalHeight = logicalHeight;
+        }
+        applyScissor();
         return true;
     }
 
@@ -486,8 +785,8 @@ public class Renderer {
         boundPipeline = null;
         boundPipelineHandle = 0;
 
-                                                                                     
-                                                
+
+
         blendConstantsApplied = false;
         stencilStateApplied = false;
     }
@@ -544,12 +843,18 @@ public class Renderer {
         framePreparation.recreated();
 
         this.onResizeCallbacks.forEach(Runnable::run);
-        ((WindowAccessor) (Object) Minecraft.getInstance().getWindow()).getEventHandler().resizeDisplay();
+        this.internalResizeDisplayNotification = true;
+        try {
+            ((WindowAccessor) (Object) Minecraft.getInstance().getWindow()).getEventHandler().resizeDisplay();
+        } finally {
+            this.internalResizeDisplayNotification = false;
+        }
 
         currentFrame = 0;
     }
 
     public void cleanUpResources() {
+        if (this.resizeClears != null) this.resizeClears.clear();
         this.mainPass.cleanUp();
 
         destroySyncObjects();
@@ -600,6 +905,7 @@ public class Renderer {
     }
 
     public void bindGraphicsPipeline(GraphicsPipeline pipeline) {
+        GlFramebuffer.ensureDrawFramebufferRendering();
         VkCommandBuffer commandBuffer = currentCmdBuffer;
 
         PipelineState currentState = PipelineState.getCurrentPipelineState(boundRenderPass);
@@ -693,17 +999,24 @@ public class Renderer {
 
     private static void resetDynamicState(VkCommandBuffer commandBuffer) {
         vkCmdSetDepthBias(commandBuffer, 0.0F, 0.0F, 0.0F);
+        INSTANCE.appliedDepthBiasUnits = 0.0F;
+        INSTANCE.appliedDepthBiasFactor = 0.0F;
 
         vkCmdSetLineWidth(commandBuffer, 1.0F);
+        INSTANCE.appliedLineWidth = 1.0F;
     }
 
     public static void setDepthBias(float units, float factor) {
         VkCommandBuffer commandBuffer = INSTANCE.currentCmdBuffer;
 
         vkCmdSetDepthBias(commandBuffer, units, 0.0f, factor);
+        INSTANCE.appliedDepthBiasUnits = units;
+        INSTANCE.appliedDepthBiasFactor = factor;
     }
 
     public static void clearAttachments(int v) {
+        if (INSTANCE.deferResizeClear(v, -1, -1)) return;
+        GlFramebuffer.ensureDrawFramebufferRendering();
         Framebuffer framebuffer = Renderer.getInstance().boundFramebuffer;
         if (framebuffer == null)
             return;
@@ -712,8 +1025,11 @@ public class Renderer {
     }
 
     public static void clearAttachments(int v, int width, int height) {
+        if (INSTANCE.deferResizeClear(v, width, height)) return;
         if (skipRendering)
             return;
+
+        GlFramebuffer.ensureDrawFramebufferRendering();
 
         try (MemoryStack stack = stackPush()) {
             Framebuffer framebuffer = INSTANCE.boundFramebuffer;
@@ -776,6 +1092,16 @@ public class Renderer {
         setViewport(x, y + height, width, -height);
     }
 
+
+    public static void setGlViewport(int x, int y, int width, int height) {
+        GlFramebuffer target = GlFramebuffer.getBoundFramebuffer();
+        if (target != null && !target.usesMainTargetOrientation())
+            setInvertedViewport(x, y, width, height);
+        else
+            setViewport(x, y, width, height);
+        glViewportSelection = true;
+    }
+
     public static void setViewport(int x, int y, int width, int height) {
         try (MemoryStack stack = stackPush()) {
             setViewport(x, y, width, height, stack);
@@ -784,8 +1110,42 @@ public class Renderer {
 
     private static final int[] VIEWPORT_BOX = new int[4];
     private static boolean viewportInitialized;
+    private static boolean rasterRowsBottomUp;
+    private static long viewportRevision;
+    private static boolean glViewportSelection;
+
+    public static long getViewportRevision() { return viewportRevision; }
+    public static boolean isGlViewportSelection() { return glViewportSelection; }
+
+
+    public static void restoreViewportRevision(long revision, boolean glSelection) {
+        viewportRevision = revision;
+        glViewportSelection = glSelection;
+    }
+
+
+    public static boolean isRasterRowsBottomUp() {
+        return rasterRowsBottomUp;
+    }
+
+
+    public static void recordRasterWrite() {
+        Renderer renderer = INSTANCE;
+        if (renderer == null || renderer.boundFramebuffer == null) return;
+        Framebuffer target = renderer.boundFramebuffer;
+        if (VRenderSystem.getColorMask() != 0 && target.getColorAttachment() != null)
+            target.getColorAttachment().recordRasterOrigin(rasterRowsBottomUp);
+
+
+        if (VRenderSystem.depthTest && VRenderSystem.depthMask && target.getDepthAttachment() != null)
+            target.getDepthAttachment().recordRasterOrigin(rasterRowsBottomUp);
+    }
 
     public static void setViewport(int x, int y, int width, int height, MemoryStack stack) {
+        viewportRevision++;
+        glViewportSelection = false;
+        boolean originChanged = rasterRowsBottomUp != (height < 0);
+        rasterRowsBottomUp = height < 0;
         VIEWPORT_BOX[0] = x;
         VIEWPORT_BOX[1] = y;
         VIEWPORT_BOX[2] = width;
@@ -805,18 +1165,27 @@ public class Renderer {
 
         VkViewport.Buffer viewport = VkViewport.malloc(1, stack);
         viewport.x(x);
-        viewport.y(height + y);
+        viewport.y(height < 0 || framebuffer == null ? height + y : framebuffer.getHeight() - y);
         viewport.width(width);
         viewport.height(-height);
         viewport.minDepth(0.0f);
         viewport.maxDepth(1.0f);
 
         vkCmdSetViewport(INSTANCE.currentCmdBuffer, 0, viewport);
+        if (originChanged) applyScissor();
     }
 
     public static void setViewportScale(int logicalWidth, int logicalHeight) {
         INSTANCE.viewportLogicalWidth = logicalWidth;
         INSTANCE.viewportLogicalHeight = logicalHeight;
+    }
+
+    public int getViewportLogicalWidth() {
+        return this.viewportLogicalWidth;
+    }
+
+    public int getViewportLogicalHeight() {
+        return this.viewportLogicalHeight;
     }
 
     public static void clearViewportScale() {
@@ -841,6 +1210,10 @@ public class Renderer {
     }
 
     public static void resetViewport() {
+        viewportRevision++;
+        glViewportSelection = false;
+        boolean originChanged = rasterRowsBottomUp;
+        rasterRowsBottomUp = false;
         VIEWPORT_BOX[0] = 0;
         VIEWPORT_BOX[1] = 0;
         VIEWPORT_BOX[2] = getSwapChain().getWidth();
@@ -860,9 +1233,10 @@ public class Renderer {
 
             vkCmdSetViewport(INSTANCE.currentCmdBuffer, 0, viewport);
         }
+        if (originChanged) applyScissor();
     }
 
-                                                                                                                
+
     public static int getBoundFramebufferHeight() {
         Renderer renderer = INSTANCE;
         Framebuffer framebuffer = renderer != null ? renderer.boundFramebuffer : null;
@@ -871,6 +1245,13 @@ public class Renderer {
 
     public static int getViewportBox(int component) {
         return component >= 0 && component < VIEWPORT_BOX.length ? VIEWPORT_BOX[component] : 0;
+    }
+
+
+    public static int getGlViewport(int component) {
+        if (component == 1 && VIEWPORT_BOX[3] < 0) return VIEWPORT_BOX[1] + VIEWPORT_BOX[3];
+        if (component == 3 && VIEWPORT_BOX[3] < 0) return -VIEWPORT_BOX[3];
+        return getViewportBox(component);
     }
 
     public static boolean isViewportInitialized() {
@@ -886,22 +1267,35 @@ public class Renderer {
         SCISSOR_BOX[2] = width;
         SCISSOR_BOX[3] = height;
 
+        applyScissor();
+    }
+
+
+    public static void applyScissor() {
         if (INSTANCE == null || !INSTANCE.recordingCmds || INSTANCE.boundFramebuffer == null)
             return;
 
         try (MemoryStack stack = stackPush()) {
+            if (!scissorEnabled) {
+                vkCmdSetScissor(INSTANCE.currentCmdBuffer, 0, INSTANCE.boundFramebuffer.scissor(stack));
+                return;
+            }
+
             int framebufferWidth = INSTANCE.boundFramebuffer.getWidth();
             int framebufferHeight = INSTANCE.boundFramebuffer.getHeight();
+            int x = SCISSOR_BOX[0], y = SCISSOR_BOX[1];
+            int width = SCISSOR_BOX[2], height = SCISSOR_BOX[3];
 
-            int left = Math.max(0, x);
-            int bottom = Math.max(0, y);
-            int right = Math.min(framebufferWidth, x + Math.max(0, width));
-            int top = Math.min(framebufferHeight, y + Math.max(0, height));
+            int left = Math.min(framebufferWidth, Math.max(0, x));
+            int bottom = Math.min(framebufferHeight, Math.max(0, y));
+            int right = (int) Math.max(0L, Math.min(framebufferWidth, (long) x + Math.max(0, width)));
+            int top = (int) Math.max(0L, Math.min(framebufferHeight, (long) y + Math.max(0, height)));
             int scissorWidth = Math.max(0, right - left);
             int scissorHeight = Math.max(0, top - bottom);
 
             VkRect2D.Buffer scissor = VkRect2D.malloc(1, stack);
-            scissor.offset().set(left, framebufferHeight - top);
+
+            scissor.offset().set(left, rasterRowsBottomUp ? bottom : framebufferHeight - top);
             scissor.extent().set(scissorWidth, scissorHeight);
 
             vkCmdSetScissor(INSTANCE.currentCmdBuffer, 0, scissor);
@@ -909,21 +1303,13 @@ public class Renderer {
     }
 
     public static void resetScissor() {
-        if (INSTANCE == null || !INSTANCE.recordingCmds || INSTANCE.boundFramebuffer == null)
-            return;
-
-        try (MemoryStack stack = stackPush()) {
-            VkRect2D.Buffer scissor = INSTANCE.boundFramebuffer.scissor(stack);
-            vkCmdSetScissor(INSTANCE.currentCmdBuffer, 0, scissor);
-            scissorEnabled = false;
-        }
+        scissorEnabled = false;
+        applyScissor();
     }
 
     public static void setScissorEnabled(boolean enabled) {
         scissorEnabled = enabled;
-        if (!enabled) {
-            resetScissor();
-        }
+        applyScissor();
     }
 
     public static boolean isScissorEnabled() {

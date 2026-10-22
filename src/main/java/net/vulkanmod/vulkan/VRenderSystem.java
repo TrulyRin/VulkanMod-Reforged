@@ -6,6 +6,7 @@ import com.mojang.blaze3d.platform.Window;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.minecraft.client.Minecraft;
+import net.vulkanmod.compat.gl.GlIntegerState;
 import net.vulkanmod.vulkan.device.DeviceManager;
 import net.vulkanmod.vulkan.shader.PipelineState;
 import net.vulkanmod.vulkan.util.ColorUtil;
@@ -13,6 +14,7 @@ import net.vulkanmod.vulkan.util.MappedBuffer;
 import net.vulkanmod.vulkan.util.VUtil;
 import org.joml.Matrix4f;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL14;
 import org.lwjgl.system.MemoryUtil;
 
 import static org.lwjgl.vulkan.VK10.*;
@@ -81,6 +83,20 @@ public abstract class VRenderSystem {
 
     public static void initRenderer() {
         Vulkan.initVulkan(window);
+        syncGlStateCache();
+    }
+
+
+    public static void syncGlStateCache() {
+        GlStateManager.BLEND.mode.enabled = PipelineState.blendInfo.enabled;
+
+        GlStateManager.BLEND.srcRgb = GlIntegerState.getInteger(GL14.GL_BLEND_SRC_RGB);
+        GlStateManager.BLEND.dstRgb = GlIntegerState.getInteger(GL14.GL_BLEND_DST_RGB);
+        GlStateManager.BLEND.srcAlpha = GlIntegerState.getInteger(GL14.GL_BLEND_SRC_ALPHA);
+        GlStateManager.BLEND.dstAlpha = GlIntegerState.getInteger(GL14.GL_BLEND_DST_ALPHA);
+        GlStateManager.DEPTH.mode.enabled = depthTest;
+        GlStateManager.DEPTH.func = depthFun;
+        GlStateManager.DEPTH.mask = depthMask;
     }
 
     public static MappedBuffer getScreenSize() {
@@ -204,10 +220,12 @@ public abstract class VRenderSystem {
 
     public static void disableDepthTest() {
         depthTest = false;
+        GlStateManager.DEPTH.mode.enabled = false;
     }
 
     public static void depthMask(boolean b) {
         depthMask = b;
+        GlStateManager.DEPTH.mask = b;
     }
 
     public static void setPrimitiveTopologyGL(final int mode) {
@@ -271,6 +289,7 @@ public abstract class VRenderSystem {
 
     public static void enableDepthTest() {
         depthTest = true;
+        GlStateManager.DEPTH.mode.enabled = true;
     }
 
     public static void enableStencilTest() {
@@ -291,6 +310,7 @@ public abstract class VRenderSystem {
 
     public static void depthFunc(int depthFun) {
         VRenderSystem.depthFun = depthFun;
+        GlStateManager.DEPTH.func = depthFun;
     }
 
     public static void stencilFunc(int func, int ref, int mask) {
@@ -311,26 +331,36 @@ public abstract class VRenderSystem {
 
     public static void enableBlend() {
         PipelineState.blendInfo.enabled = true;
+        GlStateManager.BLEND.mode.enabled = true;
     }
 
     public static void disableBlend() {
         PipelineState.blendInfo.enabled = false;
+        GlStateManager.BLEND.mode.enabled = false;
     }
 
     public static void blendFunc(GlStateManager.SourceFactor sourceFactor, GlStateManager.DestFactor destFactor) {
-        PipelineState.blendInfo.setBlendFunction(sourceFactor, destFactor);
+        blendFunc(sourceFactor.value, destFactor.value);
     }
 
     public static void blendFunc(int srcFactor, int dstFactor) {
         PipelineState.blendInfo.setBlendFunction(srcFactor, dstFactor);
+        GlStateManager.BLEND.srcRgb = srcFactor;
+        GlStateManager.BLEND.srcAlpha = srcFactor;
+        GlStateManager.BLEND.dstRgb = dstFactor;
+        GlStateManager.BLEND.dstAlpha = dstFactor;
     }
 
     public static void blendFuncSeparate(GlStateManager.SourceFactor p_69417_, GlStateManager.DestFactor p_69418_, GlStateManager.SourceFactor p_69419_, GlStateManager.DestFactor p_69420_) {
-        PipelineState.blendInfo.setBlendFuncSeparate(p_69417_, p_69418_, p_69419_, p_69420_);
+        blendFuncSeparate(p_69417_.value, p_69418_.value, p_69419_.value, p_69420_.value);
     }
 
     public static void blendFuncSeparate(int srcFactorRGB, int dstFactorRGB, int srcFactorAlpha, int dstFactorAlpha) {
         PipelineState.blendInfo.setBlendFuncSeparate(srcFactorRGB, dstFactorRGB, srcFactorAlpha, dstFactorAlpha);
+        GlStateManager.BLEND.srcRgb = srcFactorRGB;
+        GlStateManager.BLEND.dstRgb = dstFactorRGB;
+        GlStateManager.BLEND.srcAlpha = srcFactorAlpha;
+        GlStateManager.BLEND.dstAlpha = dstFactorAlpha;
     }
 
     public static void blendEquation(int mode) {
@@ -359,7 +389,7 @@ public abstract class VRenderSystem {
     }
 
     public static void enablePolygonOffset() {
-        Renderer.setDepthBias(depthBias[0], depthBias[1]);
+        Renderer.setDepthBias(depthBias[1], depthBias[0]);
     }
 
     public static void disablePolygonOffset() {

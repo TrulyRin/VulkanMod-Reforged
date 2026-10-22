@@ -18,8 +18,8 @@ public abstract class KeyboardHandlerM {
 
     @Inject(method = "keyPress", at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/platform/InputConstants;isKeyDown(JI)Z", ordinal = 0, shift = At.Shift.AFTER))
     private void chunkDebug(long window, int key, int scancode, int action, int mods, CallbackInfo ci) {
-                             
-                               
+
+
         this.handledDebugKey |= InputConstants.isKeyDown(Minecraft.getInstance().getWindow().getWindow(), 296)
                 && this.handleChunkDebugKeys(key);
     }

@@ -34,8 +34,8 @@ public class ModIconWidget extends VAbstractWidget {
         GuiRenderer.guiGraphics.blit(icon, iconX, iconY, 0f, 0f, size, size, size, size);
 
         size = this.height;
-                                                                                    
-                                                     
+
+
         int textX = this.x + 6 + size;
         int availableWidth = this.x + this.width - textX - 4;
         GuiRenderer.drawScrollingString(Minecraft.getInstance().font, (Component) this.name,

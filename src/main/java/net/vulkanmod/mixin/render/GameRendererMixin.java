@@ -102,8 +102,8 @@ public abstract class GameRendererMixin {
 
     @Shadow protected abstract void loadBlurEffect(ResourceProvider resourceProvider);
 
-                                                                                                 
-                                                                                              
+
+
     @Inject(method = "render(Lnet/minecraft/client/DeltaTracker;Z)V",
             at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/pipeline/RenderTarget;bindWrite(Z)V", shift = At.Shift.AFTER),
             require = 1, allow = 1)
@@ -336,7 +336,7 @@ public abstract class GameRendererMixin {
             throw new RuntimeException("Blit shader already preloaded");
         } else {
             try {
-                this.blitShader = new ShaderInstance(resourceProvider, "blit_screen", DefaultVertexFormat.POSITION_TEX);
+                this.blitShader = new ShaderInstance(resourceProvider, "blit_screen", DefaultVertexFormat.BLIT_SCREEN);
             } catch (IOException var3) {
                 throw new RuntimeException("could not preload blit shader", var3);
             }

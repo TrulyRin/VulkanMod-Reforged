@@ -82,7 +82,7 @@ public class CommandPool {
 
             vkBeginCommandBuffer(commandBuffer.handle, beginInfo);
 
-                        
+
 
             return commandBuffer;
         }

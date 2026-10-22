@@ -1,6 +1,7 @@
 package net.vulkanmod.vulkan.shader;
 
 import com.mojang.blaze3d.platform.GlStateManager;
+import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.framebuffer.RenderPass;
 import net.vulkanmod.vulkan.VRenderSystem;
 
@@ -38,7 +39,14 @@ public class PipelineState {
 
     public static int getAssemblyRasterState() {
         int cullMode = VRenderSystem.cull ? VRenderSystem.cullFace : VK_CULL_MODE_NONE;
-        return AssemblyRasterState.encode(cullMode, VRenderSystem.topology, VRenderSystem.polygonMode, VRenderSystem.frontFace);
+        int frontFace = VRenderSystem.frontFace;
+
+
+        if (Renderer.isRasterRowsBottomUp()) {
+            frontFace = frontFace == VK_FRONT_FACE_COUNTER_CLOCKWISE
+                    ? VK_FRONT_FACE_CLOCKWISE : VK_FRONT_FACE_COUNTER_CLOCKWISE;
+        }
+        return AssemblyRasterState.encode(cullMode, VRenderSystem.topology, VRenderSystem.polygonMode, frontFace);
     }
 
     public static int getDepthState() {

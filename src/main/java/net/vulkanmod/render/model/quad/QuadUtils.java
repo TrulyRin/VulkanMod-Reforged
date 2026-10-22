@@ -4,9 +4,9 @@ public abstract class QuadUtils {
     public static final byte DEFAULT_START_IDX = 0;
     public static final byte FLIPPED_START_IDX = 3;
 
-        
-                                                                 
-       
+
+
+
     public static int getIterationStartIdx(float[] aos, int[] lms) {
         final float ao00_11 = aos[0] + aos[2];
         final float ao10_01 = aos[1] + aos[3];
@@ -18,11 +18,11 @@ public abstract class QuadUtils {
 
         final float lm00_11 = lms[0] + lms[2];
         final float lm10_01 = lms[1] + lms[3];
-                                  
-                                       
-                  
-                                       
-           
+
+
+
+
+
 
         if(lm00_11 >= lm10_01) {
             return FLIPPED_START_IDX;
@@ -31,9 +31,9 @@ public abstract class QuadUtils {
         }
     }
 
-        
-                                                          
-       
+
+
+
     public static int getIterationStartIdx(float[] aos) {
         final float ao00_11 = aos[0] + aos[2];
         final float ao10_01 = aos[1] + aos[3];

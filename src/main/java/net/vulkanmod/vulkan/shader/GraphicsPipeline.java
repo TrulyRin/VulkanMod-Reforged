@@ -434,7 +434,7 @@ public class GraphicsPipeline extends Pipeline {
                 }
 
                 default -> {
-                                                                                                       
+
                     if (type == VertexFormatElement.Type.USHORT && elementCount == 1)
                         posDescription.format(VK_FORMAT_R16_UINT);
                     else throw new RuntimeException(String.format("Unknown format: %s", usage));

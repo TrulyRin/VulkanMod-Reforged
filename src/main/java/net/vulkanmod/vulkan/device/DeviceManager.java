@@ -5,6 +5,7 @@ import net.vulkanmod.Initializer;
 import net.vulkanmod.compat.gl.GlPatchState;
 import net.vulkanmod.vulkan.VRenderSystem;
 import net.vulkanmod.vulkan.Vulkan;
+import net.vulkanmod.vulkan.framebuffer.MainDepthSnapshot;
 import net.vulkanmod.vulkan.queue.*;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
@@ -302,29 +303,37 @@ public abstract class DeviceManager {
     }
 
     public static int findDepthFormat(boolean use24BitsDepthFormat) {
+
         int[] formats = use24BitsDepthFormat ? new int[]
-                {VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_X8_D24_UNORM_PACK32, VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT}
-                : new int[]{VK_FORMAT_D32_SFLOAT, VK_FORMAT_D32_SFLOAT_S8_UINT};
+                {VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_X8_D24_UNORM_PACK32, VK_FORMAT_D32_SFLOAT}
+                : new int[]{VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D32_SFLOAT};
 
         return findSupportedFormat(
                 VK_IMAGE_TILING_OPTIMAL,
-                VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT,
+                MainDepthSnapshot.depthAttachmentUsage(),
                 formats);
     }
 
-    private static int findSupportedFormat(int tiling, int features, int... formatCandidates) {
+    private static int findSupportedFormat(int tiling, int features, int usage, int... formatCandidates) {
         try (MemoryStack stack = stackPush()) {
 
             VkFormatProperties props = VkFormatProperties.calloc(stack);
+            VkImageFormatProperties imageProps = VkImageFormatProperties.calloc(stack);
 
             for (int format : formatCandidates) {
 
                 vkGetPhysicalDeviceFormatProperties(physicalDevice, format, props);
 
-                if (tiling == VK_IMAGE_TILING_LINEAR && (props.linearTilingFeatures() & features) == features) {
-                    return format;
-                } else if (tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures() & features) == features) {
-                    return format;
+                boolean supportedFeatures = tiling == VK_IMAGE_TILING_LINEAR
+                        ? (props.linearTilingFeatures() & features) == features
+                        : tiling == VK_IMAGE_TILING_OPTIMAL && (props.optimalTilingFeatures() & features) == features;
+                if (supportedFeatures) {
+                    int result = vkGetPhysicalDeviceImageFormatProperties(physicalDevice, format, VK_IMAGE_TYPE_2D,
+                            tiling, usage, 0, imageProps);
+                    if (result == VK_SUCCESS && (imageProps.sampleCounts() & VK_SAMPLE_COUNT_1_BIT) != 0) {
+                        return format;
+                    }
                 }
 
             }

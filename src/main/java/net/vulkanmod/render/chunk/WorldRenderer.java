@@ -146,6 +146,8 @@ public class WorldRenderer {
             this.allChanged();
         }
 
+        this.applyPendingVanillaInvalidation();
+
         this.level.getProfiler().push("camera");
         float cameraX = (float) cameraPos.x();
         float cameraY = (float) cameraPos.y();
@@ -212,7 +214,7 @@ public class WorldRenderer {
     }
 
     public boolean uploadSections() {
-
+        this.applyPendingVanillaInvalidation();
         if (this.sectionGrid == null) {
             return false;
         }
@@ -310,8 +312,8 @@ public class WorldRenderer {
     }
 
     public void renderSectionLayer(RenderType renderType, double camX, double camY, double camZ, Matrix4f modelView, Matrix4f projection) {
-                                                                                                 
-                                                                                       
+
+
         if (AeronauticsWorldLayers.isBase(renderType)) {
             AeronauticsWorldRenderer.renderBase(renderType, this.sectionGraph.getChunkAreaQueue().queue(),
                     camX, camY, camZ, modelView, projection);
@@ -480,6 +482,7 @@ public class WorldRenderer {
 
     public boolean hasPendingSectionWork() {
         return this.graphNeedsUpdate
+                || VanillaSectionInvalidation.INSTANCE.hasPending()
                 || this.sectionGraph != null && this.sectionGraph.hasPendingRebuilds()
                 || !this.taskDispatcher.isIdle();
     }
@@ -489,9 +492,18 @@ public class WorldRenderer {
     }
 
     public void setSectionDirty(int x, int y, int z, boolean flag) {
+        if (this.sectionGrid == null) return;
         this.sectionGrid.setDirty(x, y, z, flag);
 
         this.renderRegionCache.remove(x, z);
+    }
+
+    private void applyPendingVanillaInvalidation() {
+        if (!VanillaSectionInvalidation.INSTANCE.consume() || this.level == null || this.sectionGrid == null) return;
+        this.renderRegionCache.clear();
+        for (RenderSection section : this.sectionGrid.sections) {
+            section.setDirty(false);
+        }
     }
 
     public SectionGrid getSectionGrid() {

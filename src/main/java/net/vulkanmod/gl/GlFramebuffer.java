@@ -1,13 +1,14 @@
 package net.vulkanmod.gl;
 
-import com.mojang.blaze3d.pipeline.RenderTarget;
+import com.mojang.blaze3d.systems.RenderSystem;
 import it.unimi.dsi.fastutil.ints.Int2ReferenceOpenHashMap;
-import net.minecraft.client.Minecraft;
 import net.vulkanmod.vulkan.Renderer;
 import net.vulkanmod.vulkan.VRenderSystem;
+import net.vulkanmod.vulkan.Vulkan;
 import net.vulkanmod.vulkan.framebuffer.Framebuffer;
 import net.vulkanmod.vulkan.framebuffer.RenderPass;
 import net.vulkanmod.vulkan.pass.MainPass;
+import net.vulkanmod.vulkan.pass.DefaultMainPass;
 import net.vulkanmod.vulkan.texture.ImageUtil;
 import net.vulkanmod.vulkan.texture.VulkanImage;
 import org.lwjgl.opengl.GL11;
@@ -27,6 +28,8 @@ public class GlFramebuffer {
     private static int boundReadId = 0;
     private static GlFramebuffer boundDrawFramebuffer;
     private static GlFramebuffer boundReadFramebuffer;
+    private static boolean drawViewportPending;
+    private static long drawViewportRevision;
     private static long borrowedAttachmentGeneration;
 
     public static void resetBoundFramebuffer() {
@@ -34,25 +37,136 @@ public class GlFramebuffer {
         boundReadFramebuffer = null;
         boundDrawId = 0;
         boundReadId = 0;
+        drawViewportPending = false;
+        drawViewportRevision = 0;
+    }
+
+
+    public static BindingSnapshot captureBindings() {
+        return new BindingSnapshot(boundDrawFramebuffer, boundReadFramebuffer, boundDrawId, boundReadId,
+                drawViewportPending, drawViewportRevision);
+    }
+
+    public static final class BindingSnapshot {
+        private final GlFramebuffer draw, read;
+        private final int drawId, readId;
+        private final boolean viewportPending;
+        private final long viewportRevision;
+
+        private BindingSnapshot(GlFramebuffer draw, GlFramebuffer read, int drawId, int readId,
+                                boolean viewportPending, long viewportRevision) {
+            this.draw = draw;
+            this.read = read;
+            this.drawId = drawId;
+            this.readId = readId;
+            this.viewportPending = viewportPending;
+            this.viewportRevision = viewportRevision;
+        }
+
+        public void restore() {
+            boundDrawFramebuffer = draw;
+            boundReadFramebuffer = read;
+            boundDrawId = drawId;
+            boundReadId = readId;
+            drawViewportPending = viewportPending;
+            drawViewportRevision = viewportRevision;
+        }
+
+
+        public boolean restoreLiveTargets() {
+            boolean liveDraw = drawId == 0 || draw != null && map.get(drawId) == draw;
+            if (liveDraw) bindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, drawId);
+            if (readId == 0 || read != null && map.get(readId) == read)
+                bindFramebuffer(GL30.GL_READ_FRAMEBUFFER, readId);
+            if (liveDraw) {
+                drawViewportPending = viewportPending;
+                drawViewportRevision = viewportRevision;
+            }
+            return liveDraw;
+        }
+    }
+
+
+    public static void ensureDrawFramebufferRendering() {
+        GlFramebuffer draw = boundDrawFramebuffer;
+        Renderer renderer = Renderer.getInstance();
+        if (renderer == null || Renderer.skipRendering || !Renderer.isRecording()) return;
+        if (renderer.getBoundRenderPass() != null) {
+            if (draw != null && renderer.getBoundRenderPass() == draw.renderPass) applyPendingViewport();
+            return;
+        }
+
+        if (draw == null) {
+            renderer.beginMainRenderingPreservingRasterState();
+            return;
+        }
+
+        draw.ensureNativePair();
+        if (draw.framebuffer == null || draw.renderPass == null) return;
+
+        if (renderer.beginRenderingPreservingRasterState(draw.renderPass, draw.framebuffer)) applyPendingViewport();
+    }
+
+    private static void applyPendingViewport() {
+        if (!drawViewportPending) return;
+        if (Renderer.isViewportInitialized() && (drawViewportRevision == Renderer.getViewportRevision()
+                || Renderer.isGlViewportSelection())) {
+            Renderer.setGlViewport(Renderer.getGlViewport(0), Renderer.getGlViewport(1),
+                    Renderer.getGlViewport(2), Renderer.getGlViewport(3));
+        }
+        drawViewportPending = false;
     }
 
     public static void beginRendering(GlFramebuffer glFramebuffer) {
-        Renderer.getInstance().beginRendering(glFramebuffer.renderPass, glFramebuffer.framebuffer);
+        glFramebuffer.ensureNativePair();
+        if (glFramebuffer.framebuffer == null) return;
+        Renderer renderer = Renderer.getInstance();
+
+        if (renderer.isRecreatingSwapChain()) {
+            boundDrawFramebuffer = glFramebuffer;
+            boundDrawId = glFramebuffer.id;
+            return;
+        }
+        BindingSnapshot bindings = captureBindings();
+        boolean deferredForResize = false;
+        try {
+
+
+            if (!Renderer.isRecording()) renderer.beginFrame();
+            if (renderer.isResizeFrameDeferred()) {
+                deferredForResize = true;
+                return;
+            }
+
+            glFramebuffer.ensureNativePair();
+            if (glFramebuffer.framebuffer == null || glFramebuffer.renderPass == null)
+                throw new IllegalStateException("Framebuffer attachments are unavailable after frame entry");
+            if (!renderer.beginRendering(glFramebuffer.renderPass, glFramebuffer.framebuffer))
+                throw new IllegalStateException("Framebuffer write requires an active renderer frame");
+        } finally {
+
+            bindings.restore();
+            if (deferredForResize) {
+                boundDrawFramebuffer = glFramebuffer;
+                boundDrawId = glFramebuffer.id;
+            }
+        }
 
         Framebuffer framebuffer = glFramebuffer.framebuffer;
         int viewWidth = framebuffer.getWidth();
         int viewHeight = framebuffer.getHeight();
 
-        if (glFramebuffer.borrowedPairs != null) {
-                                                                                                               
+        if (glFramebuffer.usesMainTargetOrientation()) {
+
             Renderer.setViewport(0, 0, viewWidth, viewHeight);
         } else {
             Renderer.setInvertedViewport(0, 0, viewWidth, viewHeight);
         }
-        Renderer.setScissor(0, 0, viewWidth, viewHeight);
+        Renderer.applyScissor();
 
         boundDrawFramebuffer = glFramebuffer;
         boundDrawId = glFramebuffer.id;
+        drawViewportPending = false;
     }
 
     public static int genFramebufferId() {
@@ -72,17 +186,21 @@ public class GlFramebuffer {
         if (id == 0) {
             if (target == GL30.GL_DRAW_FRAMEBUFFER) {
                 Renderer renderer = Renderer.getInstance();
-                if (renderer != null) {
-                    renderer.endRenderPass();
-
-                    if (Renderer.isRecording()) {
-                        RenderTarget renderTarget = Minecraft.getInstance().getMainRenderTarget();
-                        renderTarget.bindWrite(true);
+                GlFramebuffer savedRead = boundReadFramebuffer;
+                int savedReadId = boundReadId;
+                try {
+                    if (renderer != null) {
+                        if (Renderer.isRecording() && !Renderer.skipRendering)
+                            renderer.getMainPass().rebindMainTarget();
+                        else renderer.endRenderPass();
                     }
+                } finally {
+                    boundReadFramebuffer = savedRead;
+                    boundReadId = savedReadId;
+                    boundDrawFramebuffer = null;
+                    boundDrawId = 0;
+                    drawViewportPending = false;
                 }
-
-                boundDrawFramebuffer = null;
-                boundDrawId = 0;
             } else if (target == GL30.GL_READ_FRAMEBUFFER) {
                 boundReadFramebuffer = null;
                 boundReadId = 0;
@@ -108,6 +226,12 @@ public class GlFramebuffer {
             return;
         }
 
+        glFramebuffer.ensureNativePair();
+        if (glFramebuffer.framebuffer == null) {
+            Renderer renderer = Renderer.getInstance();
+            if (renderer != null && renderer.getBoundRenderPass() != null) endRenderPassPreservingBindings(renderer);
+        }
+
         if (boundDrawId == id && boundDrawFramebuffer == glFramebuffer) {
             if (glFramebuffer.framebuffer != null
                     && Renderer.getInstance().getBoundRenderPass() != glFramebuffer.renderPass) {
@@ -119,6 +243,8 @@ public class GlFramebuffer {
 
         boundDrawFramebuffer = glFramebuffer;
         boundDrawId = id;
+        drawViewportPending = true;
+        drawViewportRevision = Renderer.getViewportRevision();
 
         if (glFramebuffer.framebuffer != null) {
             beginRendering(glFramebuffer);
@@ -138,10 +264,12 @@ public class GlFramebuffer {
 
         try {
             framebuffer.cleanUp();
+            for (int attachment : framebuffer.attachments.keySet().toIntArray()) framebuffer.clearAttachment(attachment);
         } finally {
             if (boundDrawFramebuffer == framebuffer) {
                 boundDrawFramebuffer = null;
                 boundDrawId = 0;
+                drawViewportPending = false;
             }
             if (boundReadFramebuffer == framebuffer) {
                 boundReadFramebuffer = null;
@@ -167,6 +295,7 @@ public class GlFramebuffer {
             return;
         }
 
+        framebuffer.prepareAttachmentMutation(attachment);
         framebuffer.trackAttachmentTexture(attachment, texture, level);
 
         if (!isRenderableAttachment(attachment)) {
@@ -201,6 +330,7 @@ public class GlFramebuffer {
             return;
         }
 
+        framebuffer.prepareAttachmentMutation(attachment);
         framebuffer.trackAttachmentRenderbuffer(attachment, renderbuffer);
 
         if (!isRenderableAttachment(attachment)) {
@@ -236,7 +366,9 @@ public class GlFramebuffer {
     public static void blitFramebuffer(int srcX0, int srcY0, int srcX1, int srcY1,
                                        int dstX0, int dstY0, int dstX1, int dstY1,
                                        int mask, int filter) {
-        BlitImages images = resolveBlitImages(boundReadFramebuffer, boundDrawFramebuffer, mask);
+        requireTransferOwner();
+        GlFramebuffer destination = boundDrawFramebuffer;
+        BlitImages images = resolveBlitImages(boundReadFramebuffer, destination, mask);
         if (images == null) {
             GlEmulationLog.warnOnce("framebuffer.blit.missingAttachment." + mask + "." + boundReadId + "." + boundDrawId,
                     String.format("glBlitFramebuffer skipped: readFb=%d[%s] drawFb=%d[%s] mask=0x%X src=(%d,%d->%d,%d) dst=(%d,%d->%d,%d) — read/draw attachment unavailable",
@@ -254,22 +386,19 @@ public class GlFramebuffer {
             return;
         }
 
-        Renderer renderer = Renderer.getInstance();
-        if (renderer != null) {
-            renderer.endRenderPass();
-        }
-
-        ImageUtil.blitImage(images.source, images.destination,
-                srcX0, srcY0, srcX1, srcY1,
-                dstX0, dstY0, dstX1, dstY1,
-                images.aspectMask, filter);
+        boolean destinationBottomUp = blitDestinationBottomUp(destination, images,
+                srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1);
+        blitResolvedImages(images, destinationBottomUp,
+                srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, filter);
     }
 
     public static void blitNamedFramebuffer(int readFramebuffer, int drawFramebuffer,
                                             int srcX0, int srcY0, int srcX1, int srcY1,
                                             int dstX0, int dstY0, int dstX1, int dstY1,
                                             int mask, int filter) {
-        BlitImages images = resolveNamedBlitImages(readFramebuffer, drawFramebuffer, mask);
+        requireTransferOwner();
+        GlFramebuffer destination = map.get(drawFramebuffer);
+        BlitImages images = resolveBlitImages(map.get(readFramebuffer), destination, mask);
         if (images == null) {
             GlEmulationLog.warnOnce("framebuffer.blitNamed.missingAttachment." + mask + "." + readFramebuffer + "." + drawFramebuffer,
                     String.format("glBlitNamedFramebuffer skipped: readFb=%d[%s] drawFb=%d[%s] mask=0x%X — attachment unavailable",
@@ -284,15 +413,123 @@ public class GlFramebuffer {
             return;
         }
 
-        Renderer renderer = Renderer.getInstance();
-        if (renderer != null) {
-            renderer.endRenderPass();
-        }
+        boolean destinationBottomUp = blitDestinationBottomUp(destination, images,
+                srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1);
+        blitResolvedImages(images, destinationBottomUp,
+                srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, filter);
+    }
 
+    private static void blitResolvedImages(BlitImages images, boolean destinationBottomUp,
+                                           int srcX0, int srcY0, int srcX1, int srcY1,
+                                           int dstX0, int dstY0, int dstX1, int dstY1, int filter) {
+        int physicalSrcY0 = physicalBlitY(images.source, srcY0), physicalSrcY1 = physicalBlitY(images.source, srcY1);
+        int physicalDstY0 = physicalBlitY(images.destination, dstY0, destinationBottomUp);
+        int physicalDstY1 = physicalBlitY(images.destination, dstY1, destinationBottomUp);
         ImageUtil.blitImage(images.source, images.destination,
-                srcX0, srcY0, srcX1, srcY1,
-                dstX0, dstY0, dstX1, dstY1,
+                srcX0, physicalSrcY0, srcX1, physicalSrcY1, dstX0, physicalDstY0, dstX1, physicalDstY1,
                 images.aspectMask, filter);
+
+
+        if (srcX0 == srcX1 || physicalSrcY0 == physicalSrcY1 || dstX0 == dstX1 || physicalDstY0 == physicalDstY1)
+            return;
+        if (images.source.getId() == images.destination.getId()
+                && srcX0 == dstX0 && physicalSrcY0 == physicalDstY0 && srcX1 == dstX1 && physicalSrcY1 == physicalDstY1)
+            return;
+        images.destination.recordRasterOrigin(destinationBottomUp);
+    }
+
+    private static void requireTransferOwner() {
+        ImageUtil.requireTransferReady();
+        if (Renderer.getInstance() == null || !Renderer.isRecording()) return;
+        RenderSystem.assertOnRenderThread();
+        if (Renderer.skipRendering || Renderer.getCommandBuffer() == null)
+            throw new IllegalStateException("Framebuffer transfer requires an active renderer primary");
+    }
+
+    private static int physicalBlitY(VulkanImage image, int y) {
+        return FramebufferBlitCoordinates.physicalY(y, image.height, image.isRowsBottomUp());
+    }
+
+    private static int physicalBlitY(VulkanImage image, int y, boolean bottomUp) {
+        return FramebufferBlitCoordinates.physicalY(y, image.height, bottomUp);
+    }
+
+
+    private static boolean blitDestinationBottomUp(GlFramebuffer destination, BlitImages images,
+                                                   int srcX0, int srcY0, int srcX1, int srcY1,
+                                                   int dstX0, int dstY0, int dstX1, int dstY1) {
+        VulkanImage image = images.destination;
+        if (image.isRowsBottomUp()) return true;
+        if (destination == null || destination.borrowedPairs != null || images.source.getId() == image.getId()
+                || srcX1 <= srcX0 || srcY1 <= srcY0
+                || dstX0 != 0 || dstY0 != 0 || dstX1 != image.width || dstY1 != image.height)
+            return false;
+        if (nativeOrBorrowedImage(image)) return false;
+        return images.aspectMask == image.aspect || logicalDepthOnlyReplacement(destination, images);
+    }
+
+
+    private static boolean logicalDepthOnlyReplacement(GlFramebuffer destination, BlitImages images) {
+        VulkanImage image = images.destination;
+        if (images.aspectMask != VK_IMAGE_ASPECT_DEPTH_BIT
+                || image.aspect != (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)
+                || images.source.format != image.format || destination.logicalDepthOnlyTexture(image) == null
+                || GlTexture.hasNonDepthOnlyAlias(image) || GlRenderbuffer.hasImageAlias(image)) return false;
+
+        for (GlFramebuffer target : map.values()) {
+            if (target.depthAttachment == image && (target.attachments.containsKey(GL30.GL_STENCIL_ATTACHMENT)
+                    || target.attachments.containsKey(GL30.GL_DEPTH_STENCIL_ATTACHMENT))) return false;
+            var aliases = target.textureAttachments.int2ReferenceEntrySet().fastIterator();
+            while (aliases.hasNext()) {
+                var alias = aliases.next();
+                GlTexture texture = alias.getValue();
+                if (texture != null && texture.vulkanImage == image
+                        && (alias.getIntKey() != GL30.GL_DEPTH_ATTACHMENT
+                        || target.logicalDepthOnlyTexture(image) != texture)) return false;
+            }
+
+
+            var attachments = target.attachments.int2ReferenceEntrySet().fastIterator();
+            while (attachments.hasNext()) {
+                AttachmentInfo attachment = attachments.next().getValue();
+                if (attachment.objectType == GL30.GL_RENDERBUFFER && attachment.renderbufferImage == image) return false;
+            }
+        }
+        return true;
+    }
+
+    private GlTexture logicalDepthOnlyTexture(VulkanImage image) {
+        AttachmentInfo attachment = this.attachments.get(GL30.GL_DEPTH_ATTACHMENT);
+        GlTexture texture = this.textureAttachments.get(GL30.GL_DEPTH_ATTACHMENT);
+        return this.depthAttachment == image && attachment != null && attachment.objectType == GL11.GL_TEXTURE
+                && attachment.textureLevel == 0 && texture != null && attachment.objectName == texture.id
+                && texture.isKnownDepthOnlyImage(image) ? texture : null;
+    }
+
+
+    private static boolean nativeOrBorrowedImage(VulkanImage image) {
+        Renderer renderer = Renderer.getInstance();
+        MainPass main = renderer == null ? null : renderer.getMainPass();
+        if (main != null) {
+            if (image == main.getColorAttachment() || image == main.getDepthAttachment()) return true;
+            if (main instanceof DefaultMainPass pass) {
+                Framebuffer retained = pass.getRetainedWorldFramebuffer();
+                if (retained != null && (image == retained.getColorAttachment() || image == retained.getDepthAttachment()))
+                    return true;
+            }
+        }
+        var swapchain = Vulkan.getSwapChain();
+        if (swapchain != null) {
+            if (image == swapchain.getDepthAttachment()) return true;
+            var images = swapchain.getImages();
+            if (images != null) for (VulkanImage nativeImage : images) if (image == nativeImage) return true;
+        }
+        for (GlFramebuffer target : map.values()) {
+            if (target.borrowedPairs != null && (image == target.colorAttachment || image == target.depthAttachment
+                    || target.borrowedPairs.retainsAttachment(image)))
+                return true;
+        }
+        return false;
     }
 
     static BlitImages resolveBlitImages(int mask) {
@@ -383,6 +620,7 @@ public class GlFramebuffer {
             return;
         }
 
+        glFramebuffer.prepareAttachmentMutation(attachment);
         glFramebuffer.trackAttachmentTexture(attachment, texture, level);
 
         if (isRenderableAttachment(attachment)) {
@@ -401,6 +639,7 @@ public class GlFramebuffer {
             return;
         }
 
+        glFramebuffer.prepareAttachmentMutation(attachment);
         glFramebuffer.trackAttachmentRenderbuffer(attachment, renderbuffer);
 
         if (isRenderableAttachment(attachment)) {
@@ -424,7 +663,7 @@ public class GlFramebuffer {
         return map.get(id);
     }
 
-                                                                                                     
+
     public static boolean refreshBorrowedAttachments(int framebufferId, int colorTextureId, int depthTextureId, int capacity) {
         GlFramebuffer target = map.get(framebufferId);
         if (target == null || capacity < 1 || boundDrawFramebuffer == target || boundDrawId == framebufferId) {
@@ -456,8 +695,8 @@ public class GlFramebuffer {
                     color, color.getId(), color.getImageView(), color.width, color.height, color.format,
                     depth, depth.getId(), depth.getImageView(), depth.width, depth.height, depth.format);
         } catch (RuntimeException | Error failure) {
-                                                                                                
-                                                                                                  
+
+
             if (previousCache != null && target.borrowedCurrentPair != null
                     && !previousCache.retains(target.borrowedCurrentPair)) {
                 target.framebuffer = null;
@@ -471,7 +710,7 @@ public class GlFramebuffer {
         NativePair previousOrdinary = previousCache == null && (target.framebuffer != null || target.renderPass != null)
                 ? new NativePair(target.framebuffer, target.renderPass) : null;
 
-                                                                                                       
+
         target.borrowedPairs = cache;
         target.borrowedCapacity = capacity;
         target.borrowedCurrentPair = pair;
@@ -542,16 +781,32 @@ public class GlFramebuffer {
     Framebuffer framebuffer;
     RenderPass renderPass;
     java.util.function.Function<BorrowedFramebufferCache.Key, NativePair> borrowedPairFactory;
+    java.util.function.BiFunction<VulkanImage, VulkanImage, NativePair> ordinaryPairFactory;
     private BorrowedFramebufferCache<NativePair> borrowedPairs;
+
     private int borrowedCapacity;
     private NativePair borrowedCurrentPair;
 
     VulkanImage colorAttachment;
     VulkanImage depthAttachment;
     private final Int2ReferenceOpenHashMap<AttachmentInfo> attachments = new Int2ReferenceOpenHashMap<>();
+    private final Int2ReferenceOpenHashMap<GlTexture> textureAttachments = new Int2ReferenceOpenHashMap<>();
 
     GlFramebuffer(int i) {
         this.id = i;
+    }
+
+
+    public boolean isColorAttachmentBottomUp() {
+        return this.colorAttachment != null && this.colorAttachment.isRowsBottomUp();
+    }
+
+
+    public boolean usesMainTargetOrientation() {
+        if (this.borrowedPairs != null) return true;
+        Renderer renderer = Renderer.getInstance();
+        return this.colorAttachment != null && renderer != null && renderer.getMainPass() != null
+                && this.colorAttachment == renderer.getMainPass().getColorAttachment();
     }
 
     boolean beginRendering() {
@@ -605,22 +860,94 @@ public class GlFramebuffer {
     }
 
     void trackAttachmentTexture(int attachment, int texture, int level) {
+        GlTexture next = GlTexture.getTexture(texture);
+        GlTexture previous = this.textureAttachments.get(attachment);
+        if (previous != next) {
+            if (next != null) next.retainFramebufferAttachment();
+            this.textureAttachments.put(attachment, next);
+            if (previous != null) previous.releaseFramebufferAttachment();
+        }
         this.attachments.put(attachment, AttachmentInfo.texture(texture, level));
     }
 
     private void trackBorrowedTexture(int attachment, int texture) {
         AttachmentInfo previous = this.attachments.get(attachment);
-        if (previous == null || previous.objectType != GL11.GL_TEXTURE || previous.objectName != texture || previous.textureLevel != 0) {
+        if (previous == null || previous.objectType != GL11.GL_TEXTURE || previous.objectName != texture || previous.textureLevel != 0
+                || this.textureAttachments.get(attachment) != GlTexture.getTexture(texture)) {
             trackAttachmentTexture(attachment, texture, 0);
         }
     }
 
     void trackAttachmentRenderbuffer(int attachment, int renderbuffer) {
+        GlTexture previous = this.textureAttachments.remove(attachment);
+        if (previous != null) previous.releaseFramebufferAttachment();
         this.attachments.put(attachment, AttachmentInfo.renderbuffer(renderbuffer));
     }
 
     void clearAttachment(int attachment) {
+        if (!this.attachments.containsKey(attachment)) return;
+        if (isRenderableAttachment(attachment)) {
+            this.cleanUp();
+        }
         this.attachments.remove(attachment);
+        if (isRenderableAttachment(attachment)) {
+            if (attachment == GL30.GL_COLOR_ATTACHMENT0) this.colorAttachment = null;
+            else this.depthAttachment = survivingDepthAttachment();
+        }
+        GlTexture previous = this.textureAttachments.remove(attachment);
+        if (previous != null) previous.releaseFramebufferAttachment();
+    }
+
+    private void prepareAttachmentMutation(int attachment) {
+        if (!isRenderableAttachment(attachment)) return;
+        this.cleanUp();
+        if (attachment == GL30.GL_COLOR_ATTACHMENT0) this.colorAttachment = null;
+        else this.depthAttachment = null;
+    }
+
+    private VulkanImage survivingDepthAttachment() {
+        for (int slot : new int[]{GL30.GL_DEPTH_ATTACHMENT, GL30.GL_DEPTH_STENCIL_ATTACHMENT, GL30.GL_STENCIL_ATTACHMENT}) {
+            AttachmentInfo info = this.attachments.get(slot);
+            if (info == null) continue;
+            if (info.objectType == GL11.GL_TEXTURE) {
+                GlTexture texture = this.textureAttachments.get(slot);
+                if (texture != null && texture.vulkanImage != null) return texture.vulkanImage;
+            } else if (info.objectType == GL30.GL_RENDERBUFFER) {
+                GlRenderbuffer renderbuffer = GlRenderbuffer.getRenderbuffer(info.objectName);
+                if (renderbuffer != null && renderbuffer.vulkanImage != null) return renderbuffer.vulkanImage;
+            }
+        }
+        return null;
+    }
+
+    static void textureImageChanged(GlTexture texture, VulkanImage replacement) {
+        for (GlFramebuffer target : map.values()) {
+
+            if (target.borrowedPairs != null) continue;
+            boolean changed = false;
+            for (int attachment : target.textureAttachments.keySet().toIntArray()) {
+                if (target.textureAttachments.get(attachment) != texture || !isRenderableAttachment(attachment)) continue;
+                if (!changed) target.cleanUp();
+                changed = true;
+                if (attachment == GL30.GL_COLOR_ATTACHMENT0) target.colorAttachment = replacement;
+                else target.depthAttachment = replacement;
+            }
+        }
+    }
+
+    static void textureDeleted(GlTexture texture) {
+
+
+        for (GlFramebuffer target : map.values()) {
+            if (target != boundDrawFramebuffer && target != boundReadFramebuffer) continue;
+            for (int attachment : target.textureAttachments.keySet().toIntArray()) {
+                if (target.textureAttachments.get(attachment) == texture) target.clearAttachment(attachment);
+            }
+        }
+    }
+
+    private void ensureNativePair() {
+        if (this.framebuffer == null && (this.colorAttachment != null || this.depthAttachment != null)) createAndBind();
     }
 
     int getAttachmentParameter(int attachment, int pname) {
@@ -668,13 +995,18 @@ public class GlFramebuffer {
         RenderPass oldRenderPass = this.renderPass;
         boolean wasBound = boundDrawFramebuffer == this && boundDrawId == this.id;
         if (wasBound && oldRenderPass != null && Renderer.getInstance().getBoundRenderPass() == oldRenderPass) {
-            Renderer.getInstance().endRenderPass();
-            boundDrawFramebuffer = this;
-            boundDrawId = this.id;
+            endRenderPassPreservingBindings(Renderer.getInstance());
         }
 
         if (this.framebuffer != null || this.borrowedPairs != null) {
             this.cleanUp();
+        }
+
+        if (this.ordinaryPairFactory != null) {
+            NativePair pair = this.ordinaryPairFactory.apply(this.colorAttachment, this.depthAttachment);
+            this.framebuffer = pair.framebuffer();
+            this.renderPass = pair.renderPass();
+            return;
         }
 
         boolean hasDepthImage = this.depthAttachment != null;
@@ -683,8 +1015,8 @@ public class GlFramebuffer {
         this.framebuffer = Framebuffer.builder(this.colorAttachment, depthImage).build();
         RenderPass.Builder builder = RenderPass.builder(this.framebuffer);
 
-                                                                                              
-                                                                             
+
+
         if (builder.getColorAttachmentInfo() != null)
             builder.getColorAttachmentInfo()
                     .setOps(VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE)
@@ -699,14 +1031,20 @@ public class GlFramebuffer {
     }
 
     public Framebuffer getFramebuffer() {
+        ensureNativePair();
         return framebuffer;
     }
 
     public RenderPass getRenderPass() {
+        ensureNativePair();
         return renderPass;
     }
 
     void cleanUp() {
+        Renderer renderer = Renderer.getInstance();
+        if (renderer != null && this.renderPass != null && renderer.getBoundRenderPass() == this.renderPass) {
+            endRenderPassPreservingBindings(renderer);
+        }
         BorrowedFramebufferCache<NativePair> cache = this.borrowedPairs;
         Framebuffer oldFramebuffer = this.framebuffer;
         RenderPass oldRenderPass = this.renderPass;
@@ -719,6 +1057,19 @@ public class GlFramebuffer {
             cache.invalidate();
         } else if (oldFramebuffer != null || oldRenderPass != null) {
             new NativePair(oldFramebuffer, oldRenderPass).cleanUp();
+        }
+    }
+
+    private static void endRenderPassPreservingBindings(Renderer renderer) {
+        BindingSnapshot bindings = captureBindings();
+        int logicalWidth = renderer.getViewportLogicalWidth(), logicalHeight = renderer.getViewportLogicalHeight();
+        try {
+            renderer.endRenderPass();
+        } finally {
+
+
+            bindings.restore();
+            Renderer.setViewportScale(logicalWidth, logicalHeight);
         }
     }
 
@@ -754,13 +1105,15 @@ public class GlFramebuffer {
         if (failure instanceof Error errorFailure) throw errorFailure;
     }
 
-    private record AttachmentInfo(int objectType, int objectName, int textureLevel) {
+    private record AttachmentInfo(int objectType, int objectName, int textureLevel, VulkanImage renderbufferImage) {
         static AttachmentInfo texture(int objectName, int textureLevel) {
-            return new AttachmentInfo(GL11.GL_TEXTURE, objectName, textureLevel);
+            return new AttachmentInfo(GL11.GL_TEXTURE, objectName, textureLevel, null);
         }
 
         static AttachmentInfo renderbuffer(int objectName) {
-            return new AttachmentInfo(GL30.GL_RENDERBUFFER, objectName, 0);
+            GlRenderbuffer renderbuffer = GlRenderbuffer.getRenderbuffer(objectName);
+            return new AttachmentInfo(GL30.GL_RENDERBUFFER, objectName, 0,
+                    renderbuffer != null ? renderbuffer.vulkanImage : null);
         }
     }
 

@@ -6,7 +6,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.IntFunction;
 
-                                                                                     
+
 final class DescriptorResources implements AutoCloseable {
     interface Backend {
         IntBuffer allocateOffsets(int count);
@@ -45,23 +45,23 @@ final class DescriptorResources implements AutoCloseable {
     LongBuffer sets() { requireOpen(); return pair.sets; }
     int capacity() { requireOpen(); return pair.capacity; }
 
-                                                                                           
+
     void grow(int capacity) {
         requireOpen();
         if (capacity <= pair.capacity) throw new IllegalArgumentException("Descriptor growth must increase capacity");
         Pair replacement = Pair.create(backend, capacity);
         Pair previous = pair;
         try {
-                                                                             
+
             backend.retirePool(previous.pool);
         } catch (RuntimeException | Error failure) {
             try { replacement.close(backend); }
             catch (RuntimeException | Error cleanup) { suppress(failure, cleanup); }
             throw failure;
         }
-        previous.pool = 0;                                                                 
+        previous.pool = 0;
         pair = replacement;
-        previous.close(backend);                                                                    
+        previous.close(backend);
     }
 
     @Override

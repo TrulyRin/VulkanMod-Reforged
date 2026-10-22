@@ -1,0 +1,51 @@
+# VulkanMod Reforged 0.3.5-ALPHA
+-# Minecraft 1.21.1 | NeoForge
+
+This update restores Essential's interface and previews, fixes upside-down loading backgrounds, and addresses several mod compatibility crashes.
+
+## Compatibility Changes
+
+### Essential
+- Added support for Essential 1.5.1's updated interface renderer
+- Fixed missing or corrupted menu text and interface elements
+- Fixed upside-down buttons and overlays
+- Fixed blank Wardrobe player previews and bundle previews
+- Corrected clipping when rendering players into offscreen textures
+- Fixed texture-size checks attempting unnecessary GPU allocations
+
+### Veil and Sable
+- Fixed a crash caused by unavailable shader matrix uniforms
+- Corrected shader-stage handling for supported Veil rendering paths
+- Checked powered Aeronautics burner rendering with Sable and Veil
+
+### Simply Swords and SimplyTooltips
+- Fixed tooltips leaving other inventory items greyed out
+- Restored rendering state after tooltip and item-preview drawing
+
+### Scorched Guns
+- Fixed a startup compatibility crash with the Scorched Guns 1.0.2 port
+- Updated rendering-hook detection to handle differences between versions
+
+## Rendering Changes
+- Unified viewport orientation handling across screen and offscreen targets
+- Corrected positioning for partial viewports
+- Preserved viewport state when switching or restoring render targets
+- Fixed framebuffer activation when a mod attaches its textures after binding the framebuffer
+- Preserved the screen's orientation when another framebuffer shares its color texture
+
+## Bugs Fixed
+- Blurred world-loading panoramas appearing upside down
+- Offscreen previews being clipped using window coordinates
+- Crashes involving missing texture uploads
+- Repeated resize callbacks causing rendering re-entry
+- Incorrect viewport dimensions being returned to mods
+
+## Known Issues
+- Tutorial notifications may flicker in the Essential Wardrobe
+- Further performance optimization is still in progress
+- Moving Sable assemblies require additional testing
+- Full compatibility with every modpack has not been verified
+
+Install the production JAR for Minecraft 1.21.1 with NeoForge. Source archives are provided separately. See SHA256SUMS.txt for download checksums.
+
+Licensed under LGPL-3.0-only. Corresponding source and build scripts accompany this release. See LICENSE, COPYING, and NOTICE.

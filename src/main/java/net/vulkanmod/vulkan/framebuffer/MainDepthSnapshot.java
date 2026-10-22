@@ -14,7 +14,7 @@ import java.util.Objects;
 
 import static org.lwjgl.vulkan.VK10.*;
 
-                                                                                        
+
 public final class MainDepthSnapshot implements AutoCloseable {
     private static final int DEPTH_STAGES = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     private static final int DEPTH_ACCESS = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
@@ -26,7 +26,7 @@ public final class MainDepthSnapshot implements AutoCloseable {
         @Override void close();
     }
 
-                                                                                                  
+
     public interface Backend {
         DepthSource currentWritableMainDepth();
         default DepthSource currentWritableMainDepth(VulkanImage sampled) { return currentWritableMainDepth(); }
@@ -49,10 +49,11 @@ public final class MainDepthSnapshot implements AutoCloseable {
     public MainDepthSnapshot(Backend backend) { this.backend = Objects.requireNonNull(backend, "backend"); }
 
     public static int depthAttachmentUsage() {
-        return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+                | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     }
 
-                                                                                        
+
     public static DepthSource selectWritableMainDepth(VulkanImage sampled, DepthSource mainDepth,
                                                        VulkanImage boundDepth, boolean supportedPass) {
         if (sampled == null || mainDepth == null || sampled != mainDepth.image() || boundDepth != mainDepth.image()) return null;
@@ -152,7 +153,7 @@ public final class MainDepthSnapshot implements AutoCloseable {
                 VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT, DEPTH_STAGES, DEPTH_ACCESS, source.aspects());
     }
 
-                                                                                                 
+
     @Override public void close() {
         if (closed) return;
         closed = true;
@@ -220,6 +221,8 @@ public final class MainDepthSnapshot implements AutoCloseable {
             boolean viewportInitialized = Renderer.isViewportInitialized();
             int vx = Renderer.getViewportBox(0), vy = Renderer.getViewportBox(1);
             int vw = Renderer.getViewportBox(2), vh = Renderer.getViewportBox(3);
+            long viewportRevision = Renderer.getViewportRevision();
+            boolean glViewportSelection = Renderer.isGlViewportSelection();
             boolean scissorEnabled = Renderer.isScissorEnabled();
             int sx = Renderer.getScissorBox(0), sy = Renderer.getScissorBox(1);
             int sw = Renderer.getScissorBox(2), sh = Renderer.getScissorBox(3);
@@ -232,11 +235,12 @@ public final class MainDepthSnapshot implements AutoCloseable {
             }
             return () -> {
                 try {
-                                                                                            
+
                     main.rebindMainTarget();
                     if (viewportInitialized) Renderer.setViewport(vx, vy, vw, vh);
                     Renderer.setScissor(sx, sy, sw, sh);
                     Renderer.setScissorEnabled(scissorEnabled);
+                    Renderer.restoreViewportRevision(viewportRevision, glViewportSelection);
                 } finally {
                     commandBuffer = null;
                 }

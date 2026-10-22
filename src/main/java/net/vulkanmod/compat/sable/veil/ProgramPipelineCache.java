@@ -8,7 +8,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.IntToLongFunction;
 
-                                                                                           
+
 final class ProgramPipelineCache<F, P> {
     @FunctionalInterface
     interface Factory<F, P> { P create(int program, long generation, F format); }

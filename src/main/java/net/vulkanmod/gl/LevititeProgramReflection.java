@@ -6,13 +6,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
-   
-                                                                                     
-                                                                                
-                                                                                   
-   
+
+
+
+
+
 public final class LevititeProgramReflection {
-                                                                              
+
     public record Variable(String name, int size, int type, int components, boolean integer, int location) {}
 
     private final LevititeShaderConverter.Result conversion;
@@ -39,7 +39,7 @@ public final class LevititeProgramReflection {
         this.attributeMaxNameLength = maximumNameLength(this.attributes);
     }
 
-                                                                                  
+
     public static LevititeProgramReflection tryCreate(GlProgram.LinkedProgram linked) {
         final LevititeShaderConverter.Result conversion;
         try {
@@ -58,15 +58,15 @@ public final class LevititeProgramReflection {
 
     private static Variable variable(String name, int size, String type, int location) {
         return switch (type) {
-            case "float" -> new Variable(name, size, 0x1406, 1, false, location);            
-            case "int" -> new Variable(name, size, 0x1404, 1, true, location);          
-            case "vec2" -> new Variable(name, size, 0x8B50, 2, false, location);                 
-            case "vec3" -> new Variable(name, size, 0x8B51, 3, false, location);                 
-            case "vec4" -> new Variable(name, size, 0x8B52, 4, false, location);                 
-            case "ivec2" -> new Variable(name, size, 0x8B53, 2, true, location);               
-            case "mat3" -> new Variable(name, size, 0x8B5B, 9, false, location);                 
-            case "mat4" -> new Variable(name, size, 0x8B5C, 16, false, location);                 
-            case "sampler2D" -> new Variable(name, size, 0x8B5E, 1, true, location);                 
+            case "float" -> new Variable(name, size, 0x1406, 1, false, location);
+            case "int" -> new Variable(name, size, 0x1404, 1, true, location);
+            case "vec2" -> new Variable(name, size, 0x8B50, 2, false, location);
+            case "vec3" -> new Variable(name, size, 0x8B51, 3, false, location);
+            case "vec4" -> new Variable(name, size, 0x8B52, 4, false, location);
+            case "ivec2" -> new Variable(name, size, 0x8B53, 2, true, location);
+            case "mat3" -> new Variable(name, size, 0x8B5B, 9, false, location);
+            case "mat4" -> new Variable(name, size, 0x8B5C, 16, false, location);
+            case "sampler2D" -> new Variable(name, size, 0x8B5E, 1, true, location);
             default -> throw new IllegalStateException("Accepted converter metadata has an unsupported GL type: " + type);
         };
     }

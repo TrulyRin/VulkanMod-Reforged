@@ -1,5 +1,7 @@
 package net.vulkanmod.mixin.render;
 
+import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -19,33 +21,27 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.util.List;
-import java.util.ArrayDeque;
-import java.util.Deque;
 
 @Mixin(GuiGraphics.class)
 public class GuiGraphicsRenderStateMixin {
-    @Unique
-    private final Deque<RenderStateSnapshot> vulkanMod$tooltipStateSnapshots = new ArrayDeque<>();
-    @Unique
-    private final Deque<RenderStateSnapshot> vulkanMod$itemStateSnapshots = new ArrayDeque<>();
-
-    @Inject(method = "renderTooltipInternal", at = @At("HEAD"))
-    private void vulkanMod$beginTooltipRenderStateBoundary(Font font, List<ClientTooltipComponent> components, int mouseX, int mouseY,
-                                                           ClientTooltipPositioner tooltipPositioner, CallbackInfo ci) {
-        this.vulkanMod$tooltipStateSnapshots.push(new RenderStateSnapshot());
+    @WrapMethod(method = "renderTooltipInternal(Lnet/minecraft/client/gui/Font;Ljava/util/List;IILnet/minecraft/client/gui/screens/inventory/tooltip/ClientTooltipPositioner;)V", require = 1)
+    private void vulkanMod$renderTooltipStateBoundary(Font font, List<ClientTooltipComponent> components, int mouseX, int mouseY,
+                                                      ClientTooltipPositioner tooltipPositioner, Operation<Void> original) {
+        RenderStateSnapshot snapshot = new RenderStateSnapshot();
         GuiItemRenderState.beginTooltipOverlay();
-        vulkanMod$prepareFlatGuiOverlayState();
-    }
-
-    @Inject(method = "renderTooltipInternal", at = @At("RETURN"))
-    private void vulkanMod$endTooltipRenderStateBoundary(Font font, List<ClientTooltipComponent> components, int mouseX, int mouseY,
-                                                         ClientTooltipPositioner tooltipPositioner, CallbackInfo ci) {
-        RenderStateSnapshot snapshot = this.vulkanMod$tooltipStateSnapshots.poll();
-
-        if (snapshot != null) {
-            ((GuiGraphics) (Object) this).flush();
-            GuiItemRenderState.endTooltipOverlay();
-            snapshot.restore();
+        try {
+            vulkanMod$prepareFlatGuiOverlayState();
+            original.call(font, components, mouseX, mouseY, tooltipPositioner);
+        } finally {
+            try {
+                ((GuiGraphics) (Object) this).flush();
+            } finally {
+                try {
+                    GuiItemRenderState.endTooltipOverlay();
+                } finally {
+                    snapshot.restore();
+                }
+            }
         }
     }
 
@@ -58,21 +54,14 @@ public class GuiGraphicsRenderStateMixin {
         ((GuiGraphics) (Object) this).flush();
     }
 
-    @Inject(method = "renderItem(Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/level/Level;Lnet/minecraft/world/item/ItemStack;IIII)V",
-            at = @At("HEAD"))
-    private void vulkanMod$beginItemRenderStateBoundary(@Nullable LivingEntity entity, @Nullable Level level, ItemStack stack, int x, int y,
-                                                        int seed, int guiOffset, CallbackInfo ci) {
-        this.vulkanMod$itemStateSnapshots.push(new RenderStateSnapshot());
-        vulkanMod$prepareGuiItemState();
-    }
-
-    @Inject(method = "renderItem(Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/level/Level;Lnet/minecraft/world/item/ItemStack;IIII)V",
-            at = @At("RETURN"))
-    private void vulkanMod$endItemRenderStateBoundary(@Nullable LivingEntity entity, @Nullable Level level, ItemStack stack, int x, int y,
-                                                      int seed, int guiOffset, CallbackInfo ci) {
-        RenderStateSnapshot snapshot = this.vulkanMod$itemStateSnapshots.poll();
-
-        if (snapshot != null) {
+    @WrapMethod(method = "renderItem(Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/level/Level;Lnet/minecraft/world/item/ItemStack;IIII)V", require = 1)
+    private void vulkanMod$renderItemStateBoundary(@Nullable LivingEntity entity, @Nullable Level level, ItemStack stack, int x, int y,
+                                                   int seed, int guiOffset, Operation<Void> original) {
+        RenderStateSnapshot snapshot = new RenderStateSnapshot();
+        try {
+            vulkanMod$prepareGuiItemState();
+            original.call(entity, level, stack, x, y, seed, guiOffset);
+        } finally {
             snapshot.restore();
         }
     }
@@ -82,7 +71,7 @@ public class GuiGraphicsRenderStateMixin {
         RenderSystem.setShaderColor(1.0f, 1.0f, 1.0f, 1.0f);
         RenderSystem.colorMask(true, true, true, true);
         RenderSystem.disableDepthTest();
-        RenderSystem.depthMask(false);
+        RenderSystem.depthMask(true);
         RenderSystem.disableCull();
         RenderSystem.enableBlend();
         RenderSystem.blendFuncSeparate(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, GL11.GL_ONE, GL11.GL_ZERO);

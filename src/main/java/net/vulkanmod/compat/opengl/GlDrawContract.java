@@ -8,6 +8,7 @@ public final class GlDrawContract {
     }
 
     public static void drawArrays(int mode, int first, int count) {
+        if (GlRawDraw.drawArrays(mode, first, count)) return;
         if (GlDrawOptions.shouldPreserveLegacyBridge()) {
             ExternalTerrainRenderBridge.drawArrays(mode, first, count);
             return;
@@ -17,6 +18,7 @@ public final class GlDrawContract {
     }
 
     public static void drawElements(int mode, int count, int type, long indices) {
+        if (GlRawDraw.drawElements(mode, count, type, indices)) return;
         if (GlDrawOptions.shouldPreserveLegacyBridge()) {
             ExternalTerrainRenderBridge.drawElements(mode, count, type, indices);
             return;

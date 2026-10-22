@@ -8,7 +8,7 @@ import org.spongepowered.asm.mixin.Overwrite;
 @Mixin(MainTarget.class)
 public class MainTargetMixin extends RenderTarget {
 
-                                                                                              
+
 
     public MainTargetMixin(boolean useDepth) {
         super(useDepth);

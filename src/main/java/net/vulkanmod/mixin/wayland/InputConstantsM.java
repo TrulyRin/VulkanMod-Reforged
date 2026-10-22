@@ -9,10 +9,10 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 
 @Mixin(InputConstants.class)
 public class InputConstantsM {
-       
-              
-                                                                      
-       
+
+
+
+
     @Redirect(method = "grabOrReleaseMouse", at = @At(value = "INVOKE", target = "Lorg/lwjgl/glfw/GLFW;glfwSetCursorPos(JDD)V"))
     private static void grabOrReleaseMouse(long window, double xpos, double ypos) {
         if (!Platform.isWayLand())

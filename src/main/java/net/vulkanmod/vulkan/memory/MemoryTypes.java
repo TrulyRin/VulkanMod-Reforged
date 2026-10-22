@@ -20,7 +20,7 @@ public class MemoryTypes {
             VkMemoryType memoryType = DeviceManager.memoryProperties.memoryTypes(i);
             VkMemoryHeap heap = DeviceManager.memoryProperties.memoryHeaps(memoryType.heapIndex());
 
-                             
+
             if (memoryType.propertyFlags() == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
                 GPU_MEM = new DeviceLocalMemory(memoryType, heap);
 
@@ -34,12 +34,12 @@ public class MemoryTypes {
         if (GPU_MEM != null && HOST_MEM != null)
             return;
 
-                                                                     
+
         for (int i = 0; i < DeviceManager.memoryProperties.memoryTypeCount(); ++i) {
             VkMemoryType memoryType = DeviceManager.memoryProperties.memoryTypes(i);
             VkMemoryHeap heap = DeviceManager.memoryProperties.memoryHeaps(memoryType.heapIndex());
 
-                                  
+
             if ((memoryType.propertyFlags() & (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) == (VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
                 GPU_MEM = new DeviceMappableMemory(memoryType, heap);
             }
@@ -52,7 +52,7 @@ public class MemoryTypes {
                 return;
         }
 
-                                                                
+
         GPU_MEM = HOST_MEM;
     }
 
@@ -79,7 +79,7 @@ public class MemoryTypes {
 
         @Override
         void copyFromBuffer(Buffer buffer, long bufferSize, ByteBuffer byteBuffer) {
-                   
+
         }
 
         public long copyBuffer(Buffer src, Buffer dst) {
@@ -140,7 +140,7 @@ public class MemoryTypes {
             VUtil.memcpy(src.data.getByteBuffer(0, src.bufferSize),
                     dst.data.getByteBuffer(0, dst.bufferSize), src.bufferSize, 0);
 
-                                                                            
+
         }
     }
 

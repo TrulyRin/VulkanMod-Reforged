@@ -8,7 +8,7 @@ import net.vulkanmod.vulkan.shader.parser.LevititeShaderConverter.Stage;
 import java.util.Objects;
 import java.util.function.BiFunction;
 
-                                                                                            
+
 final class VeilProgramPipelineFactory<P> {
     interface Compiler { SPIRV compile(String name, String source, ShaderKind kind); }
     interface Backend<P> {
@@ -39,8 +39,8 @@ final class VeilProgramPipelineFactory<P> {
         var sources = captured.conversion().sources();
         P created = null;
         try (SPIRV vertex = compile(name + ".vsh", sources.get(Stage.VERTEX), ShaderKind.VERTEX_SHADER);
-             SPIRV control = compile(name + ".tcs", sources.get(Stage.TESSELLATION_CONTROL), ShaderKind.TESSELLATION_CONTROL_SHADER);
-             SPIRV evaluation = compile(name + ".tes", sources.get(Stage.TESSELLATION_EVALUATION), ShaderKind.TESSELLATION_EVALUATION_SHADER);
+             SPIRV control = compileOptional(name + ".tcs", sources.get(Stage.TESSELLATION_CONTROL), ShaderKind.TESSELLATION_CONTROL_SHADER);
+             SPIRV evaluation = compileOptional(name + ".tes", sources.get(Stage.TESSELLATION_EVALUATION), ShaderKind.TESSELLATION_EVALUATION_SHADER);
              SPIRV fragment = compile(name + ".fsh", sources.get(Stage.FRAGMENT), ShaderKind.FRAGMENT_SHADER)) {
             if (!captured.isCurrent()) throw new IllegalStateException("Program relinked during compilation");
             created = Objects.requireNonNull(backend.create(captured, vertex, control, evaluation, fragment),
@@ -53,6 +53,10 @@ final class VeilProgramPipelineFactory<P> {
             throw failure;
         }
         return created;
+    }
+
+    private SPIRV compileOptional(String name, String source, ShaderKind kind) {
+        return source == null ? null : compile(name, source, kind);
     }
 
     private SPIRV compile(String name, String source, ShaderKind kind) {

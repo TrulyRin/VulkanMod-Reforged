@@ -5,20 +5,20 @@ import net.minecraft.core.Direction;
 import static net.vulkanmod.render.model.quad.ModelQuad.VERTEX_SIZE;
 
 public class ModelQuadFlags {
-       
-                                                                                 
-       
+
+
+
     public static final int IS_PARTIAL = 0b001;
 
-       
-                                                             
-       
+
+
+
     public static final int IS_PARALLEL = 0b010;
 
-       
-                                                            
-                                                            
-       
+
+
+
+
     public static final int IS_ALIGNED = 0b100;
 
     public static boolean contains(int flags, int mask) {

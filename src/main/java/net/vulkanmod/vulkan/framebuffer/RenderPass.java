@@ -148,8 +148,8 @@ public class RenderPass {
         VkSubpassDependency.Buffer dependencies = VkSubpassDependency.calloc(count, stack);
         int index = 0;
         if (loadsAttachment) {
-                                                                                              
-                                                                                              
+
+
             dependencies.get(index++)
                     .srcSubpass(VK_SUBPASS_EXTERNAL)
                     .dstSubpass(0)

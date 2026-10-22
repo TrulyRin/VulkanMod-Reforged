@@ -4,7 +4,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
 
-                                                                          
+
 public final class PatchIndexStream<B> implements AutoCloseable {
     public interface Backend<B> {
         B create(int capacity, QuadPatchIndices.IndexType type);
@@ -40,7 +40,7 @@ public final class PatchIndexStream<B> implements AutoCloseable {
         if (bytes == 0) return;
         ensureStaging(bytes);
         staging.clear().limit(bytes);
-                                                                             
+
         int indices = QuadPatchIndices.compact(source, type, triangleIndices, vertexCount, staging);
         Slot<B> slot = type == QuadPatchIndices.IndexType.U16 ? shorts : ints;
         if (slot.buffer == null || bytes > slot.capacity - slot.used) {
@@ -59,7 +59,7 @@ public final class PatchIndexStream<B> implements AutoCloseable {
             int offset = slot.used;
             try { backend.append(slot.buffer, staging); }
             catch (RuntimeException | Error failure) {
-                                                                                                   
+
                 B poisoned = slot.buffer;
                 slot.buffer = null;
                 slot.capacity = slot.used = 0;

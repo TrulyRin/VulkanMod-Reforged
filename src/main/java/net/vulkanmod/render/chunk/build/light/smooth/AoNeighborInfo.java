@@ -2,10 +2,10 @@ package net.vulkanmod.render.chunk.build.light.smooth;
 
 import net.vulkanmod.render.chunk.util.SimpleDirection;
 
-   
-                                                                                                                
-                                
-   
+
+
+
+
 @SuppressWarnings("UnnecessaryLocalVariable")
 enum AoNeighborInfo {
     DOWN(new SimpleDirection[] { SimpleDirection.SOUTH, SimpleDirection.WEST, SimpleDirection.NORTH, SimpleDirection.EAST },
@@ -171,26 +171,26 @@ enum AoNeighborInfo {
         }
     };
 
-       
-                                                                                                                         
-                                     
-       
+
+
+
+
     public final SimpleDirection[] faces;
 
-       
-                                                                                                                     
-                                                                                                       
-       
+
+
+
+
     public final float strength;
 
-       
-                                                                             
-       
+
+
+
     public final int[] inCornerBits = new int[4 * 2];
 
-       
-                                                                             
-       
+
+
+
     public final int[] outCornerBits = new int[3 * 4 * 2];
 
     AoNeighborInfo(SimpleDirection[] directions, int[] indices, float strength) {
@@ -201,30 +201,30 @@ enum AoNeighborInfo {
         getOutCornerBits(this.outCornerBits, indices);
     }
 
-       
-                                                                                                                        
-                                                                                                      
-      
-                                            
-                                            
-                                            
-                                                   
-       
+
+
+
+
+
+
+
+
+
     public abstract void calculateCornerWeights(float x, float y, float z, float[] out);
 
     public abstract float getU(float x, float y, float z);
 
     public abstract float getV(float x, float y, float z);
 
-       
-                                                                                                                 
-                                       
-      
-                                                               
-                                                         
-                                                                              
-                                                                        
-       
+
+
+
+
+
+
+
+
+
     public void copyLightValues(int[] lm0, float[] ao0, int[] lm1, float[] ao1) {
         lm1[0] = lm0[0];
         lm1[1] = lm0[1];
@@ -237,29 +237,29 @@ enum AoNeighborInfo {
         ao1[3] = ao0[3];
     }
 
-       
-                                                                                                     
-                                                                         
-      
-                                            
-                                            
-                                            
-                                                     
-       
+
+
+
+
+
+
+
+
+
     public abstract float getDepth(float x, float y, float z);
 
     private static final AoNeighborInfo[] VALUES = AoNeighborInfo.values();
 
-       
-                                                                                                
-       
+
+
+
     public static AoNeighborInfo get(SimpleDirection direction) {
         return VALUES[direction.get3DDataValue()];
     }
 
-       
-                                                              
-       
+
+
+
     public static void calculateCornerWeights(float u, float v, float[] out) {
         out[0] = u * v;
         out[1] = u * (1.0f - v);
@@ -267,10 +267,10 @@ enum AoNeighborInfo {
         out[3] = (1.0f - u) * v;
     }
 
-       
-                                                                                                  
-                      
-       
+
+
+
+
     private static void copyInCornerBits(int[] cornersBits, int[] idxs) {
         cornersBits[0] = idxs[0];
         cornersBits[1] = idxs[1];
@@ -282,10 +282,10 @@ enum AoNeighborInfo {
         cornersBits[7] = idxs[7];
     }
 
-       
-                                                                                                  
-                      
-       
+
+
+
+
     private static void getOutCornerBits(int[] cornersBits, int[] idxs) {
         cornersBits[0] = idxs[0];
         cornersBits[1] = idxs[3];
